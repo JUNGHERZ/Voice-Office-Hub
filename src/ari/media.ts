@@ -35,6 +35,10 @@ export class MediaBridge extends EventEmitter {
   private remote?: { address: string; port: number };
   private seq = 0;
   private timestamp = 0;
+  // Payload-Type aus dem eingehenden Asterisk-Stream übernehmen (statt hartzucodieren),
+  // sonst interpretiert Asterisk unsere slin16-Bytes mit falschem Format → Rauschen.
+  private payloadType = 0;
+  private learnedPt = false;
   private readonly ssrc = (Math.random() * 0xffffffff) >>> 0;
   private sendBuffer: Buffer = Buffer.alloc(0);
   private readonly log;
@@ -60,6 +64,16 @@ export class MediaBridge extends EventEmitter {
     // Remote-Adresse aus dem ersten Paket lernen (Rückkanal).
     if (!this.remote) this.remote = { address: rinfo.address, port: rinfo.port };
     if (msg.length <= RTP_HEADER_BYTES) return;
+    // Payload-Type aus dem eingehenden Stream übernehmen (einmalig + loggen).
+    if (!this.learnedPt) {
+      this.payloadType = msg.readUInt8(1) & 0x7f;
+      this.learnedPt = true;
+      this.log.info("Erstes RTP-Paket", {
+        bytes: msg.length,
+        payloadBytes: msg.length - RTP_HEADER_BYTES,
+        payloadType: this.payloadType,
+      });
+    }
     const pcm = msg.subarray(RTP_HEADER_BYTES);
     this.emit("audio", pcm);
   }
