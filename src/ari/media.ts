@@ -117,7 +117,7 @@ export class MediaBridge extends EventEmitter {
     if (!this.remote) return;
     const header = Buffer.alloc(RTP_HEADER_BYTES);
     header[0] = 0x80; // Version 2
-    header[1] = 0x00; // Payload-Type 0 (Spike: ggf. an ausgehandeltes Format anpassen)
+    header[1] = this.payloadType & 0x7f; // gelernten Payload-Type des Streams verwenden
     header.writeUInt16BE(this.seq & 0xffff, 2);
     header.writeUInt32BE(this.timestamp >>> 0, 4);
     header.writeUInt32BE(this.ssrc, 8);

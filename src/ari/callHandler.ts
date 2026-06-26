@@ -4,6 +4,8 @@
  *
  * Bei Modus "passthrough" wird an das passthrough-Modul delegiert.
  */
+import { randomUUID } from "node:crypto";
+
 import type { AriChannel, AriClient } from "ari-client";
 
 import { config } from "../config.js";
@@ -17,6 +19,7 @@ import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
 import { resolveAgent } from "./agentResolver.js";
 import { MediaBridge } from "./media.js";
+import { AudioSocketBridge } from "./audiosocket.js";
 import { startBridgeRecording, type ActiveRecording } from "./recording.js";
 import { transferIntoBridge } from "./transfer.js";
 import { handlePassthrough } from "./passthrough.js";
@@ -47,6 +50,31 @@ export async function handleStasisStart(
   await runAgentCall(client, channel, agent, { targetNumber, callerNumber, log });
 }
 
+type Media = MediaBridge | AudioSocketBridge;
+
+/** Transport-abhängige Bridge erzeugen (AudioSocket/TCP oder RTP/UDP). */
+function createBridge(callId: string): Media {
+  return config.audio.transport === "rtp"
+    ? new MediaBridge(config.audio.externalMediaPort, callId)
+    : new AudioSocketBridge(config.audio.externalMediaPort, callId);
+}
+
+/** externalMedia-Kanal passend zum Transport anlegen. */
+async function createExternalMedia(client: AriClient): Promise<any> {
+  const params: Record<string, unknown> = {
+    app: config.ari.app,
+    external_host: `${config.audio.externalMediaHost}:${config.audio.externalMediaPort}`,
+    format: config.audio.externalMediaFormat,
+  };
+  if (config.audio.transport === "audiosocket") {
+    params.encapsulation = "audiosocket";
+    params.transport = "tcp";
+    // AudioSocket verlangt eine Connection-UUID (sonst ARI: "data can not be empty").
+    params.data = randomUUID();
+  }
+  return client.channels.externalMedia(params);
+}
+
 /**
  * Echo-Test: Anrufer-Audio über externalMedia empfangen und unverändert zurückspielen.
  * Verifiziert die Media-Bridge (RTP/Framing) isoliert, ohne Deepgram/LLM/DB.
@@ -58,7 +86,7 @@ async function runEchoTest(
 ): Promise<void> {
   let bridge: any;
   let externalChannel: any;
-  let media: MediaBridge | undefined;
+  let media: Media | undefined;
   let cleaned = false;
 
   const cleanup = async () => {
@@ -75,15 +103,20 @@ async function runEchoTest(
     bridge = await client.bridges.create({ type: "mixing" });
     await bridge.addChannel({ channel: channel.id });
 
-    media = new MediaBridge(config.audio.externalMediaPort, channel.id);
-    media.enableRawEcho(); // reiner Pfad-Test: Pakete 1:1 zurückspielen
+    media = createBridge(channel.id);
+    if (config.echoMode === "raw") {
+      media.enableRawEcho(); // 1:1 zurück
+    } else {
+      let frames = 0;
+      media.on("audio", (pcm) => {
+        frames += 1;
+        if (frames === 1) log.info("Echo: erstes Audio empfangen → spiele zurück", { transport: config.audio.transport });
+        media?.sendAudio(pcm);
+      });
+    }
     await media.start();
 
-    externalChannel = await client.channels.externalMedia({
-      app: config.ari.app,
-      external_host: `${config.audio.externalMediaHost}:${config.audio.externalMediaPort}`,
-      format: config.audio.externalMediaFormat,
-    });
+    externalChannel = await createExternalMedia(client);
     await bridge.addChannel({ channel: externalChannel.id });
 
     client.on("StasisEnd", (_ev: unknown, ch: AriChannel) => {
@@ -123,7 +156,7 @@ async function runAgentCall(
 
   let bridge: any;
   let externalChannel: any;
-  let media: MediaBridge | undefined;
+  let media: Media | undefined;
   let session: AgentSession | undefined;
   let recording: ActiveRecording | null = null;
   let transferActive = false;
@@ -165,15 +198,11 @@ async function runAgentCall(
     bridge = await client.bridges.create({ type: "mixing" });
     await bridge.addChannel({ channel: channel.id });
 
-    // externalMedia-Kanal: Asterisk streamt RTP an unseren Media-Socket.
-    media = new MediaBridge(config.audio.externalMediaPort, channel.id);
+    // externalMedia-Kanal: Asterisk streamt Audio (AudioSocket/TCP oder RTP) an uns.
+    media = createBridge(channel.id);
     await media.start();
 
-    externalChannel = await client.channels.externalMedia({
-      app: config.ari.app,
-      external_host: `${config.audio.externalMediaHost}:${config.audio.externalMediaPort}`,
-      format: config.audio.externalMediaFormat,
-    });
+    externalChannel = await createExternalMedia(client);
     await bridge.addChannel({ channel: externalChannel.id });
 
     // Deepgram-Session aufbauen.

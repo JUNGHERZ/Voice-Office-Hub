@@ -14,10 +14,15 @@ export async function startAri(): Promise<AriClient> {
   const client = await connectWithRetry();
 
   client.on("StasisStart", (event: any, channel: any) => {
-    // Von uns selbst erzeugte Kanäle (externalMedia, Transfer-Ziele) tragen eigene
-    // appArgs bzw. werden separat behandelt — hier nur "echte" eingehende Anrufe.
+    // Von uns selbst erzeugte Media-/Hilfskanäle ignorieren — nur echte eingehende Anrufe.
+    // externalMedia-Kanäle heißen "UnicastRTP/..." (RTP) bzw. "AudioSocket/..." (AudioSocket)
+    // und treten ebenfalls in die Stasis-App ein.
     const args: string[] = event?.args ?? [];
-    if (args[0] === "transfer" || channel?.name?.startsWith?.("UnicastRTP")) return;
+    const name: string = channel?.name ?? "";
+    if (args[0] === "transfer" || name.startsWith("UnicastRTP") || name.startsWith("AudioSocket")) {
+      log.debug("Ignoriere eigenen Media-/Hilfskanal", { name, args });
+      return;
+    }
     handleStasisStart(client, channel, args).catch((err) =>
       log.error("handleStasisStart-Fehler", { err: String(err) }),
     );

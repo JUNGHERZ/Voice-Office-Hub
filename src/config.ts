@@ -53,6 +53,8 @@ export interface Config {
     sampleRate: number;
     /** Asterisk-externalMedia-Format: "slin"=8kHz, "slin16"=16kHz, "ulaw"=8kHz µ-law. */
     externalMediaFormat: string;
+    /** Medien-Transport: "audiosocket" (TCP, robust) oder "rtp" (UDP). */
+    transport: string;
     externalMediaHost: string;
     externalMediaPort: number;
   };
@@ -71,6 +73,8 @@ export interface Config {
   recordingPath: string;
   /** Spike/Diagnose: Anrufer-Audio direkt zurückspielen (ohne Deepgram). */
   echoTest: boolean;
+  /** Echo-Variante: "packet" = re-paketisiert (eigene seq/ts), "raw" = 1:1 zurück. */
+  echoMode: string;
 }
 
 export const config: Config = {
@@ -98,9 +102,10 @@ export const config: Config = {
   },
   audio: {
     encoding: opt("AUDIO_ENCODING", "linear16"),
-    // Asterisk "slin16" = 16 kHz signed linear → Pipeline darauf ausrichten.
-    sampleRate: int("AUDIO_SAMPLE_RATE", 16000),
-    externalMediaFormat: opt("EXTERNAL_MEDIA_FORMAT", "slin16"),
+    // AudioSocket-Default: slin = 8 kHz signed linear (Telefonie-Standard).
+    sampleRate: int("AUDIO_SAMPLE_RATE", 8000),
+    externalMediaFormat: opt("EXTERNAL_MEDIA_FORMAT", "slin"),
+    transport: opt("MEDIA_TRANSPORT", "audiosocket"),
     externalMediaHost: opt("EXTERNAL_MEDIA_HOST", "127.0.0.1"),
     externalMediaPort: int("EXTERNAL_MEDIA_PORT", 8090),
   },
@@ -124,4 +129,5 @@ export const config: Config = {
   },
   recordingPath: opt("RECORDING_PATH", "/data/recordings"),
   echoTest: bool("ECHO_TEST", false),
+  echoMode: opt("ECHO_MODE", "packet"),
 };
