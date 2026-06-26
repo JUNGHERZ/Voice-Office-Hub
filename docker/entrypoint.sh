@@ -17,9 +17,9 @@ fi
 # Asterisk nur im Appliance-/Dev-Modus starten (sonst externe PBX)
 if [[ "${EMBED_ASTERISK:-true}" == "true" ]]; then
   export SUPERVISOR_ASTERISK=true
-  # Beispielkonfiguration einspielen, falls noch keine vorhanden / leer gemountet
-  if [[ ! -f /etc/asterisk/ari.conf ]]; then
-    cp -rn /etc/asterisk-sample/. /etc/asterisk/ 2>/dev/null || true
+  # ARI-Passwort aus der .env in die ari.conf injizieren (single source of truth).
+  if [[ -n "${ARI_PASSWORD:-}" && -f /etc/asterisk/ari.conf ]]; then
+    sed -i "s/^password = .*/password = ${ARI_PASSWORD}/" /etc/asterisk/ari.conf
   fi
 else
   export SUPERVISOR_ASTERISK=false
