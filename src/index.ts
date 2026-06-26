@@ -15,7 +15,12 @@ async function main(): Promise<void> {
     app: config.ari.app,
     llm: config.llm.provider,
     embedAsterisk: config.ari.embedAsterisk,
+    echoTest: config.echoTest,
   });
+
+  if (!config.echoTest && !config.deepgram.apiKey) {
+    log.warn("DEEPGRAM_API_KEY ist leer — Anrufe scheitern bis ein Key gesetzt ist.");
+  }
 
   await connectMongo();
   registerAllTools();

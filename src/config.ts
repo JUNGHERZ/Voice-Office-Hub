@@ -7,15 +7,6 @@
  */
 import "dotenv/config";
 
-function str(name: string, fallback?: string): string {
-  const v = process.env[name];
-  if (v === undefined || v === "") {
-    if (fallback !== undefined) return fallback;
-    throw new Error(`Fehlende ENV-Variable: ${name}`);
-  }
-  return v;
-}
-
 function opt(name: string, fallback = ""): string {
   return process.env[name] ?? fallback;
 }
@@ -76,11 +67,14 @@ export interface Config {
     timeoutSec: number;
   };
   recordingPath: string;
+  /** Spike/Diagnose: Anrufer-Audio direkt zurückspielen (ohne Deepgram). */
+  echoTest: boolean;
 }
 
 export const config: Config = {
   deepgram: {
-    apiKey: str("DEEPGRAM_API_KEY"),
+    // Optional beim Start (z.B. Echo-Test braucht ihn nicht); beim Anruf erforderlich.
+    apiKey: opt("DEEPGRAM_API_KEY"),
     agentUrl: opt("DEEPGRAM_AGENT_URL", "wss://agent.deepgram.com/v1/agent/converse"),
   },
   llm: {
@@ -125,4 +119,5 @@ export const config: Config = {
     timeoutSec: int("TRANSFER_TIMEOUT", 30),
   },
   recordingPath: opt("RECORDING_PATH", "/data/recordings"),
+  echoTest: bool("ECHO_TEST", false),
 };

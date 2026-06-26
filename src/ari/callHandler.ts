@@ -29,7 +29,13 @@ export async function handleStasisStart(
   const targetNumber = args[0] || undefined;
   const callerNumber = args[1] || undefined;
   const log = logger.child({ mod: "call", channel: channel.id });
-  log.info("StasisStart", { targetNumber, callerNumber });
+  log.info("StasisStart", { targetNumber, callerNumber, echoTest: config.echoTest });
+
+  // Spike/Diagnose: externalMedia-Pfad ohne Deepgram verifizieren.
+  if (config.echoTest) {
+    await runEchoTest(client, channel, log);
+    return;
+  }
 
   const agent = await resolveAgent(targetNumber);
 
@@ -39,6 +45,62 @@ export async function handleStasisStart(
   }
 
   await runAgentCall(client, channel, agent, { targetNumber, callerNumber, log });
+}
+
+/**
+ * Echo-Test: Anrufer-Audio über externalMedia empfangen und unverändert zurückspielen.
+ * Verifiziert die Media-Bridge (RTP/Framing) isoliert, ohne Deepgram/LLM/DB.
+ */
+async function runEchoTest(
+  client: AriClient,
+  channel: AriChannel,
+  log: ReturnType<typeof logger.child>,
+): Promise<void> {
+  let bridge: any;
+  let externalChannel: any;
+  let media: MediaBridge | undefined;
+  let cleaned = false;
+
+  const cleanup = async () => {
+    if (cleaned) return;
+    cleaned = true;
+    log.info("Echo-Test Teardown");
+    media?.close();
+    try { await externalChannel?.hangup(); } catch { /* ignore */ }
+    try { await bridge?.destroy(); } catch { /* ignore */ }
+  };
+
+  try {
+    await channel.answer();
+    bridge = await client.bridges.create({ type: "mixing" });
+    await bridge.addChannel({ channel: channel.id });
+
+    media = new MediaBridge(config.audio.externalMediaPort, channel.id);
+    await media.start();
+
+    externalChannel = await client.channels.externalMedia({
+      app: config.ari.app,
+      external_host: `${config.audio.externalMediaHost}:${config.audio.externalMediaPort}`,
+      format: "slin16",
+    });
+    await bridge.addChannel({ channel: externalChannel.id });
+
+    let frames = 0;
+    media.on("audio", (pcm) => {
+      frames += 1;
+      if (frames === 1) log.info("Echo: erstes Audio empfangen → spiele zurück");
+      media?.sendAudio(pcm);
+    });
+
+    client.on("StasisEnd", (_ev: unknown, ch: AriChannel) => {
+      if (ch.id === channel.id) void cleanup();
+    });
+    log.info("Echo-Test bereit — sprich ins Telefon, du solltest dich selbst hören");
+  } catch (err) {
+    log.error("Echo-Test-Fehler", { err: String(err) });
+    await cleanup();
+    try { await channel.hangup(); } catch { /* ignore */ }
+  }
 }
 
 interface CallMeta {
