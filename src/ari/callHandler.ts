@@ -19,7 +19,7 @@ import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
 import { resolveAgent } from "./agentResolver.js";
 import { MediaBridge } from "./media.js";
-import { AudioSocketBridge } from "./audiosocket.js";
+import { audioSocketServer, type MediaSession } from "./audiosocketServer.js";
 import { startBridgeRecording, type ActiveRecording } from "./recording.js";
 import { transferIntoBridge } from "./transfer.js";
 import { handlePassthrough } from "./passthrough.js";
@@ -50,17 +50,21 @@ export async function handleStasisStart(
   await runAgentCall(client, channel, agent, { targetNumber, callerNumber, log });
 }
 
-type Media = MediaBridge | AudioSocketBridge;
+type Media = MediaBridge | MediaSession;
 
-/** Transport-abhängige Bridge erzeugen (AudioSocket/TCP oder RTP/UDP). */
-function createBridge(callId: string): Media {
+/**
+ * Transport-abhängige Media-Anbindung erzeugen.
+ *  - audiosocket: Session am geteilten Server registrieren (UUID-Zuordnung)
+ *  - rtp: per-Anruf UDP-Bridge
+ */
+function createMedia(callId: string, uuid: string): Media {
   return config.audio.transport === "rtp"
     ? new MediaBridge(config.audio.externalMediaPort, callId)
-    : new AudioSocketBridge(config.audio.externalMediaPort, callId);
+    : audioSocketServer.register(uuid, callId);
 }
 
-/** externalMedia-Kanal passend zum Transport anlegen. */
-async function createExternalMedia(client: AriClient): Promise<any> {
+/** externalMedia-Kanal passend zum Transport anlegen (UUID = AudioSocket-Connection-ID). */
+async function createExternalMedia(client: AriClient, uuid: string): Promise<any> {
   const params: Record<string, unknown> = {
     app: config.ari.app,
     external_host: `${config.audio.externalMediaHost}:${config.audio.externalMediaPort}`,
@@ -69,8 +73,7 @@ async function createExternalMedia(client: AriClient): Promise<any> {
   if (config.audio.transport === "audiosocket") {
     params.encapsulation = "audiosocket";
     params.transport = "tcp";
-    // AudioSocket verlangt eine Connection-UUID (sonst ARI: "data can not be empty").
-    params.data = randomUUID();
+    params.data = uuid; // sonst ARI: "data can not be empty"
   }
   return client.channels.externalMedia(params);
 }
@@ -89,10 +92,14 @@ async function runEchoTest(
   let media: Media | undefined;
   let cleaned = false;
 
+  const onStasisEnd = (_ev: unknown, ch: AriChannel) => {
+    if (ch.id === channel.id) void cleanup();
+  };
   const cleanup = async () => {
     if (cleaned) return;
     cleaned = true;
     log.info("Echo-Test Teardown");
+    client.removeListener("StasisEnd", onStasisEnd);
     media?.close();
     try { await externalChannel?.hangup(); } catch { /* ignore */ }
     try { await bridge?.destroy(); } catch { /* ignore */ }
@@ -103,7 +110,8 @@ async function runEchoTest(
     bridge = await client.bridges.create({ type: "mixing" });
     await bridge.addChannel({ channel: channel.id });
 
-    media = createBridge(channel.id);
+    const uuid = randomUUID();
+    media = createMedia(channel.id, uuid);
     if (config.echoMode === "raw") {
       media.enableRawEcho(); // 1:1 zurück
     } else {
@@ -116,12 +124,10 @@ async function runEchoTest(
     }
     await media.start();
 
-    externalChannel = await createExternalMedia(client);
+    externalChannel = await createExternalMedia(client, uuid);
     await bridge.addChannel({ channel: externalChannel.id });
 
-    client.on("StasisEnd", (_ev: unknown, ch: AriChannel) => {
-      if (ch.id === channel.id) void cleanup();
-    });
+    client.on("StasisEnd", onStasisEnd);
     log.info("Echo-Test bereit — sprich ins Telefon, du solltest dich selbst hören");
   } catch (err) {
     log.error("Echo-Test-Fehler", { err: String(err) });
@@ -162,10 +168,15 @@ async function runAgentCall(
   let transferActive = false;
   let cleaned = false;
 
+  const onEnd = (_ev: unknown, ch: AriChannel) => {
+    if (ch.id === channel.id) void cleanup("completed");
+  };
+
   const cleanup = async (status: "completed" | "failed") => {
     if (cleaned) return;
     cleaned = true;
     log.info("Teardown", { status });
+    client.removeListener("StasisEnd", onEnd);
     try {
       if (recording) await recording.stop();
     } catch { /* ignore */ }
@@ -199,10 +210,11 @@ async function runAgentCall(
     await bridge.addChannel({ channel: channel.id });
 
     // externalMedia-Kanal: Asterisk streamt Audio (AudioSocket/TCP oder RTP) an uns.
-    media = createBridge(channel.id);
+    const uuid = randomUUID();
+    media = createMedia(channel.id, uuid);
     await media.start();
 
-    externalChannel = await createExternalMedia(client);
+    externalChannel = await createExternalMedia(client, uuid);
     await bridge.addChannel({ channel: externalChannel.id });
 
     // Deepgram-Session aufbauen.
@@ -265,9 +277,6 @@ async function runAgentCall(
     recording = await startBridgeRecording(bridge, requestId);
 
     // ── Hangup-Handling ──────────────────────────────────────────────────────
-    const onEnd = (_ev: unknown, ch: AriChannel) => {
-      if (ch.id === channel.id) void cleanup("completed");
-    };
     client.on("StasisEnd", onEnd);
     channel.on("ChannelDestroyed", () => void cleanup("completed"));
   } catch (err) {

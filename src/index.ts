@@ -5,10 +5,18 @@
 import { config } from "./config.js";
 import { connectMongo, disconnectMongo } from "./db/mongo.js";
 import { startAri } from "./ari/ariClient.js";
+import { audioSocketServer } from "./ari/audiosocketServer.js";
 import { registerAllTools } from "./tools/index.js";
 import { logger } from "./util/logger.js";
 
 const log = logger.child({ mod: "bootstrap" });
+
+process.on("unhandledRejection", (reason) => {
+  log.error("Unbehandelte Promise-Rejection", { reason: String(reason) });
+});
+process.on("uncaughtException", (err) => {
+  log.error("Uncaught Exception", { err: String(err) });
+});
 
 async function main(): Promise<void> {
   log.info("Starte Voice-Agent", {
@@ -24,6 +32,9 @@ async function main(): Promise<void> {
 
   await connectMongo();
   registerAllTools();
+  if (config.audio.transport === "audiosocket") {
+    await audioSocketServer.start();
+  }
   const client = await startAri();
 
   const shutdown = async (signal: string) => {
@@ -31,6 +42,7 @@ async function main(): Promise<void> {
     try {
       client.stop?.();
     } catch { /* ignore */ }
+    await audioSocketServer.stop().catch(() => undefined);
     await disconnectMongo().catch(() => undefined);
     process.exit(0);
   };

@@ -36,6 +36,8 @@ export async function transferIntoBridge(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      client.removeListener("StasisStart", onStart);
+      client.removeListener("ChannelDestroyed", onDestroyed);
       resolve({ connected });
     };
 
@@ -61,8 +63,9 @@ export async function transferIntoBridge(
       formats: "slin16",
     };
 
-    const onStart = (channelId: string) => {
-      if (outbound && channelId === outbound.id) {
+    // Named handlers, damit removeListener sie in done() entfernen kann.
+    const onStart = (_ev: unknown, ch: any) => {
+      if (outbound && ch?.id === outbound.id) {
         // Ziel hat angenommen → in die Bridge legen.
         bridge
           .addChannel({ channel: outbound.id })
@@ -78,15 +81,15 @@ export async function transferIntoBridge(
       }
     };
 
-    const onDestroyed = (channelId: string) => {
-      if (outbound && channelId === outbound.id && !settled) {
+    const onDestroyed = (_ev: unknown, ch: any) => {
+      if (outbound && ch?.id === outbound.id && !settled) {
         log.info("Ziel-Kanal beendet (abgelehnt/besetzt)", { target });
         done(false);
       }
     };
 
-    client.on("StasisStart", (_ev: unknown, ch: any) => onStart(ch?.id));
-    client.on("ChannelDestroyed", (_ev: unknown, ch: any) => onDestroyed(ch?.id));
+    client.on("StasisStart", onStart);
+    client.on("ChannelDestroyed", onDestroyed);
 
     const startOriginate = outbound
       ? outbound.originate(originateOpts)
