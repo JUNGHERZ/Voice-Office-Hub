@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+admin/__pycache__/
+admin/**/__pycache__/
+
+# Build output
+dist/
+
+# Secrets / local config
+.env
+.env.local
+
+# Runtime data (DB liegt im Container-Volume, Aufnahmen sind temp)
+data/db/
+data/recordings/*
+!data/recordings/.gitkeep
+
+# Logs
+*.log
+
+# OS
+.DS_Store

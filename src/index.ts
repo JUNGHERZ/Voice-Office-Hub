@@ -1,0 +1,40 @@
+/**
+ * Bootstrap der Telefonie-Komponente:
+ *   Config laden → MongoDB verbinden → Tools registrieren → ARI verbinden & Stasis starten.
+ */
+import { config } from "./config.js";
+import { connectMongo, disconnectMongo } from "./db/mongo.js";
+import { startAri } from "./ari/ariClient.js";
+import { registerAllTools } from "./tools/index.js";
+import { logger } from "./util/logger.js";
+
+const log = logger.child({ mod: "bootstrap" });
+
+async function main(): Promise<void> {
+  log.info("Starte Voice-Agent", {
+    app: config.ari.app,
+    llm: config.llm.provider,
+    embedAsterisk: config.ari.embedAsterisk,
+  });
+
+  await connectMongo();
+  registerAllTools();
+  const client = await startAri();
+
+  const shutdown = async (signal: string) => {
+    log.info("Shutdown", { signal });
+    try {
+      client.stop?.();
+    } catch { /* ignore */ }
+    await disconnectMongo().catch(() => undefined);
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+}
+
+main().catch((err) => {
+  log.error("Fataler Startfehler", { err: String(err) });
+  process.exit(1);
+});
