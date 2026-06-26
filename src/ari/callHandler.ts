@@ -76,21 +76,15 @@ async function runEchoTest(
     await bridge.addChannel({ channel: channel.id });
 
     media = new MediaBridge(config.audio.externalMediaPort, channel.id);
+    media.enableRawEcho(); // reiner Pfad-Test: Pakete 1:1 zurückspielen
     await media.start();
 
     externalChannel = await client.channels.externalMedia({
       app: config.ari.app,
       external_host: `${config.audio.externalMediaHost}:${config.audio.externalMediaPort}`,
-      format: "slin16",
+      format: config.audio.externalMediaFormat,
     });
     await bridge.addChannel({ channel: externalChannel.id });
-
-    let frames = 0;
-    media.on("audio", (pcm) => {
-      frames += 1;
-      if (frames === 1) log.info("Echo: erstes Audio empfangen → spiele zurück");
-      media?.sendAudio(pcm);
-    });
 
     client.on("StasisEnd", (_ev: unknown, ch: AriChannel) => {
       if (ch.id === channel.id) void cleanup();
@@ -178,7 +172,7 @@ async function runAgentCall(
     externalChannel = await client.channels.externalMedia({
       app: config.ari.app,
       external_host: `${config.audio.externalMediaHost}:${config.audio.externalMediaPort}`,
-      format: "slin16",
+      format: config.audio.externalMediaFormat,
     });
     await bridge.addChannel({ channel: externalChannel.id });
 

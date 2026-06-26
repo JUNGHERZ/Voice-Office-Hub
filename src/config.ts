@@ -51,6 +51,8 @@ export interface Config {
   audio: {
     encoding: string;
     sampleRate: number;
+    /** Asterisk-externalMedia-Format: "slin"=8kHz, "slin16"=16kHz, "ulaw"=8kHz µ-law. */
+    externalMediaFormat: string;
     externalMediaHost: string;
     externalMediaPort: number;
   };
@@ -96,7 +98,9 @@ export const config: Config = {
   },
   audio: {
     encoding: opt("AUDIO_ENCODING", "linear16"),
-    sampleRate: int("AUDIO_SAMPLE_RATE", 8000),
+    // Asterisk "slin16" = 16 kHz signed linear → Pipeline darauf ausrichten.
+    sampleRate: int("AUDIO_SAMPLE_RATE", 16000),
+    externalMediaFormat: opt("EXTERNAL_MEDIA_FORMAT", "slin16"),
     externalMediaHost: opt("EXTERNAL_MEDIA_HOST", "127.0.0.1"),
     externalMediaPort: int("EXTERNAL_MEDIA_PORT", 8090),
   },

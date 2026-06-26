@@ -39,6 +39,7 @@ export class MediaBridge extends EventEmitter {
   // sonst interpretiert Asterisk unsere slin16-Bytes mit falschem Format → Rauschen.
   private payloadType = 0;
   private learnedPt = false;
+  private rawEcho = false;
   private readonly ssrc = (Math.random() * 0xffffffff) >>> 0;
   private sendBuffer: Buffer = Buffer.alloc(0);
   private readonly log;
@@ -74,8 +75,26 @@ export class MediaBridge extends EventEmitter {
         payloadType: this.payloadType,
       });
     }
+    // Reiner Echo-Modus: empfangenes Paket unverändert zurückspielen (nur eigene SSRC),
+    // bewahrt Framing/Rate/Timestamp exakt → isolierter Test des Audio-Pfads.
+    if (this.rawEcho) {
+      this.sendRawBack(msg);
+      return;
+    }
     const pcm = msg.subarray(RTP_HEADER_BYTES);
     this.emit("audio", pcm);
+  }
+
+  /** Aktiviert den reinen RTP-Echo (nur für den Spike/Diagnose). */
+  enableRawEcho(): void {
+    this.rawEcho = true;
+  }
+
+  private sendRawBack(msg: Buffer): void {
+    if (!this.remote) return;
+    const out = Buffer.from(msg); // Kopie, Original nicht verändern
+    out.writeUInt32BE(this.ssrc, 8); // eigene SSRC, sonst evtl. Loopback-Ignore
+    this.socket.send(out, this.remote.port, this.remote.address);
   }
 
   /** Deepgram-TTS-PCM in 20ms-RTP-Frames an Asterisk senden. */
