@@ -55,7 +55,11 @@ COPY docker/asterisk/ /etc/asterisk/
 COPY docker/supervisord.conf /etc/supervisor/conf.d/voiceagent.conf
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && mkdir -p /data/db /data/recordings
+    && mkdir -p /data/db /data/recordings \
+    # ARI bridge.record legt Aufnahmen unter <spool>/recording ab — Verzeichnis muss existieren
+    # und für den asterisk-User schreibbar sein, sonst HTTP 500 beim Start der Aufnahme.
+    && mkdir -p /var/spool/asterisk/recording \
+    && chown -R asterisk:asterisk /var/spool/asterisk/recording
 
 # Ports: SIP (UDP), RTP-Range, Admin-UI. ARI(8088)/Media bleiben intern.
 EXPOSE 5060/udp 10000-10100/udp 8080/tcp

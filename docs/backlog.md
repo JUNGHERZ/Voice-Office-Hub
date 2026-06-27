@@ -81,6 +81,9 @@ ansehen, **Agents verwalten**):
 - **Leichtes Knacken** in der Ausgabe (selten): wahrscheinlich Playout-Grenzübergänge (Übergang
   Audio↔Stille bei Underrun/Ende). Jitter-Puffer erhöht (80 ms); falls es bleibt → kurze Fade-In/Out
   an den Frame-Grenzen.
+- **Aufnahme: `durationSec` befüllen.** Die GridFS-Aufnahme funktioniert (Bucket `recordings`),
+  aber `requests.recording.durationSec` bleibt 0. Dauer aus dem WAV-Header oder aus Start/Ende des
+  Anrufs ableiten und setzen.
 - **end_call: Hangup-Nachlauf feinjustieren.** Aktuell wird datengetrieben aufgelegt (Puffer leer
   + >800 ms kein Audio mehr). Idee: nach dem Ende des Audio-Streams noch eine kleine, konfigurierbare
   Pause (~0,5–1 s) abwarten, bevor wirklich aufgelegt wird — wirkt natürlicher (kein „Schnitt" direkt

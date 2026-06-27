@@ -5,6 +5,7 @@
  * Bei Modus "passthrough" wird an das passthrough-Modul delegiert.
  */
 import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
 
 import type { AriChannel, AriClient } from "ari-client";
 
@@ -203,11 +204,12 @@ async function runAgentCall(
     try { await channel.hangup(); } catch { /* ignore */ }
     try { await bridge?.destroy(); } catch { /* ignore */ }
 
-    // Aufnahme in GridFS ablegen (best effort).
+    // Aufnahme in GridFS ablegen (best effort), danach die temporäre WAV löschen.
     if (recording) {
       try {
         const gridFsId = await uploadRecording(recording.filePath, `${requestId}.wav`, { requestId });
         await repo.setRecording(requestId, { gridFsId, filename: `${requestId}.wav` });
+        await rm(recording.filePath, { force: true });
       } catch (err) {
         log.warn("GridFS-Upload fehlgeschlagen", { err: String(err) });
       }

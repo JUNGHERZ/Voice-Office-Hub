@@ -12,11 +12,17 @@ integriert gehostetes Modell wählbar.
 ```
 PSTN ──► Asterisk ──(Stasis: voice-agent)──► ARI (WebSocket) ──► Node-Kern
             │                                                       │
-            │   externalMedia (RTP/slin16)                          ├─► Deepgram Voice Agent (WS)
+            │   externalMedia (AudioSocket/TCP, slin 8 kHz)         ├─► Deepgram Voice Agent (WS)
             │◄──────── Audio (bidirektional) ──────────────────────┤        │ Think → Requesty.ai
-                                                                    ├─► MongoDB (requests, agents, customers)
+                                                                    ├─► MongoDB (requests, agents)
                                                                     └─► GridFS (Audio-Aufnahmen)
 ```
+
+> **Media-Transport (entschieden):** `externalMedia` läuft über **AudioSocket** (TCP) statt RTP —
+> ein simpler Frame-Header (`[Typ][Länge][payload]`), keine RTP-/Payload-Type-Fallen, zuverlässig.
+> Ein persistenter TCP-Server ordnet Verbindungen per **UUID** dem Anruf zu
+> ([src/ari/audiosocketServer.ts](../src/ari/audiosocketServer.ts)). Der RTP-Pfad
+> ([media.ts](../src/ari/media.ts)) bleibt als Alternative über `MEDIA_TRANSPORT=rtp` bestehen.
 
 Alles läuft in **einem Docker-Container** (Asterisk + Node-Kern + MongoDB + Python-Admin-UI),
 orchestriert von `supervisord`. Dasselbe Image dient lokal (OrbStack) wie in Produktion — der
@@ -43,7 +49,7 @@ Siehe [src/ari/callHandler.ts](../src/ari/callHandler.ts):
 1. `StasisStart` (Args: DDI + CallerID) → Agent per DDI auflösen
    ([agentResolver.ts](../src/ari/agentResolver.ts)), `requests`-Dokument anlegen.
 2. Kanal `answer()`, Mixing-Bridge erstellen, Kanal hinein.
-3. `externalMedia`-Kanal erzeugen → RTP an unseren UDP-Media-Socket; in die Bridge.
+3. `externalMedia`-Kanal erzeugen (AudioSocket/TCP, UUID-gebunden) → in die Bridge.
 4. Deepgram-Session öffnen, `Settings` aus dem Agent bauen
    ([settings.ts](../src/deepgram/settings.ts)), senden.
 5. Audio-Bridging: Anrufer→Deepgram und Deepgram-TTS→Anrufer.
@@ -67,11 +73,15 @@ Siehe [src/ari/callHandler.ts](../src/ari/callHandler.ts):
   Metadaten, `transcript[]` (`{t,end,speaker,text}`), `recording.gridFsId`, `functionCalls[]`,
   `transfer`, `summary`.
 - **`agents`** ([models/Agent.ts](../src/db/models/Agent.ts)) — pro DDI ein Agent; bündelt die
-  vollen Deepgram-Parameter (listen/think/speak/tools/summary/tags/mip_opt_out).
-- **`customers`** ([models/Customer.ts](../src/db/models/Customer.ts)) — Demo-Daten für `lookup_customer`.
+  vollen Deepgram-Parameter (listen/think/speak/tools/summary inkl. eigenem Modell/tags/mip_opt_out).
 
 Audio-Blobs liegen in **GridFS** ([db/gridfs.ts](../src/db/gridfs.ts)); das Request-Dokument
 referenziert nur die `gridFsId`.
+
+> **Engine-Abgrenzung:** Die Engine kümmert sich um **Kern-Telefonie** (Annahme, Routing,
+> Transfer, Aufnahme, Transkript/Persistenz). **Fachliche** Tools kommen pro Agent dazu und gehen
+> i.d.R. **nach außen** (server-side Function-Endpoints per URL). Das frühere Demo-Tool
+> `lookup_customer` samt `customers`-Collection wurde daher entfernt.
 
 ## Verzeichnisstruktur
 
@@ -90,10 +100,28 @@ admin/                Python-Admin-UI (FastAPI, spätere Ausbaustufe)
 docker/               Dockerfile-Assets (supervisord, entrypoint, Asterisk-Beispielconfig)
 ```
 
+## Implementierungsstand (Stufen A–D + Aufnahme)
+
+Verifiziert über echte Anrufe (Softphone → Container-Asterisk):
+
+- **A — Audio-Pfad:** AudioSocket-Transport; getakteter Playout (driftfreier Takt, 80 ms Jitter-
+  Puffer, ~240 ms Greeting-Lead-in gegen abgeschnittene erste Worte).
+- **B — Konversation (DE):** STT `nova-3` (multilingual; `language` im listen-Provider, nicht im
+  deprecateten `agent.language`), TTS `aura-2-…-de`. **Think via Requesty** (`LLM_MODEL`,
+  aktuell `vertex/gemini-3.1-flash-lite@eu`); umschaltbar auf Deepgram-managed
+  (`LLM_PROVIDER=deepgram`). Für GPT-5/o1/o3 wird `temperature` weggelassen (sonst „Failed to think").
+- **C — Persistenz:** `requests` mit Live-`transcript[]` + `functionCalls[]`. MongoDB lokal im
+  Container (Dev: Host-Zugriff via `-p 127.0.0.1:27100:27017`).
+- **D — Summary & Transfer:** Post-Call-Summary mit **eigenem Modell** (`SUMMARY_MODEL`,
+  Default `openai/gpt-4.1-mini`) + eigenem Prompt (per-Agent überschreibbar). `transfer_call`
+  (Ansage → paralleles Klingeln → Connect/Auto-Rückkehr nach `TRANSFER_TIMEOUT`; Agent stumm
+  während Connect; durchgeschaltete Beendigung). `end_call` (datengetriebenes Auflegen nach dem
+  Abschied, ohne FunctionCallResponse → kein doppelter Abschied).
+- **Aufnahme (KI-Modus):** ARI `bridge.record` → WAV unter `/var/spool/asterisk/recording` →
+  Upload in **GridFS** (Bucket `recordings`) → temp-Datei gelöscht; `requests.recording.gridFsId`.
+
 ## Offene/Verifikationspunkte
 
-- **externalMedia-Transport** (RTP vs. AudioSocket), RTP-Packetisierung (Payload-Type, ptime) —
-  im ersten Spike final zu verifizieren (siehe Kommentare in [media.ts](../src/ari/media.ts)).
-- Aktuelle Deepgram-Modell-IDs (mehrsprachiges STT/TTS inkl. Deutsch).
-- Requesty-Endpoint/Modell-IDs.
 - **DSGVO:** Gesprächsaufzeichnung erfordert i.d.R. eine Ansage/Einwilligung.
+- `requests.recording.durationSec` wird noch nicht befüllt (kosmetisch).
+- Weitere offene/zukünftige Punkte gesammelt in [backlog.md](backlog.md).
