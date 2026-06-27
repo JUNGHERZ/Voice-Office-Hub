@@ -110,6 +110,21 @@ skalieren muss?
   dabei Event-Loop-Lag, Playout-Underruns und Deepgram-Fehlerquote messen. Erst dann sind
   Kundenzusagen seriös. (Bewusst (noch) nicht in der Doku.)
 
+## Management-API (extern, neben der Admin-UI)
+
+**Idee des Nutzers:** Zusätzlich zur Admin-UI eine **HTTP-API** anbieten, über die sich von außen
+(ohne direkten DB-Zugriff) Ressourcen verwalten lassen:
+
+- **Agents:** anlegen, listen, löschen, Parameter ändern (CRUD über die `agents`-Collection;
+  dieselben Felder wie das Agent-Schema / die UI).
+- **Requests:** abrufen (Liste + Detail inkl. Transkript/Summary/Transfer; Aufnahme-Download
+  über GridFS-`gridFsId`), read-only.
+
+- **Bewertung:** Sinnvoll als **API-First-Ansatz** — die Admin-UI wird dann nur ein Client dieser
+  API. Auth über API-Key/Token (getrennt vom Admin-Passwort der UI). Liegt nahe, das **direkt mit
+  der Admin-UI zusammen** zu bauen (gleicher Service), statt später nachzurüsten.
+- **Reihenfolge:** zusammen mit / direkt nach der Admin-UI.
+
 ## Admin-UI (Erweiterungen, Zukunft)
 
 Zusätzlich zu den geplanten Views (Anrufliste/Requests + Verlauf, Aufnahme abhören, Transkript

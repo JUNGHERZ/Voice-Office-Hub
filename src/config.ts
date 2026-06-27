@@ -78,6 +78,16 @@ export interface Config {
     timeoutSec: number;
   };
   recordingPath: string;
+  /** Admin-UI + Management-API (eigener Fastify-Prozess). */
+  admin: {
+    /** UI-Login-Passwort; ist es leer, startet der Admin-Server nicht. */
+    password: string;
+    /** API-Key für externen Zugriff auf /api (Header: x-api-key). Leer = API-Key-Zugang aus. */
+    apiKey: string;
+    /** Secret zum Signieren des Session-Cookies (Fallback: aus password abgeleitet). */
+    sessionSecret: string;
+    port: number;
+  };
   /** Spike/Diagnose: Anrufer-Audio direkt zurückspielen (ohne Deepgram). */
   echoTest: boolean;
   /** Echo-Variante: "packet" = re-paketisiert (eigene seq/ts), "raw" = 1:1 zurück. */
@@ -143,6 +153,12 @@ export const config: Config = {
     timeoutSec: int("TRANSFER_TIMEOUT", 30),
   },
   recordingPath: opt("RECORDING_PATH", "/data/recordings"),
+  admin: {
+    password: opt("ADMIN_PASSWORD"),
+    apiKey: opt("ADMIN_API_KEY"),
+    sessionSecret: opt("ADMIN_SESSION_SECRET") || opt("ADMIN_PASSWORD"),
+    port: int("UI_PORT", 8080),
+  },
   echoTest: bool("ECHO_TEST", false),
   echoMode: opt("ECHO_MODE", "packet"),
 };

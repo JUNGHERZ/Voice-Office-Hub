@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Exius Voice Hub — Admin</title>
+  <link rel="stylesheet" href="/vendor/glasskit/glasskit.min.css" />
+  <script defer src="/vendor/glasskit-elements/glasskit-elements.min.js"></script>
+</head>
+<body>
+  <div class="glass-bg">
+    <div class="gl-stack" style="max-width: 560px; margin: 56px auto; padding: 0 16px;">
+      <glk-title>Exius Voice Hub — Admin</glk-title>
+      <glk-card glow>
+        Fundament steht: JSON-API (Agents/Requests) + GlassKit + Hybrids werden ausgeliefert.
+        Die Hybrids-Views (Login, Dashboard, Agents, Requests) folgen als Nächstes.
+      </glk-card>
+      <glk-button variant="primary" id="ping" size="auto">API testen (/api/me)</glk-button>
+      <glk-status id="out" message="Noch nicht getestet."></glk-status>
+    </div>
+  </div>
+  <script>
+    document.getElementById("ping").addEventListener("click", async () => {
+      const out = document.getElementById("out");
+      try {
+        const r = await fetch("/api/me");
+        out.setAttribute("message", r.ok ? "Authentifiziert (200)." : "Nicht authentifiziert (" + r.status + ") — Login folgt.");
+      } catch (e) {
+        out.setAttribute("message", "Fehler: " + e);
+      }
+    });
+  </script>
+</body>
+</html>

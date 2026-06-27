@@ -2,7 +2,7 @@
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Single-Container-Appliance: Node-Telefonie-Kern + MongoDB + (optional) Asterisk
-#   + Python-Admin-UI, orchestriert von supervisord.
+#   + Node-Admin-UI/API (Fastify + Hybrids/GlassKit, kein Build), orchestriert von supervisord.
 # Dasselbe Image läuft lokal (OrbStack) wie in Produktion — Unterschied nur via .env.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -15,17 +15,16 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
-# --- Runtime-Stage: Node + MongoDB + Asterisk + Python + supervisord ---------
+# --- Runtime-Stage: Node + MongoDB + Asterisk + supervisord ------------------
 # Basis: Ubuntu 24.04 (noble) — enthält Asterisk (universe); Debian bookworm liefert
 # Asterisk nicht mehr. MongoDB 8.0 + Node 20 über die offiziellen Repos.
 FROM ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production
 
-# Basis-Pakete: Asterisk, Python 3, supervisor
+# Basis-Pakete: Asterisk, supervisor (Admin-UI/API läuft jetzt auf Node — kein Python mehr)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl gnupg supervisor \
-        python3 python3-pip python3-venv \
         asterisk \
     # Node 20 (NodeSource)
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -43,9 +42,8 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 
-# Python-Admin-UI
-COPY admin ./admin
-RUN pip3 install --no-cache-dir --break-system-packages -r admin/requirements.txt
+# Admin-UI/API-Frontend (statisch, kein Build): Hybrids + GlassKit werden aus node_modules serviert.
+COPY webui ./webui
 
 # Asterisk-Konfiguration: unsere Dateien überschreiben die Paket-Defaults
 # (ari.conf, http.conf, pjsip.conf, extensions.conf, rtp.conf, modules.conf).
