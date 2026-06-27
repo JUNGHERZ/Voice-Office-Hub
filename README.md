@@ -55,5 +55,7 @@ npm run dev        # benötigt erreichbares Asterisk (ARI) + MongoDB
 Funktionsfähig (über echte Anrufe verifiziert): Kern (ARI ↔ Deepgram über AudioSocket),
 deutsche Konversation, **Persistenz** (Transkript/functionCalls), **Tools** (`transfer_call`,
 `end_call`), **Transfer** mit Auto-Rückkehr + durchgeschalteter Beendigung, **Aufnahme** in GridFS,
-**Post-Call-Summary** (eigenes Modell). Nächste Ausbaustufen: Passthrough-Modus,
-Multi-Agent/DDI-Routing, Admin-UI, Appliance-Härtung (SIPGate-Trunk).
+**Post-Call-Summary** (eigenes Modell, agent + passthrough), **Passthrough-Modus** (Durchleitung +
+Aufnahme + Batch-Transkription, `DEFAULT_MODE=passthrough`; Diarization-Sprecher-Trennung noch mit
+Zwei-Geräte-Setup zu verifizieren). Nächste Ausbaustufen: Multi-Agent/DDI-Routing, Admin-UI,
+Appliance-Härtung (SIPGate-Trunk).

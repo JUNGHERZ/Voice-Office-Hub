@@ -62,6 +62,54 @@ Größeres Bild für das Gesamtprodukt:
   (z. B. ein einbettbares Widget, das gegen die Engine spricht). Telefonie und Web teilen sich
   Agent-Definitionen/Tools, aber unterschiedliche Transport-Frontends.
 
+## Summary über den weitergeleiteten Gesprächsteil (Konzept)
+
+**Idee des Nutzers:** Heute fasst die Post-Call-Summary nur den **Agent-Teil** des Gesprächs
+zusammen (Live-Transkript aus `ConversationText`). Optional sollte sich auch der Teil
+zusammenfassen lassen, der **nach der Weiterleitung** mit einem Menschen (oder einer anderen KI)
+geführt wird — entweder ergänzend oder als zweite, getrennte Summary.
+
+- **Befund:** Den weitergeleiteten Teil haben wir aktuell **nicht** als Transkript. Nach
+  `transfer_call` ist der Agent stumm; Anrufer ↔ Ziel laufen über eine **neue** Bridge, ohne
+  laufendes Deepgram-STT. Um ihn zusammenzufassen, muss dieser Teil **aufgenommen** und danach
+  **batch-transkribiert** werden (Deepgram Pre-recorded + Diarization) — also exakt die
+  **Passthrough-Maschinerie**. Deshalb sinnvoll **nach** dem Passthrough-Modul (wiederverwendbar).
+- **Technischer Knackpunkt:** Die `bridge.record`-Aufnahme hängt an der **Agent-Bridge**. Nach
+  dem Transfer wandert der Anrufer in eine andere Bridge → die laufende Aufnahme erfasst den
+  weitergeleiteten Teil vermutlich **nicht** mehr. Zu verifizieren; ggf. **Transfer-Bridge
+  separat aufnehmen**. Das ist der eigentliche Aufwand, nicht das Zusammenfassen.
+- **Recht/DSGVO (größer als beim Agent-Teil):** Am anderen Ende sitzt ein **Mensch/fremde KI,
+  oft extern**, dessen Nummer/Einwilligung wir nicht kontrollieren. Aufzeichnung + Transkription
+  dieses Teils braucht eine sauberere Einwilligungslogik (z. B. Ansage vor dem Verbinden).
+- **Konzept-Vorschlag:** per-Agent-Flag (z. B. `summary.includeTransferredSegment`) → Transfer-
+  Bridge aufnehmen, nach Hangup batch-transkribieren, dann **kombinierte Summary** über
+  *Agent-Transkript + weitergeleitetes Transkript* (optional zwei getrennte Summaries
+  „KI-Teil" / „Beratungs-Teil").
+- **Reihenfolge:** nach Passthrough-Modul; Einwilligungs-Logik vor Produktivbetrieb.
+
+## Sizing / Lasttest (Schätzung, ungemessen)
+
+**Frage des Nutzers:** Wie viele parallele Anrufe schafft ein All-in-One-Container (Asterisk +
+Node-Engine + MongoDB + Admin-UI) auf z. B. einem 10-Kern-ARM-Server, bevor man horizontal
+skalieren muss?
+
+- **Kerneinsicht:** STT/LLM/TTS laufen **in der Cloud** (Deepgram/Requesty), **nicht** lokal.
+  Der Container ist im Kern ein **Audio-Relay + Control-Plane** → **CPU ist selten der Engpass**.
+  Pro Anruf: ~256 kbit/s Audio (slin 8 kHz, kein Transcoding), leichte Buffer-Kopien je 20-ms-
+  Frame, ein Jitter-Timer, inkrementelle Mongo-`$push`-Writes, wenige MB RAM.
+- **Realistische Engpässe (in dieser Reihenfolge):**
+  1. **Deepgram-Concurrency & Kosten** — die eigentliche, kommerzielle Decke (nicht Hardware).
+  2. **Node.js Single-Thread-Event-Loop** — Playout-Tick alle 20 ms je Anruf; bei 100 Anrufen
+     ~5.000 Timer-Wakeups/s in *einem* Thread. Der erste spürbare Effekt unter Last ist
+     **Playout-Jitter (Knacken/Verzögerung)**, nicht CPU-Sättigung. Gegenmittel: mehrere
+     Node-Worker pro Container, bevor man horizontal skaliert.
+  3. **SIP-Trunk-Kanäle** (extern, z. B. SIPGate 2/10/50) — limitiert oft früher als die Engine.
+- **Hausnummer (geschätzt, nicht gemessen):** ~**50–150** gleichzeitige Anrufe pro Container auf
+  einem dedizierten 10-Kern-ARM; limitierend eher Node-Event-Loop + Deepgram-Limits als CPU/RAM.
+- **Belastbar nur per Lasttest:** z. B. **SIPp** erzeugt N parallele Anrufe gegen den Container;
+  dabei Event-Loop-Lag, Playout-Underruns und Deepgram-Fehlerquote messen. Erst dann sind
+  Kundenzusagen seriös. (Bewusst (noch) nicht in der Doku.)
+
 ## Admin-UI (Erweiterungen, Zukunft)
 
 Zusätzlich zu den geplanten Views (Anrufliste/Requests + Verlauf, Aufnahme abhören, Transkript
@@ -71,6 +119,13 @@ ansehen, **Agents verwalten**):
   `pjsip.conf`-Trunk-Vorlage über die UI verwalten (mehrere Trunks/Provider denkbar).
 
 ## Bekannte offene Punkte (separat)
+
+- **Passthrough-Diarization mit Zwei-Geräte-Setup verifizieren.** Der Passthrough-Pfad
+  (Routing → Aufnahme → Batch-Transkription → Summary) ist end-to-end verifiziert, aber die
+  **Sprecher-Trennung `caller`/`callee`** noch nicht: Im Test liefen beide Softphones auf
+  **einem PC** (Headset-Echo) → Deepgram hört **eine** akustische Quelle und labelt alles als
+  `caller`. Mit zwei getrennten Geräten (z. B. 101 vom Handy/zweiten Rechner) oder einem echten
+  Trunk-Anruf erneut prüfen, dass die Diarization sauber auf zwei Sprecher aufteilt.
 
 - **Akustisches Echo** ohne Headset (Selbsthören): Capture-seitig (Headset/Softphone-AEC/echtes
   Telefon). Optional serverseitiges Halbduplex (schwächt Barge-in). Vom Nutzer vorerst zurückgestellt.

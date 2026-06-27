@@ -63,9 +63,11 @@ Siehe [src/ari/callHandler.ts](../src/ari/callHandler.ts):
 ## Betriebsmodi
 
 - **agent** (Default) — KI beantwortet; Tools, Transfer-mit-Rückkehr, Live-Transkript, Aufnahme.
-- **passthrough** — keine KI; Weiterleitung an feste Nummer, nur Aufnahme beider Kanäle, nach
-  Auflegen Batch-Transkription (Diarization → `caller`/`callee`).
-  Siehe [src/ari/passthrough.ts](../src/ari/passthrough.ts). (Spätere Ausbaustufe; Grundgerüst vorhanden.)
+- **passthrough** — keine KI; Weiterleitung an feste Nummer (`PASSTHROUGH_TARGET`), beide Beine in
+  einer Mixing-Bridge, gemeinsame Aufnahme; nach Auflegen Batch-Transkription (Diarization →
+  `caller`/`callee`) + optionale Summary. Durchgeschaltete Beendigung in beide Richtungen.
+  Siehe [src/ari/passthrough.ts](../src/ari/passthrough.ts). Aktivierbar per `DEFAULT_MODE=passthrough`
+  (Default-Agent) oder pro DB-Agent (`mode`).
 
 ## Datenmodell (MongoDB, Mongoose)
 
@@ -119,6 +121,10 @@ Verifiziert über echte Anrufe (Softphone → Container-Asterisk):
   Abschied, ohne FunctionCallResponse → kein doppelter Abschied).
 - **Aufnahme (KI-Modus):** ARI `bridge.record` → WAV unter `/var/spool/asterisk/recording` →
   Upload in **GridFS** (Bucket `recordings`) → temp-Datei gelöscht; `requests.recording.gridFsId`.
+- **Passthrough (Modus B):** 100 → `PASSTHROUGH_TARGET` durchgeleitet, beide Beine aufgenommen,
+  nach Auflegen GridFS-Upload + Batch-Transkription (nova-3, Diarization, feste Agent-Sprache) +
+  Summary. End-to-End über echten Anruf verifiziert; offen: **Sprecher-Trennung `caller`/`callee`
+  noch mit Zwei-Geräte-Setup zu prüfen** (Same-PC-Test = eine akustische Quelle → keine Trennung).
 
 ## Offene/Verifikationspunkte
 

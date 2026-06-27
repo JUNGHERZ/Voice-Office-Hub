@@ -28,7 +28,7 @@ function defaultAgent(): ResolvedAgent {
   const d = config.defaultAgent;
   return {
     name: "default",
-    mode: "agent",
+    mode: (config.defaultAgent.mode === "passthrough" ? "passthrough" : "agent"),
     passthroughTarget: config.transfer.passthroughTarget || undefined,
     language: d.language,
     greeting: d.greeting,

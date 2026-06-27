@@ -6,7 +6,9 @@
  * Asynchron nach Hangup aufrufen; blockiert den Anruf nicht.
  */
 import { config } from "../config.js";
+import * as repo from "../db/repository.js";
 import type { TranscriptTurn } from "../db/repository.js";
+import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
 
 const log = logger.child({ mod: "summarize" });
@@ -55,4 +57,30 @@ export async function summarizeTranscript(
 
 interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string } }>;
+}
+
+/**
+ * Post-Call-Summary für einen Request: liest das Transkript, ruft Requesty und schreibt
+ * `requests.summary`. Gemeinsam genutzt von Agent- und Passthrough-Modus. Asynchron
+ * aufrufen (blockiert den Anruf nicht); Fehler werden geloggt, nicht geworfen.
+ */
+export async function runPostCallSummary(
+  requestId: string,
+  agent: Pick<ResolvedAgent, "summary">,
+  childLog: ReturnType<typeof logger.child> = log,
+): Promise<void> {
+  try {
+    await repo.setSummary(requestId, { status: "pending" });
+    const transcript = await repo.getTranscript(requestId);
+    if (!transcript.length) {
+      await repo.setSummary(requestId, { status: "done", text: "", model: agent.summary.model });
+      return;
+    }
+    const { text, model } = await summarizeTranscript(transcript, agent.summary.prompt, agent.summary.model);
+    await repo.setSummary(requestId, { status: "done", text, model, createdAt: new Date() });
+    childLog.info("Summary erstellt", { chars: text.length });
+  } catch (err) {
+    childLog.warn("Summary fehlgeschlagen", { err: String(err) });
+    await repo.setSummary(requestId, { status: "failed" });
+  }
 }

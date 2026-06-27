@@ -59,6 +59,8 @@ export interface Config {
     externalMediaPort: number;
   };
   defaultAgent: {
+    /** Betriebsmodus des Default-Agenten: "agent" (KI) oder "passthrough" (Durchleitung+Aufnahme). */
+    mode: string;
     prompt: string;
     greeting: string;
     language: string;
@@ -115,6 +117,8 @@ export const config: Config = {
     externalMediaPort: int("EXTERNAL_MEDIA_PORT", 8090),
   },
   defaultAgent: {
+    // "agent" (KI beantwortet) oder "passthrough" (Anruf an PASSTHROUGH_TARGET durchleiten + aufnehmen).
+    mode: opt("DEFAULT_MODE", "agent"),
     prompt: opt(
       "DEFAULT_AGENT_PROMPT",
       "Du bist ein hilfreicher Telefon-Assistent. Antworte in der Sprache des Anrufers.",

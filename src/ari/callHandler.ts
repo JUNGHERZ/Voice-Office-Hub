@@ -14,7 +14,7 @@ import { buildSettings } from "../deepgram/settings.js";
 import { AgentSession } from "../deepgram/agentSession.js";
 import * as repo from "../db/repository.js";
 import { uploadRecording } from "../db/gridfs.js";
-import { summarizeTranscript } from "../llm/summarize.js";
+import { runPostCallSummary } from "../llm/summarize.js";
 import { buildFunctionDefinitions, dispatchTool, type ToolContext } from "../tools/index.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
@@ -219,7 +219,7 @@ async function runAgentCall(
 
     // Post-Call-Summary (asynchron, blockiert nicht).
     if (status === "completed" && agent.summary.enabled) {
-      void runSummary(requestId, agent, log);
+      void runPostCallSummary(requestId, agent, log);
     }
   };
 
@@ -346,27 +346,6 @@ async function runAgentCall(
     log.error("Fehler im Anrufaufbau", { err: String(err) });
     await cleanup("failed");
     try { await channel.hangup(); } catch { /* ignore */ }
-  }
-}
-
-async function runSummary(
-  requestId: string,
-  agent: ResolvedAgent,
-  log: ReturnType<typeof logger.child>,
-): Promise<void> {
-  try {
-    await repo.setSummary(requestId, { status: "pending" });
-    const transcript = await repo.getTranscript(requestId);
-    if (!transcript.length) {
-      await repo.setSummary(requestId, { status: "done", text: "", model: agent.summary.model });
-      return;
-    }
-    const { text, model } = await summarizeTranscript(transcript, agent.summary.prompt, agent.summary.model);
-    await repo.setSummary(requestId, { status: "done", text, model, createdAt: new Date() });
-    log.info("Summary erstellt", { chars: text.length });
-  } catch (err) {
-    log.warn("Summary fehlgeschlagen", { err: String(err) });
-    await repo.setSummary(requestId, { status: "failed" });
   }
 }
 

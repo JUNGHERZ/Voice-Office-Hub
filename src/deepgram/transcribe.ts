@@ -15,15 +15,20 @@ import { logger } from "../util/logger.js";
 const log = logger.child({ mod: "dg-transcribe" });
 const PRERECORDED_URL = "https://api.deepgram.com/v1/listen";
 
-export async function transcribeRecording(localPath: string): Promise<TranscriptTurn[]> {
+export async function transcribeRecording(
+  localPath: string,
+  opts: { language?: string } = {},
+): Promise<TranscriptTurn[]> {
   const audio = await readFile(localPath);
   const params = new URLSearchParams({
     model: "nova-3",
     diarize: "true",
     punctuate: "true",
     utterances: "true",
-    detect_language: "true",
   });
+  // Sprache explizit vorgeben (Agent-Sprache) statt detect_language — letzteres rät bei
+  // wenig/leisem Audio daneben. "multi" = nova-3 multilingual; sonst z. B. "de"/"en".
+  params.set("language", opts.language && opts.language.trim() ? opts.language : "multi");
 
   const res = await fetch(`${PRERECORDED_URL}?${params.toString()}`, {
     method: "POST",
