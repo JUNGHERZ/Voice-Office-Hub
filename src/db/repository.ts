@@ -88,7 +88,14 @@ export async function finalizeRequest(
   id: string,
   status: "completed" | "failed",
 ): Promise<void> {
-  await RequestModel.updateOne({ _id: id }, { $set: { status, endedAt: new Date() } });
+  const endedAt = new Date();
+  // Anruflänge aus startedAt ableiten (immer, auch ohne Aufnahme — für Abrechnung/Statistik).
+  const doc = await RequestModel.findById(id, { startedAt: 1 }).lean();
+  const set: Record<string, unknown> = { status, endedAt };
+  if (doc?.startedAt) {
+    set.durationSec = Math.max(0, Math.round((endedAt.getTime() - new Date(doc.startedAt).getTime()) / 1000));
+  }
+  await RequestModel.updateOne({ _id: id }, { $set: set });
 }
 
 export async function getTranscript(id: string): Promise<TranscriptTurn[]> {

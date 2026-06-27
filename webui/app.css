@@ -1,0 +1,85 @@
+/*
+ * Globale Styles der Admin-SPA (Light DOM / Host-Ebene).
+ * GlassKit-Klassen wirken nur hier im Light DOM; in den Hybrids-Views (Shadow DOM)
+ * werden ausschließlich <glk-*>-Elements + die durchdringenden --gl-*-Tokens genutzt.
+ */
+
+/* Reset — sonst weißer Rand um den glass-bg-Aurora-Hintergrund. */
+html, body { margin: 0; padding: 0; }
+body { min-height: 100vh; }
+
+/* Aurora-Hintergrund deckt den ganzen Viewport (glass-bg ist Light DOM). */
+.glass-bg { min-height: 100vh; }
+
+/* Eine zentrierte App-Spalte. Voller glass-bg dahinter. */
+app-root {
+  display: block;
+}
+.app-col {
+  max-width: 640px;
+  margin-inline: auto;
+  padding: 24px 16px 120px; /* unten Platz für die floating Tab-Bar */
+  box-sizing: border-box;
+}
+
+/* Kopfzeile (Brand + Theme-Toggle + Logout) — persistentes Chrome. */
+.app-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 640px;
+  margin: 0 auto 8px;
+  padding: 16px 16px 0;
+  box-sizing: border-box;
+}
+.app-head__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  color: var(--gl-color-text-heading);
+}
+.app-head__actions { display: flex; gap: 8px; align-items: center; }
+
+/* Tab-Bar-Icons (Light DOM). */
+app-tabbar .glass-tab-bar__icon svg { width: 22px; height: 22px; }
+
+/* Floating Tab-Bar global positionieren (Host im Light DOM). */
+app-tabbar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 50;
+}
+
+/* Stat-Cards: gestapelt, ab 520px nebeneinander. */
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 520px) {
+  .stat-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ---- View Transitions ---- */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(view-content),
+  ::view-transition-new(view-content) {
+    animation-duration: 0.22s;
+    animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+}
+/* Persistentes Chrome bekommt stabile Namen → wird nicht überblendet. */
+.app-head { view-transition-name: app-head; }
+app-tabbar { view-transition-name: app-tabbar; }
+/* Der wechselnde Inhalt. */
+.app-col { view-transition-name: view-content; }
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) { animation: none !important; }
+}

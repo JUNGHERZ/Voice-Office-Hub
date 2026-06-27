@@ -16,7 +16,7 @@ import { transcribeRecording } from "../deepgram/transcribe.js";
 import { runPostCallSummary } from "../llm/summarize.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
-import { startBridgeRecording, type ActiveRecording } from "./recording.js";
+import { startBridgeRecording, wavDurationSec, type ActiveRecording } from "./recording.js";
 import { transferIntoBridge } from "./transfer.js";
 
 export async function handlePassthrough(
@@ -72,7 +72,8 @@ export async function handlePassthrough(
     if (recording) {
       try {
         const gridFsId = await uploadRecording(recording.filePath, `${requestId}.wav`, { requestId });
-        await repo.setRecording(requestId, { gridFsId, filename: `${requestId}.wav`, channels: "mixed" });
+        const durationSec = await wavDurationSec(recording.filePath).catch(() => 0);
+        await repo.setRecording(requestId, { gridFsId, filename: `${requestId}.wav`, channels: "mixed", durationSec });
 
         // Batch-Transkription (Diarization → caller/callee) — VOR dem Löschen der temp-WAV.
         await repo.setTranscriptionStatus(requestId, "pending");

@@ -21,7 +21,7 @@ import { logger } from "../util/logger.js";
 import { resolveAgent } from "./agentResolver.js";
 import { MediaBridge } from "./media.js";
 import { audioSocketServer, type MediaSession } from "./audiosocketServer.js";
-import { startBridgeRecording, type ActiveRecording } from "./recording.js";
+import { startBridgeRecording, wavDurationSec, type ActiveRecording } from "./recording.js";
 import { transferIntoBridge } from "./transfer.js";
 import { handlePassthrough } from "./passthrough.js";
 
@@ -208,7 +208,8 @@ async function runAgentCall(
     if (recording) {
       try {
         const gridFsId = await uploadRecording(recording.filePath, `${requestId}.wav`, { requestId });
-        await repo.setRecording(requestId, { gridFsId, filename: `${requestId}.wav` });
+        const durationSec = await wavDurationSec(recording.filePath).catch(() => 0);
+        await repo.setRecording(requestId, { gridFsId, filename: `${requestId}.wav`, durationSec });
         await rm(recording.filePath, { force: true });
       } catch (err) {
         log.warn("GridFS-Upload fehlgeschlagen", { err: String(err) });

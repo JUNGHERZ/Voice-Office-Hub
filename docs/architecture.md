@@ -133,5 +133,6 @@ Verifiziert über echte Anrufe (Softphone → Container-Asterisk):
 ## Offene/Verifikationspunkte
 
 - **DSGVO:** Gesprächsaufzeichnung erfordert i.d.R. eine Ansage/Einwilligung.
-- `requests.recording.durationSec` wird noch nicht befüllt (kosmetisch).
+- `requests.durationSec` (Anruflänge, billing-/statistikrelevant, immer gesetzt) + `recording.durationSec`
+  (Medienlänge, nur bei Aufnahme) werden beim Finalisieren befüllt.
 - Weitere offene/zukünftige Punkte gesammelt in [backlog.md](backlog.md).

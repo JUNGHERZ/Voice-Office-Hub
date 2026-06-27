@@ -76,6 +76,9 @@ const RequestSchema = new Schema(
     },
     startedAt: { type: Date, default: Date.now, index: true },
     endedAt: { type: Date },
+    // Anruflänge in Sekunden (startedAt→endedAt). Immer gesetzt, unabhängig von einer
+    // Aufnahme — für Abrechnung/Statistik auch bei Agents ohne Recording (DSGVO).
+    durationSec: { type: Number },
 
     recording: { type: RecordingSchema },
     transcript: { type: [TranscriptTurnSchema], default: [] },

@@ -24,7 +24,7 @@ export async function requestRoutes(app: FastifyInstance): Promise<void> {
     const [items, total] = await Promise.all([
       RequestModel.find(filter)
         .select(
-          "mode callerNumber targetNumber status startedAt endedAt transcriptionStatus recording.gridFsId recording.durationSec summary.status",
+          "mode callerNumber targetNumber status startedAt endedAt durationSec transcriptionStatus recording.gridFsId recording.durationSec summary.status",
         )
         .sort({ startedAt: -1 })
         .skip(skip)
