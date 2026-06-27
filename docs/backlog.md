@@ -131,8 +131,6 @@ ansehen, **Agents verwalten**):
   Telefon). Optional serverseitiges Halbduplex (schwächt Barge-in). Vom Nutzer vorerst zurückgestellt.
 - **Aufnahme (ARI `bridge.record`) liefert 500** „Internal Server Error" — best-effort, blockiert
   nichts; gehört zu Plan-Phase „Aufnahme (KI-Modus)".
-- **`targetNumber` kommt als `_X.`** statt echter DDI an → Dialplan reicht das Muster statt `${EXTEN}`
-  durch (extensions.conf). Unkritisch (Default-Agent greift), aber für DDI-Routing zu fixen.
 - **Leichtes Knacken** in der Ausgabe (selten): wahrscheinlich Playout-Grenzübergänge (Übergang
   Audio↔Stille bei Underrun/Ende). Jitter-Puffer erhöht (80 ms); falls es bleibt → kurze Fade-In/Out
   an den Frame-Grenzen.

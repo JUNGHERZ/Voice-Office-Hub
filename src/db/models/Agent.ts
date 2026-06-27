@@ -64,6 +64,9 @@ const AgentSchema = new Schema(
     mode: { type: String, enum: ["agent", "passthrough"], default: "agent" },
     passthroughTarget: { type: String },
 
+    // STT-Sprache → agent.listen.provider.language ("multi", "de", "en" …). Fällt im Resolver
+    // auf den Config-Default zurück, wenn leer.
+    language: { type: String },
     greeting: { type: String },
     prompt: { type: String },
 

@@ -125,6 +125,10 @@ Verifiziert über echte Anrufe (Softphone → Container-Asterisk):
   nach Auflegen GridFS-Upload + Batch-Transkription (nova-3, Diarization, feste Agent-Sprache) +
   Summary. End-to-End über echten Anruf verifiziert; offen: **Sprecher-Trennung `caller`/`callee`
   noch mit Zwei-Geräte-Setup zu prüfen** (Same-PC-Test = eine akustische Quelle → keine Trennung).
+- **Multi-Agent / DDI-Routing:** Dialplan reicht die echte DDI als `${EXTEN}` durch (Pattern `_X.`;
+  der frühere 100→`Goto(_X.)`-Spezialfall, der `${EXTEN}` als Literal `"_X."` lieferte, ist
+  entfernt). `agentResolver` matcht `agents.targetNumbers`; Demo-Agents via `seedAgents.ts`
+  (120/121/122). Test-DDIs = Durchwahlen, Prod-DDIs = E.164 vom Trunk — gleiche Mechanik.
 
 ## Offene/Verifikationspunkte
 

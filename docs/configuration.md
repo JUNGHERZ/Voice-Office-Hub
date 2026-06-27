@@ -51,6 +51,35 @@ Der Modus und alle Parameter kommen aus dem **aufgelösten Agent**:
 > Ohne DB-Agents (Admin-UI noch offen) lässt sich der Passthrough-Modus über `DEFAULT_MODE=passthrough`
 > + `PASSTHROUGH_TARGET=<Durchwahl>` für den Default-Agenten aktivieren (z. B. zum Testen).
 
+### DDI-Routing einrichten (Test & Produktion)
+
+Die Zuordnung **Rufnummer → Agent** lebt allein in `agents.targetNumbers`; der Dialplan reicht
+die echte gewählte Nummer als `${EXTEN}` an Stasis durch (Pattern `_X.` in
+[extensions.conf](../docker/asterisk/extensions.conf)). Es ist **dieselbe Mechanik** in beiden Umgebungen,
+nur der Wert der DDI unterscheidet sich:
+
+- **Test (Dev):** gewählte **Durchwahlen** (z. B. `120`, `121`, `122`). Das anrufende Softphone
+  wählt die Nummer; `_X.` routet sie nach Stasis. Diese „Service-Nummern" brauchen **keine** eigenen
+  PJSIP-Endpoints — nur der Agent in der DB.
+- **Produktion (Trunk):** der Provider (z. B. SIPGate) liefert die **volle öffentliche Rufnummer
+  (E.164)** in der Request-URI → `${EXTEN}` = `+4930…`. Der Agent trägt dann genau diese E.164-Nummer
+  in `targetNumbers`. → Künftige Admin-UI: beim Anbinden des Trunks die zugeteilten öffentlichen
+  Nummern hinterlegen und je Nummer einen Agent zuordnen (feste DDI↔Agent-Bindung). Wichtig:
+  **konsistentes Format** (E.164 mit `+`) zwischen dem, was Asterisk liefert, und `targetNumbers`.
+
+**Demo-Agents anlegen** (idempotent, ohne Admin-UI) über das Seed-Skript
+([src/scripts/seedAgents.ts](../src/scripts/seedAgents.ts)) — legt `120` (Vertrieb/KI), `121`
+(Support/KI), `122` (Passthrough→101) an:
+
+```bash
+# im laufenden Container:
+docker exec exius-voice-hub node /app/dist/scripts/seedAgents.js
+# oder lokal mit gesetztem MONGO_URI (Dev-Port 27100):
+MONGO_URI=mongodb://127.0.0.1:27100/voiceagent npm run seed
+```
+
+Unbekannte DDI (z. B. `100`) → **Default-Agent** aus den ENV-Variablen.
+
 So überschreiben DB-Agents das ENV-Default pro Nummer. Das `agents`-Schema
 ([Agent.ts](../src/db/models/Agent.ts)) mappt 1:1 auf die Deepgram-`Settings`.
 

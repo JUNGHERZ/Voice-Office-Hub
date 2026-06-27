@@ -12,6 +12,7 @@
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "seed": "node dist/scripts/seedAgents.js",
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {

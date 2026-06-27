@@ -57,5 +57,6 @@ deutsche Konversation, **Persistenz** (Transkript/functionCalls), **Tools** (`tr
 `end_call`), **Transfer** mit Auto-Rückkehr + durchgeschalteter Beendigung, **Aufnahme** in GridFS,
 **Post-Call-Summary** (eigenes Modell, agent + passthrough), **Passthrough-Modus** (Durchleitung +
 Aufnahme + Batch-Transkription, `DEFAULT_MODE=passthrough`; Diarization-Sprecher-Trennung noch mit
-Zwei-Geräte-Setup zu verifizieren). Nächste Ausbaustufen: Multi-Agent/DDI-Routing, Admin-UI,
+Zwei-Geräte-Setup zu verifizieren), **Multi-Agent/DDI-Routing** (`agents.targetNumbers`, Dialplan
+reicht echte DDI durch; Demo-Agents via `npm run seed`). Nächste Ausbaustufen: Admin-UI,
 Appliance-Härtung (SIPGate-Trunk).
