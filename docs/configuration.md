@@ -32,7 +32,10 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `SUMMARY_MODEL` | `openai/gpt-4.1-mini` | Eigenes Summary-Modell (Requesty), unabhängig vom Konversations-LLM. |
 | `SUMMARY_PROMPT` | … | Default-Summary-Prompt (pro Agent via `agents.summary.prompt` überschreibbar). |
 | `ECHO_TEST` / `ECHO_MODE` | `false` / `packet` | Diagnose: Anrufer-Audio zurückspielen (ohne Deepgram). |
-| `ADMIN_PASSWORD` / `UI_PORT` | — / `8080` | Admin-UI (startet nur bei gesetztem Passwort). |
+| `ADMIN_PASSWORD` | — | Admin-UI/API-Login. **Leer → Admin-Server startet nicht.** |
+| `UI_PORT` | `8080` | Port der Admin-UI + Management-API (Node/Fastify). |
+| `ADMIN_API_KEY` | — | Optionaler API-Key für externen `/api`-Zugriff (Header `x-api-key`). Leer = nur UI-Session. |
+| `ADMIN_SESSION_SECRET` | =`ADMIN_PASSWORD` | Secret zum Signieren des Session-Cookies (in Prod eigenes setzen). |
 | `LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error`. |
 
 ## Betriebsmodi & Agent-Routing
@@ -130,6 +133,19 @@ das Live-Transkript, im passthrough-Modus über das Batch-Transkript.
 
 > **DSGVO:** Gesprächsaufzeichnung erfordert i.d.R. eine Ansage/Einwilligung — vor Produktivbetrieb
 > rechtlich absichern.
+
+## Admin-UI & Management-API
+
+Eigener **Node/Fastify**-Prozess (kein Python), startet nur bei gesetztem `ADMIN_PASSWORD`, auf
+`UI_PORT` (Default 8080). API-First: das Frontend (Hybrids-SPA im GlassKit-Look, `webui/`, ohne Build)
+ist nur ein Client der **JSON-API**. Details: [architecture.md](architecture.md#admin-ui--management-api).
+
+- **API:** `/api/login` · `/api/logout` · `/api/me`; `/api/agents` (GET/POST/PATCH/DELETE);
+  `/api/requests` (GET Liste/Detail) + `/api/requests/:id/recording` (WAV-Stream aus GridFS).
+- **Auth:** UI-Login → signiertes Session-Cookie; extern alternativ `x-api-key: <ADMIN_API_KEY>`.
+- **OpenAPI/Doku:** Spec `/openapi.json`, Swagger-UI `/docs`.
+- **Agents pflegen:** über die UI **oder** das Seed-Skript ([seedAgents.ts](../src/scripts/seedAgents.ts),
+  `npm run seed`) **oder** direkt per API.
 
 ## Betrieb / Troubleshooting
 

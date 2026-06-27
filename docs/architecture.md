@@ -24,9 +24,9 @@ PSTN ──► Asterisk ──(Stasis: voice-agent)──► ARI (WebSocket) ─
 > ([src/ari/audiosocketServer.ts](../src/ari/audiosocketServer.ts)). Der RTP-Pfad
 > ([media.ts](../src/ari/media.ts)) bleibt als Alternative über `MEDIA_TRANSPORT=rtp` bestehen.
 
-Alles läuft in **einem Docker-Container** (Asterisk + Node-Kern + MongoDB + Python-Admin-UI),
+Alles läuft in **einem Docker-Container** (Asterisk + Node-Kern + MongoDB + Node-Admin-UI/API),
 orchestriert von `supervisord`. Dasselbe Image dient lokal (OrbStack) wie in Produktion — der
-Unterschied steckt allein in der `.env`.
+Unterschied steckt allein in der `.env`. (Python wurde entfernt — die Admin-UI läuft jetzt auf Node.)
 
 > **Trade-off (bewusst):** App + DB (+ optional Asterisk/UI) in einem Container ist untypisch
 > (Backups/Scale/Updates gröber). Das ist eine bewusste Produkt-/Appliance-Entscheidung.
@@ -85,6 +85,23 @@ referenziert nur die `gridFsId`.
 > i.d.R. **nach außen** (server-side Function-Endpoints per URL). Das frühere Demo-Tool
 > `lookup_customer` samt `customers`-Collection wurde daher entfernt.
 
+## Admin-UI & Management-API
+
+API-First, **Node/TypeScript** (kein Python). Ein eigener **Fastify**-Prozess (`src/admin/`, via
+supervisord, Port `UI_PORT`/Default 8080) stellt eine **JSON-API** bereit und liefert das statische
+Frontend aus. Er teilt mit dem Telefonie-Kern nur die **Mongoose-Modelle** (eine Quelle der Wahrheit,
+kein Schema-Drift) und ist von der Telefonie entkoppelt (startet nur bei gesetztem `ADMIN_PASSWORD`).
+
+- **API:** Agents-CRUD (`/api/agents`), Anrufe/Requests read + Aufnahme-Stream (`/api/requests`,
+  `/api/requests/:id/recording` aus GridFS), Login/Session (`/api/login|logout|me`).
+- **Auth:** UI-Login per `ADMIN_PASSWORD` → signiertes Session-Cookie; zusätzlich API-Key
+  (`x-api-key` = `ADMIN_API_KEY`) für externen Zugriff.
+- **OpenAPI:** Spec unter `/openapi.json`, Swagger-UI unter `/docs` (`@fastify/swagger`).
+- **Frontend** (`webui/`): **Hybrids.js**-SPA im **GlassKit**-Glas-Look (eigene `<glk-*>`-Web-Components),
+  **ohne Build** (native ES-Module + Import-Map; GlassKit/Hybrids aus `node_modules` ausgeliefert).
+  Zentrierte 640px-Spalte, Dark-Default, Floating-Tab-Bar, View-Transitions. Views: Login, Dashboard,
+  Agents (Liste/CRUD), Anrufe (Liste/Detail mit Audio-Player, Transkript, Summary).
+
 ## Verzeichnisstruktur
 
 ```
@@ -97,8 +114,10 @@ src/
   tools/              Function-Calling (registry, handlers)
   llm/                Post-Call-Summary via Requesty
   db/                 Mongoose-Connection, Models, GridFS, Repository
+  admin/              Admin-UI/API: Fastify-Server, Auth, Routen (agents, requests)
+  scripts/            seedAgents.ts (Demo-Agents)
   util/               Logger, Audio-Helfer
-admin/                Python-Admin-UI (FastAPI, spätere Ausbaustufe)
+webui/                Statisches Admin-Frontend (Hybrids-SPA + GlassKit, kein Build)
 docker/               Dockerfile-Assets (supervisord, entrypoint, Asterisk-Beispielconfig)
 ```
 

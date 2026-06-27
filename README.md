@@ -6,8 +6,13 @@ gegen die **Deepgram Voice Agent API** orchestriert (Listen → Think → Speak)
 **Tools** aufrufen, **weiterleiten**, **auflegen** und das Gespräch als **Transkript + Audio**
 (MongoDB/GridFS) sowie eine **Post-Call-Zusammenfassung** ablegen.
 
-Alles läuft in **einem Docker-Container** (Asterisk + Node-Kern + MongoDB + Python-Admin-UI),
+Alles läuft in **einem Docker-Container** (Asterisk + Node-Kern + MongoDB + Node-Admin-UI/API),
 lokal wie in Produktion — Unterschied nur über die `.env`.
+
+Die **Admin-UI** ist eine API-First-App: ein Node/**Fastify**-Service stellt eine **JSON-API**
+(Agents-CRUD, Anrufe/Requests, OpenAPI) bereit; das Frontend ist eine **Hybrids.js**-SPA im
+**GlassKit**-Glas-Look (Web Components, ohne Build). Erreichbar auf `UI_PORT` (Default `8080`),
+sobald `ADMIN_PASSWORD` gesetzt ist; OpenAPI unter `/openapi.json`, Swagger-UI unter `/docs`.
 
 ## Architektur (Kurzfassung)
 
@@ -58,5 +63,6 @@ deutsche Konversation, **Persistenz** (Transkript/functionCalls), **Tools** (`tr
 **Post-Call-Summary** (eigenes Modell, agent + passthrough), **Passthrough-Modus** (Durchleitung +
 Aufnahme + Batch-Transkription, `DEFAULT_MODE=passthrough`; Diarization-Sprecher-Trennung noch mit
 Zwei-Geräte-Setup zu verifizieren), **Multi-Agent/DDI-Routing** (`agents.targetNumbers`, Dialplan
-reicht echte DDI durch; Demo-Agents via `npm run seed`). Nächste Ausbaustufen: Admin-UI,
-Appliance-Härtung (SIPGate-Trunk).
+reicht echte DDI durch; Demo-Agents via `npm run seed`), **Admin-UI + Management-API**
+(Node/Fastify + Hybrids/GlassKit, JSON-API + OpenAPI, Login, Agents-CRUD, Anrufliste/Detail mit
+Audio-Player). Nächste Ausbaustufen: PWA-Feinschliff, Appliance-Härtung (SIPGate-Trunk).

@@ -63,17 +63,22 @@ export async function buildAdminServer(): Promise<FastifyInstance> {
   });
 
   // Auth-Endpunkte
-  app.post("/api/login", async (req, reply) => {
+  const loginSchema = {
+    tags: ["auth"],
+    summary: "Login (Passwort → Session-Cookie)",
+    body: { type: "object", properties: { password: { type: "string" } }, required: ["password"] },
+  };
+  app.post("/api/login", { schema: loginSchema }, async (req, reply) => {
     const { password } = (req.body ?? {}) as { password?: string };
     if (!passwordValid(password)) return reply.code(401).send({ error: "invalid" });
     setSession(reply);
     return { ok: true };
   });
-  app.post("/api/logout", async (_req, reply) => {
+  app.post("/api/logout", { schema: { tags: ["auth"], summary: "Logout (Session beenden)" } }, async (_req, reply) => {
     clearSession(reply);
     return { ok: true };
   });
-  app.get("/api/me", { preHandler: requireAuth }, async () => ({ ok: true }));
+  app.get("/api/me", { schema: { tags: ["auth"], summary: "Session prüfen" }, preHandler: requireAuth }, async () => ({ ok: true }));
 
   // Ressourcen
   await app.register(agentRoutes, { prefix: "/api/agents" });
