@@ -15,6 +15,8 @@ test("resolveAgent: ohne DDI → Default-Agent aus Config", async () => {
   assert.equal(a.speak.model, config.defaultAgent.speakModel);
   assert.equal(a.think.source, config.llm.provider);
   assert.ok(a.tools.includes("transfer_call"));
-  assert.ok(a.tools.includes("lookup_customer"));
-  assert.equal(a.summary.enabled, config.defaultAgent.summaryEnabled);
+  assert.ok(a.tools.includes("end_call"));
+  assert.equal(a.summary.enabled, config.summary.enabled);
+  assert.equal(a.summary.prompt, config.summary.prompt);
+  assert.equal(a.summary.model, config.summary.model);
 });

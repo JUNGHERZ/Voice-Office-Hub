@@ -50,6 +50,8 @@ const SummarySchema = new Schema(
   {
     enabled: { type: Boolean, default: false },
     prompt: { type: String, default: "" },
+    // Optionales eigenes Summary-Modell (Requesty), unabhängig vom Konversations-Modell.
+    model: { type: String },
   },
   { _id: false },
 );

@@ -55,6 +55,10 @@ export function buildAudioFrame(payload: Buffer): Buffer {
 
 const FRAME_MS = 20;
 const FRAME_BYTES = (config.audio.sampleRate * 2 * FRAME_MS) / 1000;
+const PREBUFFER_MS = 80; // Jitter-Puffer vor Start des Playouts (absorbiert Deepgram-Bursts → weniger Underruns/Knacken)
+const LEAD_IN_MS = 240; // einmalige Stille vor dem allerersten Ton (Greeting), bis die Medienstrecke „warm" ist
+const MAX_UNDERRUN_FRAMES = 50; // nach ~1 s Stille Playout pausieren (Sprechpause)
+const SILENCE_FRAME = Buffer.alloc(FRAME_BYTES);
 
 export interface MediaSessionEvents {
   audio: (pcm: Buffer) => void;
@@ -69,6 +73,12 @@ export declare interface MediaSession {
 export class MediaSession extends EventEmitter {
   private socket?: net.Socket;
   private sendBuffer: Buffer = Buffer.alloc(0);
+  private readonly playQueue: Buffer[] = []; // getaktete 20-ms-Frames für die Ausgabe
+  private playTimer?: NodeJS.Timeout;
+  private playing = false;
+  private nextSendTime = 0; // absolute Soll-Zeit des nächsten Frames (driftfreier Takt)
+  private underruns = 0;
+  private leadIn = true; // erster Ton der Session bekommt eine Stille-Anlaufzeit
   private rawEcho = false;
   private closed = false;
   private readonly log;
@@ -93,6 +103,8 @@ export class MediaSession extends EventEmitter {
   attach(socket: net.Socket): void {
     this.socket = socket;
     this.log.info("AudioSocket-Verbindung zugeordnet");
+    // Greeting-Race: Audio, das vor dem Verbindungsaufbau kam, wartet in der Queue → jetzt abspielen.
+    if (this.playQueue.length) this.ensurePlayout();
   }
 
   /** Vom Server pro empfangenem Audio-Frame aufgerufen. */
@@ -102,19 +114,81 @@ export class MediaSession extends EventEmitter {
     else this.emit("audio", Buffer.from(payload));
   }
 
-  /** PCM in slin-Frames an Asterisk schreiben. */
+  /**
+   * TTS-PCM von Deepgram in 20-ms-slin-Frames zerlegen und in die Playout-Queue legen.
+   * Gesendet wird getaktet über einen selbstkorrigierenden Takt (siehe tick()) — sonst spielt
+   * Asterisk das Audio zu schnell/abgehackt ab (kein eigener Jitter-Buffer für AudioSocket-Eingang).
+   */
   sendAudio(pcm: Buffer): void {
     if (this.closed) return;
     this.sendBuffer = this.sendBuffer.length ? Buffer.concat([this.sendBuffer, pcm]) : pcm;
     while (this.sendBuffer.length >= FRAME_BYTES) {
-      const frame = this.sendBuffer.subarray(0, FRAME_BYTES);
+      this.playQueue.push(Buffer.from(this.sendBuffer.subarray(0, FRAME_BYTES)));
       this.sendBuffer = this.sendBuffer.subarray(FRAME_BYTES);
-      this.writeAudio(frame);
     }
+    // Einmalig vor dem allerersten Ton etwas Stille voranstellen, damit das erste Wort des
+    // Greetings nicht abgeschnitten wird (Medienstrecke ist beim ersten Frame noch nicht „warm").
+    if (this.leadIn && this.playQueue.length) {
+      this.leadIn = false;
+      for (let i = 0; i < Math.round(LEAD_IN_MS / FRAME_MS); i++) {
+        this.playQueue.unshift(Buffer.alloc(FRAME_BYTES));
+      }
+    }
+    this.ensurePlayout();
+  }
+
+  /** Playout-Takt starten (mit kleinem Jitter-Puffer), falls er gerade nicht läuft. */
+  private ensurePlayout(): void {
+    // Erst starten, wenn die Verbindung steht — sonst würden frühe Frames (Greeting) verworfen.
+    if (this.playing || !this.socket) return;
+    this.playing = true;
+    this.underruns = 0;
+    this.nextSendTime = Date.now() + PREBUFFER_MS;
+    this.scheduleTick();
+  }
+
+  /** Nächsten Frame zur absoluten Soll-Zeit einplanen → kein kumulativer Drift. */
+  private scheduleTick(): void {
+    const delay = Math.max(0, this.nextSendTime - Date.now());
+    this.playTimer = setTimeout(() => this.tick(), delay);
+  }
+
+  /**
+   * Ein Tick = genau ein 20-ms-Frame. Bei kurzer Sprechlücke wird Stille gesendet (Takt bleibt
+   * erhalten → keine Mini-Aussetzer); nach ~1 s Stille wird pausiert (Ende der Äußerung).
+   */
+  private tick(): void {
+    if (this.closed || !this.playing) return;
+    const frame = this.playQueue.shift();
+    if (frame) {
+      this.writeAudio(frame);
+      this.underruns = 0;
+    } else {
+      if (++this.underruns > MAX_UNDERRUN_FRAMES) {
+        this.playing = false;
+        this.playTimer = undefined;
+        return;
+      }
+      this.writeAudio(SILENCE_FRAME);
+    }
+    this.nextSendTime += FRAME_MS;
+    this.scheduleTick();
+  }
+
+  /** Ausgabe verwerfen (Barge-in): Restpuffer + Queue leeren, Takt stoppen. */
+  /** Noch nicht ausgespielte Audiozeit in ms (für sauberes Auflegen nach dem Abschied). */
+  pendingMs(): number {
+    return this.playQueue.length * FRAME_MS;
   }
 
   flush(): void {
     this.sendBuffer = Buffer.alloc(0);
+    this.playQueue.length = 0;
+    this.playing = false;
+    if (this.playTimer) {
+      clearTimeout(this.playTimer);
+      this.playTimer = undefined;
+    }
   }
 
   private writeAudio(payload: Buffer): void {
@@ -128,6 +202,11 @@ export class MediaSession extends EventEmitter {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.playing = false;
+    if (this.playTimer) {
+      clearTimeout(this.playTimer);
+      this.playTimer = undefined;
+    }
     try {
       this.socket?.destroy();
     } catch {

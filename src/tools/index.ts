@@ -4,12 +4,12 @@
  */
 import { registerTool } from "./registry.js";
 import { getWeather } from "./handlers/getWeather.js";
-import { lookupCustomer } from "./handlers/lookupCustomer.js";
 import { transferCall } from "./handlers/transferCall.js";
+import { endCall } from "./handlers/endCall.js";
 
 export function registerAllTools(): void {
-  registerTool(lookupCustomer);
   registerTool(transferCall);
+  registerTool(endCall);
   registerTool(getWeather);
 }
 

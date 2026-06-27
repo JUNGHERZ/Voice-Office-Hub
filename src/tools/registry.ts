@@ -12,6 +12,8 @@ export interface ToolContext {
   callerNumber?: string;
   /** Weiterleitung anstoßen (vom ARI-Layer implementiert). */
   requestTransfer?: (target: string) => Promise<{ connected: boolean }>;
+  /** Gespräch beenden/auflegen (vom ARI-Layer implementiert; legt nach Verabschiedung auf). */
+  requestHangup?: () => Promise<void>;
 }
 
 export type ToolHandler = (args: Record<string, unknown>, ctx: ToolContext) => Promise<unknown>;

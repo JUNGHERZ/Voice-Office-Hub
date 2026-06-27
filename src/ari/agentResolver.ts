@@ -30,6 +30,7 @@ function defaultAgent(): ResolvedAgent {
     name: "default",
     mode: "agent",
     passthroughTarget: config.transfer.passthroughTarget || undefined,
+    language: d.language,
     greeting: d.greeting,
     prompt: d.prompt,
     listen: {
@@ -47,8 +48,12 @@ function defaultAgent(): ResolvedAgent {
       provider: "deepgram",
       model: d.speakModel,
     },
-    tools: ["lookup_customer", "transfer_call"],
-    summary: { enabled: d.summaryEnabled, prompt: d.summaryPrompt },
+    tools: ["transfer_call", "end_call"],
+    summary: {
+      enabled: config.summary.enabled,
+      prompt: config.summary.prompt,
+      model: config.summary.model,
+    },
     tags: [],
     mip_opt_out: false,
   };
@@ -61,6 +66,7 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
     name: doc.name,
     mode: doc.mode ?? "agent",
     passthroughTarget: doc.passthroughTarget ?? config.transfer.passthroughTarget ?? undefined,
+    language: doc.language ?? doc.listen?.language ?? config.defaultAgent.language,
     greeting: doc.greeting ?? config.defaultAgent.greeting,
     prompt: doc.prompt ?? config.defaultAgent.prompt,
     listen: {
@@ -86,10 +92,11 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
       speed: doc.speak?.speed,
       volume: doc.speak?.volume,
     },
-    tools: doc.tools ?? ["lookup_customer", "transfer_call"],
+    tools: doc.tools ?? ["transfer_call", "end_call"],
     summary: {
-      enabled: doc.summary?.enabled ?? false,
-      prompt: doc.summary?.prompt ?? config.defaultAgent.summaryPrompt,
+      enabled: doc.summary?.enabled ?? config.summary.enabled,
+      prompt: doc.summary?.prompt || config.summary.prompt,
+      model: doc.summary?.model || config.summary.model,
     },
     tags: doc.tags ?? [],
     mip_opt_out: doc.mip_opt_out ?? false,

@@ -9,13 +9,14 @@ function agent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent {
   return {
     name: "test",
     mode: "agent",
+    language: "multi",
     greeting: "Hallo",
     prompt: "Du bist ein Assistent.",
     listen: { model: "nova-3", language_hints: ["de", "en"], keyterms: ["Loupz"], smart_format: true },
     think: { source: "requesty", model: "openai/gpt-4o", temperature: 0.5 },
     speak: { provider: "deepgram", model: "aura-2-thalia-en" },
     tools: [],
-    summary: { enabled: false, prompt: "" },
+    summary: { enabled: false, prompt: "", model: "openai/gpt-4.1-mini" },
     tags: ["support"],
     mip_opt_out: false,
     ...overrides,
@@ -27,19 +28,30 @@ test("buildSettings: Grundgerüst + Audio aus Config", () => {
   assert.equal(s.type, "Settings");
   assert.equal(s.audio.input.sample_rate, config.audio.sampleRate);
   assert.equal(s.audio.output.sample_rate, config.audio.sampleRate);
-  assert.equal(s.agent.language, "multi");
+  assert.equal((s.agent.listen.provider as Record<string, unknown>).language, "multi");
   assert.equal(s.agent.greeting, "Hallo");
   assert.deepEqual(s.tags, ["support"]);
   assert.equal(s.mip_opt_out, false);
 });
 
-test("buildSettings: listen-Optionen werden übernommen", () => {
+test("buildSettings: listen-Optionen werden übernommen (nova-3: language statt language_hints)", () => {
   const s = buildSettings(agent(), []);
   const p = s.agent.listen.provider as Record<string, unknown>;
   assert.equal(p.model, "nova-3");
-  assert.deepEqual(p.language_hints, ["de", "en"]);
+  assert.equal(p.language, "multi");
+  // language_hints ist nur für Flux gültig → bei nova-3 weggelassen.
+  assert.equal(p.language_hints, undefined);
   assert.deepEqual(p.keyterms, ["Loupz"]);
   assert.equal(p.smart_format, true);
+});
+
+test("buildSettings: language_hints nur bei Flux-Modellen", () => {
+  const s = buildSettings(
+    agent({ listen: { model: "flux-general-multi", language_hints: ["de", "en"], keyterms: [], smart_format: false } }),
+    [],
+  );
+  const p = s.agent.listen.provider as Record<string, unknown>;
+  assert.deepEqual(p.language_hints, ["de", "en"]);
 });
 
 test("buildSettings: think=requesty → open_ai + Requesty-Endpoint", () => {
@@ -61,8 +73,28 @@ test("buildSettings: think=deepgram (claude) → anthropic, kein Endpoint", () =
   assert.equal(s.agent.think.endpoint, undefined);
 });
 
+test("buildSettings: GPT-5 (managed) ohne temperature", () => {
+  const s = buildSettings(
+    agent({ think: { source: "deepgram", model: "gpt-5-mini", temperature: 0.5 } }),
+    [],
+  );
+  const provider = s.agent.think.provider as Record<string, unknown>;
+  assert.equal(provider.type, "open_ai");
+  assert.equal(provider.model, "gpt-5-mini");
+  assert.equal(provider.temperature, undefined);
+});
+
+test("buildSettings: gpt-4o-mini (managed) mit temperature", () => {
+  const s = buildSettings(
+    agent({ think: { source: "deepgram", model: "gpt-4o-mini", temperature: 0.5 } }),
+    [],
+  );
+  const provider = s.agent.think.provider as Record<string, unknown>;
+  assert.equal(provider.temperature, 0.5);
+});
+
 test("buildSettings: Functions werden eingebettet", () => {
-  const fns = [{ name: "lookup_customer", description: "d", parameters: { type: "object" } }];
+  const fns = [{ name: "get_status", description: "d", parameters: { type: "object" } }];
   const s = buildSettings(agent(), fns);
   assert.deepEqual(s.agent.think.functions, fns);
 });

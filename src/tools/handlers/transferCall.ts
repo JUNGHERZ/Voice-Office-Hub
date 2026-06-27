@@ -10,15 +10,17 @@ import type { Tool } from "../registry.js";
 export const transferCall: Tool = {
   name: "transfer_call",
   description:
-    "Leitet den Anruf an eine Telefonnummer (Mensch) weiter. Nimmt niemand an, kehrt das " +
-    "Gespräch automatisch zum Assistenten zurück.",
+    "Verbindet den Anrufer mit einem Menschen/einer Durchwahl. Gib in 'target' die Ziel-Durchwahl " +
+    "an (nur eine im System bekannte Durchwahl verwenden, keine erfundene Nummer). Nimmt niemand an, " +
+    "kehrt das Gespräch automatisch zum Assistenten zurück.",
   parameters: {
     type: "object",
     properties: {
       target: {
         type: "string",
         description:
-          "Zielrufnummer im E.164-Format. Wenn leer, wird die konfigurierte Standardnummer genutzt.",
+          "Ziel-Durchwahl/Nummer. Nur bekannte Durchwahlen verwenden (siehe Anweisungen im Prompt). " +
+          "Wenn leer, wird die konfigurierte Standard-Durchwahl genutzt.",
       },
     },
     required: [],

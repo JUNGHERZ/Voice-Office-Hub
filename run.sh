@@ -10,8 +10,8 @@ set -euo pipefail
 #   ./run.sh logs      Logs folgen
 #   ./run.sh shell     Shell im laufenden Container
 
-IMAGE="deepgram-voice-agent:local"
-NAME="voice-agent"
+IMAGE="exius-voice-hub:local"
+NAME="exius-voice-hub"
 ENV_FILE=".env"
 
 cmd="${1:-up}"
@@ -27,6 +27,7 @@ case "$cmd" in
       -p 5060:5060/udp \
       -p 10000-10100:10000-10100/udp \
       -p 8080:8080/tcp \
+      -p 127.0.0.1:27100:27017/tcp \
       -v "$(pwd)/data/db:/data/db" \
       -v "$(pwd)/data/recordings:/data/recordings" \
       "$IMAGE"

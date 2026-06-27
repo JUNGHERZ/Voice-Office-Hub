@@ -15,8 +15,12 @@ export function buildSettings(agent: ResolvedAgent, functions: FunctionDefinitio
   const listenProvider: Record<string, unknown> = {
     type: "deepgram",
     model: agent.listen.model,
+    // Sprache gehört in den Provider (agent.language ist deprecated). "multi" für nova-3 multilingual.
+    language: agent.language,
   };
-  if (agent.listen.language_hints.length) listenProvider.language_hints = agent.listen.language_hints;
+  // language_hints ist nur bei Flux-Modellen (flux-general-multi) gültig; nova-3 lehnt das Feld ab.
+  if (agent.listen.model.startsWith("flux") && agent.listen.language_hints.length)
+    listenProvider.language_hints = agent.listen.language_hints;
   if (agent.listen.keyterms.length) listenProvider.keyterms = agent.listen.keyterms;
   if (agent.listen.smart_format) listenProvider.smart_format = true;
   if (agent.listen.eot_threshold !== undefined) listenProvider.eot_threshold = agent.listen.eot_threshold;
@@ -32,7 +36,6 @@ export function buildSettings(agent: ResolvedAgent, functions: FunctionDefinitio
       output: { encoding: config.audio.encoding, sample_rate: config.audio.sampleRate, container: "none" },
     },
     agent: {
-      language: "multi",
       listen: { provider: listenProvider },
       think,
       speak: { provider: speakProvider },
@@ -53,10 +56,11 @@ function buildThink(agent: ResolvedAgent, functions: FunctionDefinition[]): Sett
   };
 
   if (agent.think.source === "requesty") {
+    const model = agent.think.model || config.llm.model;
     base.provider = {
       type: "open_ai",
-      model: agent.think.model || config.llm.model,
-      temperature: agent.think.temperature,
+      model,
+      ...(modelSupportsTemperature(model) ? { temperature: agent.think.temperature } : {}),
     };
     base.endpoint = {
       url: `${config.llm.requestyBaseUrl.replace(/\/$/, "")}/chat/completions`,
@@ -67,13 +71,21 @@ function buildThink(agent: ResolvedAgent, functions: FunctionDefinition[]): Sett
     const provider: Record<string, unknown> = {
       type: inferManagedProviderType(agent.think.model),
       model: agent.think.model,
-      temperature: agent.think.temperature,
+      ...(modelSupportsTemperature(agent.think.model) ? { temperature: agent.think.temperature } : {}),
     };
     if (agent.think.reasoning_mode) provider.reasoning_mode = agent.think.reasoning_mode;
     base.provider = provider;
   }
 
   return base;
+}
+
+/**
+ * GPT-5-Familie (und OpenAI-Reasoning-Modelle o1/o3) akzeptieren nur die Default-Temperatur;
+ * ein abweichender Wert führt zu Upstream-400 → Deepgram meldet "Failed to think".
+ */
+function modelSupportsTemperature(model: string): boolean {
+  return !/(^|\/)(gpt-5|o1|o3)/i.test(model);
 }
 
 /** Grobe Ableitung des Provider-Typs aus der Modell-ID für Deepgram-managed Modelle. */

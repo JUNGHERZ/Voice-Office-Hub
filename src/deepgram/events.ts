@@ -13,7 +13,6 @@ export interface SettingsMessage {
     output: { encoding: string; sample_rate: number; container?: string };
   };
   agent: {
-    language?: string;
     listen: { provider: Record<string, unknown> };
     think: {
       provider: Record<string, unknown>;

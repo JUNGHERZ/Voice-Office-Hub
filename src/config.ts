@@ -61,10 +61,15 @@ export interface Config {
   defaultAgent: {
     prompt: string;
     greeting: string;
+    language: string;
     listenModel: string;
     speakModel: string;
-    summaryEnabled: boolean;
-    summaryPrompt: string;
+  };
+  /** Post-Call-Summary: eigenes Modell + Prompt, unabhängig vom Konversations-LLM. */
+  summary: {
+    enabled: boolean;
+    prompt: string;
+    model: string;
   };
   transfer: {
     passthroughTarget: string;
@@ -115,13 +120,19 @@ export const config: Config = {
       "Du bist ein hilfreicher Telefon-Assistent. Antworte in der Sprache des Anrufers.",
     ),
     greeting: opt("DEFAULT_AGENT_GREETING", "Hallo! Wie kann ich Ihnen helfen?"),
+    // "multi" = nova-3 multilingual (erkennt u.a. Deutsch); alternativ "de"/"en".
+    language: opt("DEFAULT_LANGUAGE", "multi"),
     listenModel: opt("DEFAULT_LISTEN_MODEL", "nova-3"),
     speakModel: opt("DEFAULT_SPEAK_MODEL", "aura-2-thalia-en"),
-    summaryEnabled: bool("SUMMARY_ENABLED", false),
-    summaryPrompt: opt(
+  },
+  summary: {
+    enabled: bool("SUMMARY_ENABLED", false),
+    prompt: opt(
       "SUMMARY_PROMPT",
       "Fasse das folgende Telefongespräch in 3-5 Sätzen sachlich zusammen.",
     ),
+    // Eigenes Summary-Modell über Requesty (unabhängig vom Konversations-Modell).
+    model: opt("SUMMARY_MODEL", "openai/gpt-4.1-mini"),
   },
   transfer: {
     passthroughTarget: opt("PASSTHROUGH_TARGET", ""),

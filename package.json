@@ -1,5 +1,5 @@
 {
-  "name": "deepgram-voice-agent",
+  "name": "exius-voice-hub",
   "version": "0.1.0",
   "private": true,
   "description": "Telefonisch erreichbarer KI-Voice-Agent: Asterisk (ARI) <-> Deepgram Voice Agent API",

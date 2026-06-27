@@ -36,6 +36,8 @@ export interface ResolvedSpeak {
 export interface ResolvedSummary {
   enabled: boolean;
   prompt: string;
+  /** Eigenes Summary-Modell (Requesty), unabhängig vom Konversations-Modell (think). */
+  model: string;
 }
 
 export interface ResolvedAgent {
@@ -43,6 +45,8 @@ export interface ResolvedAgent {
   name: string;
   mode: CallMode;
   passthroughTarget?: string;
+  /** STT-Sprache → agent.listen.provider.language ("multi" für nova-3 multilingual, "de", "en", …). */
+  language: string;
   greeting?: string;
   prompt: string;
   listen: ResolvedListen;

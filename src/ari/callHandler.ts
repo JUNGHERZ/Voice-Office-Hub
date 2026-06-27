@@ -165,24 +165,42 @@ async function runAgentCall(
   let media: Media | undefined;
   let session: AgentSession | undefined;
   let recording: ActiveRecording | null = null;
-  let transferActive = false;
+  let transferActive = false; // voller Mute (beide Richtungen) — nach erfolgreichem Connect
+  let transferRinging = false; // während des Klingelns: Agent hört nicht zu, Ansage darf noch raus
+  let calleeChannel: any; // bei erfolgreichem Transfer: der durchverbundene Ziel-Kanal
+  let endRequested = false;
+  let lastAudioAt = 0; // Zeitpunkt des zuletzt empfangenen Agent-Audios (für Drain-Erkennung)
+  let audioSinceEnd = false; // kam nach end_call noch Audio (der Abschied)?
+  let drainInterval: NodeJS.Timeout | undefined;
+  let hangupTimer: NodeJS.Timeout | undefined;
   let cleaned = false;
 
   const onEnd = (_ev: unknown, ch: AriChannel) => {
     if (ch.id === channel.id) void cleanup("completed");
   };
 
+  // Durchgeschaltete Beendigung: legt der durchverbundene Mitarbeiter (Ziel) auf, endet der Anruf.
+  const onCalleeGone = (_ev: unknown, ch: AriChannel) => {
+    if (calleeChannel && ch?.id === calleeChannel.id) void cleanup("completed");
+  };
+
   const cleanup = async (status: "completed" | "failed") => {
     if (cleaned) return;
     cleaned = true;
     log.info("Teardown", { status });
+    if (hangupTimer) clearTimeout(hangupTimer);
+    if (drainInterval) clearInterval(drainInterval);
     client.removeListener("StasisEnd", onEnd);
+    client.removeListener("ChannelDestroyed", onCalleeGone);
     try {
       if (recording) await recording.stop();
     } catch { /* ignore */ }
     session?.close();
     media?.close();
+    // Beide Beine + Medienkanal beenden (durchgeschaltete Beendigung).
+    try { await calleeChannel?.hangup(); } catch { /* ignore */ }
     try { await externalChannel?.hangup(); } catch { /* ignore */ }
+    try { await channel.hangup(); } catch { /* ignore */ }
     try { await bridge?.destroy(); } catch { /* ignore */ }
 
     // Aufnahme in GridFS ablegen (best effort).
@@ -226,25 +244,64 @@ async function runAgentCall(
       callId: requestId,
       ...(meta.callerNumber ? { callerNumber: meta.callerNumber } : {}),
       requestTransfer: async (target: string) => {
-        transferActive = true;
-        media?.flush();
+        // Klingel-Phase: Agent hört nicht mehr auf den Anrufer (reagiert nicht), ABER die bereits
+        // begonnene Ansage ("Einen Moment bitte…") darf noch ausgespielt werden (kein flush, Output offen).
+        // Das Zieltelefon klingelt parallel.
+        transferRinging = true;
         await repo.setTransfer(requestId, { attempted: true, target });
         const result = await transferIntoBridge(client, bridge, target);
         await repo.setTransfer(requestId, { attempted: true, target, connected: result.connected });
-        transferActive = false;
-        if (!result.connected) {
+        transferRinging = false;
+        if (result.connected) {
+          // Mensch hat übernommen → Agent voll stumm, hört NICHT mit. Anruf läuft Anrufer ↔ Mitarbeiter.
+          transferActive = true;
+          calleeChannel = result.channel;
+          // Legt der Mitarbeiter auf, endet der ganze Anruf (Caller-Hangup deckt cleanup ohnehin ab).
+          client.on("ChannelDestroyed", onCalleeGone);
+        } else {
+          // Niemand erreichbar → Agent ist wieder voll aktiv und setzt den Kontext fort.
           session?.injectMessage("Ich konnte leider niemanden erreichen. Wir machen zusammen weiter.");
         }
         return result;
       },
+      requestHangup: async () => {
+        if (endRequested) return;
+        endRequested = true;
+        const startedAt = Date.now();
+        log.info("Auflegen angefordert (end_call) — warte auf Ende des Abschieds");
+        // Datengetrieben: auflegen, sobald das Agent-Audio aufgehört hat zu fließen UND der
+        // Playout-Puffer leer ist. Der Abschied kann als TTS-Audio erst NACH dem (textbasierten)
+        // end_call eintreffen → wir geben ihm eine Anlaufzeit (Grace), falls noch nichts kam.
+        drainInterval = setInterval(() => {
+          if (cleaned) { if (drainInterval) clearInterval(drainInterval); return; }
+          const now = Date.now();
+          const pending = media && "pendingMs" in media ? media.pendingMs() : 0;
+          const idleAudio = now - lastAudioAt;
+          if (pending >= 120 || idleAudio <= 800) return; // spielt noch / Audio kam gerade
+          // Puffer leer und seit >800 ms kein Audio mehr:
+          if (audioSinceEnd || now - startedAt > 3_500) void hangup(); // Abschied gespielt ODER keiner kam
+        }, 150);
+        // Absolute Obergrenze.
+        hangupTimer = setTimeout(() => void hangup(), 20_000);
+      },
+    };
+
+    const hangup = async () => {
+      if (hangupTimer) { clearTimeout(hangupTimer); hangupTimer = undefined; }
+      if (drainInterval) { clearInterval(drainInterval); drainInterval = undefined; }
+      try { await channel.hangup(); } catch { /* ignore */ }
     };
 
     // ── Audio-Bridging ──────────────────────────────────────────────────────
     media.on("audio", (pcm) => {
-      if (!transferActive) session?.sendAudio(pcm);
+      // Anrufer-Audio NICHT an Deepgram während Transfer (voll) oder Klingelphase (Agent hört nicht zu).
+      if (!transferActive && !transferRinging) session?.sendAudio(pcm);
     });
     session.on("audio", (chunk) => {
-      if (!transferActive) media?.sendAudio(chunk);
+      if (transferActive) return;
+      lastAudioAt = Date.now();
+      if (endRequested) audioSinceEnd = true; // der Abschied nach end_call fließt
+      media?.sendAudio(chunk);
     });
 
     // ── Deepgram-Events ──────────────────────────────────────────────────────
@@ -258,9 +315,13 @@ async function runAgentCall(
     session.on("functionCallRequest", async (ev) => {
       for (const fn of ev.functions) {
         if (!fn.client_side) continue;
+        log.info("FunctionCall", { name: fn.name, args: fn.arguments });
         const requestedAt = new Date();
         const result = await dispatchTool(fn.name, fn.arguments, toolCtx);
-        session?.sendFunctionResponse(fn.id, fn.name, result);
+        // Bei end_call (setzt endRequested) KEINE FunctionCallResponse senden — sonst startet
+        // Deepgram eine zweite Abschiedsrunde (doppeltes "Auf Wiederhören"). Der Abschied ist
+        // bereits vor dem Tool-Aufruf gesprochen worden; danach wird aufgelegt.
+        if (!endRequested) session?.sendFunctionResponse(fn.id, fn.name, result);
         void repo.appendFunctionCall(requestId, {
           name: fn.name,
           arguments: safeParse(fn.arguments),
@@ -295,10 +356,10 @@ async function runSummary(
     await repo.setSummary(requestId, { status: "pending" });
     const transcript = await repo.getTranscript(requestId);
     if (!transcript.length) {
-      await repo.setSummary(requestId, { status: "done", text: "", model: agent.think.model });
+      await repo.setSummary(requestId, { status: "done", text: "", model: agent.summary.model });
       return;
     }
-    const { text, model } = await summarizeTranscript(transcript, agent.summary.prompt, agent.think.model);
+    const { text, model } = await summarizeTranscript(transcript, agent.summary.prompt, agent.summary.model);
     await repo.setSummary(requestId, { status: "done", text, model, createdAt: new Date() });
     log.info("Summary erstellt", { chars: text.length });
   } catch (err) {

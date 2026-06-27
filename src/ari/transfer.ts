@@ -19,7 +19,7 @@ export async function transferIntoBridge(
   bridge: AriBridge,
   target: string,
   appArgs = "transfer",
-): Promise<{ connected: boolean }> {
+): Promise<{ connected: boolean; channel?: any }> {
   const endpoint = target.startsWith("PJSIP/") ? target : `PJSIP/${target}`;
   let outbound: any;
 
@@ -30,7 +30,7 @@ export async function transferIntoBridge(
     outbound = undefined;
   }
 
-  return new Promise<{ connected: boolean }>((resolve) => {
+  return new Promise<{ connected: boolean; channel?: any }>((resolve) => {
     let settled = false;
     const done = (connected: boolean) => {
       if (settled) return;
@@ -38,7 +38,9 @@ export async function transferIntoBridge(
       clearTimeout(timer);
       client.removeListener("StasisStart", onStart);
       client.removeListener("ChannelDestroyed", onDestroyed);
-      resolve({ connected });
+      // Bei Erfolg den Ziel-Kanal zurückgeben, damit der callHandler die durchgeschaltete
+      // Beendigung verdrahten kann (legt eine Seite auf → ganzer Anruf endet).
+      resolve({ connected, channel: connected ? outbound : undefined });
     };
 
     const timer = setTimeout(async () => {
