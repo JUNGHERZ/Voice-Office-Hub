@@ -39,6 +39,7 @@ app-root {
   gap: 10px;
   font-weight: 700;
   color: var(--gl-color-text-heading);
+  text-decoration: none;
 }
 .app-head__actions { display: flex; gap: 8px; align-items: center; }
 

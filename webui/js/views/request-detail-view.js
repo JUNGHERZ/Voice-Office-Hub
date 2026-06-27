@@ -77,7 +77,11 @@ export default define({
       // Primär: Anruflänge (startedAt→endedAt) aus durationSec, Fallback recording.
       const callSec = callDurationSec(r);
       // Sekundär: reine Medien-/Aufnahmelänge (für separate Kleinanzeige).
-      const mediaSec = r.recording && typeof r.recording.durationSec === "number" ? r.recording.durationSec : undefined;
+      // 0 gilt NICHT als gültige Länge (Schema-Default alter Anrufe) → Zeile entfällt.
+      const mediaSec =
+        r.recording && typeof r.recording.durationSec === "number" && r.recording.durationSec > 0
+          ? r.recording.durationSec
+          : undefined;
       const transcript = r.transcript || [];
       const calls = r.functionCalls || [];
 
