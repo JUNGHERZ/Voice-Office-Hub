@@ -4,7 +4,7 @@
 import { define, html } from "hybrids";
 
 import { api } from "../api.js";
-import { callLabel, fmtCallDuration, fmtDateTime, statusVariant } from "../format.js";
+import { callLabel, fmtCallDuration, fmtDateTime, statusLabel, statusVariant } from "../format.js";
 
 const PAGE = 15;
 
@@ -96,7 +96,7 @@ export default define({
                         ${r.recording && r.recording.gridFsId
                           ? html`<span class="hp">🎧</span>`
                           : ""}
-                        <glk-badge variant="${statusVariant(r.status)}">${r.status}</glk-badge>
+                        <glk-badge variant="${statusVariant(r.status)}">${statusLabel(r.status)}</glk-badge>
                       </span>
                     </glk-list-item>
                   `,

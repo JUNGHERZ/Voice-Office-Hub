@@ -11,13 +11,24 @@ export function fmtDuration(sec) {
 }
 
 /**
- * Anruflänge (Sekunden) eines Requests: bevorzugt das Top-Level-Feld durationSec
- * (startedAt→endedAt), Fallback auf recording.durationSec. Liefert undefined,
- * wenn nichts gesetzt ist (z. B. alte Seed-Requests).
+ * Anruflänge (Sekunden) eines Requests. Priorität:
+ *   1. durationSec (> 0)
+ *   2. aus startedAt→endedAt berechnet (für Bestands-Anrufe ohne durationSec)
+ *   3. recording.durationSec (> 0)
+ *   4. sonst undefined → Anzeige "—"
+ * Wichtig: 0 zählt NICHT als gültige Dauer (Schema-Default alter Requests).
  */
 export function callDurationSec(r) {
-  if (r && typeof r.durationSec === "number") return r.durationSec;
-  if (r && r.recording && typeof r.recording.durationSec === "number") {
+  if (!r) return undefined;
+  if (typeof r.durationSec === "number" && r.durationSec > 0) return r.durationSec;
+  if (r.startedAt && r.endedAt) {
+    const start = new Date(r.startedAt).getTime();
+    const end = new Date(r.endedAt).getTime();
+    if (!Number.isNaN(start) && !Number.isNaN(end) && end > start) {
+      return Math.round((end - start) / 1000);
+    }
+  }
+  if (r.recording && typeof r.recording.durationSec === "number" && r.recording.durationSec > 0) {
     return r.recording.durationSec;
   }
   return undefined;
@@ -81,4 +92,18 @@ export function statusVariant(status) {
   if (status === "completed") return "success";
   if (status === "failed") return "error";
   return "primary"; // in_progress
+}
+
+/** Anruf-Status für die Anzeige übersetzen (intern weiter englische Werte). */
+export function statusLabel(status) {
+  switch (status) {
+    case "completed":
+      return "Abgeschlossen";
+    case "failed":
+      return "Fehlgeschlagen";
+    case "in_progress":
+      return "Läuft";
+    default:
+      return status || "—";
+  }
 }

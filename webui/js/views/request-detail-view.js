@@ -8,7 +8,7 @@
 import { define, html } from "hybrids";
 
 import { api } from "../api.js";
-import { callDurationSec, callLabel, fmtDuration, modeLabel, statusVariant } from "../format.js";
+import { callDurationSec, callLabel, fmtDuration, modeLabel, statusLabel, statusVariant } from "../format.js";
 
 function navigate(host, view, id) {
   host.dispatchEvent(
@@ -88,7 +88,7 @@ export default define({
         </div>
 
         <div class="badges">
-          <glk-badge variant="${statusVariant(r.status)}">${r.status}</glk-badge>
+          <glk-badge variant="${statusVariant(r.status)}">${statusLabel(r.status)}</glk-badge>
           <glk-badge variant="${r.mode === "passthrough" ? "primary" : "success"}">${modeLabel(r.mode)}</glk-badge>
           ${r.language && html`<glk-badge>${r.language}</glk-badge>`}
           ${callSec !== undefined ? html`<glk-badge>${fmtDuration(callSec)}</glk-badge>` : ""}
