@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Exius Voice Hub — Admin · Design-Vorschau</title>
+  <link rel="stylesheet" href="/vendor/glasskit/glasskit.min.css" />
+  <style>
+    html, body { margin: 0; padding: 0; }
+    .board { max-width: 1180px; margin: 0 auto; padding: 24px 16px 80px; }
+    .board__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 28px; align-items: start; }
+    .screen__label { text-transform: uppercase; letter-spacing: .08em; font-size: 12px; opacity: .65; margin: 4px 0 10px; font-weight: 600; }
+    .screen__frame { border: 1px solid var(--gl-border-subtle); border-radius: 28px; padding: 14px; background: rgba(255,255,255,0.03); }
+    .nav-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+    .nav-links { display: flex; gap: 6px; flex-wrap: wrap; }
+    .stat { text-align: center; }
+    .stat__num { font-size: 28px; font-weight: 700; }
+    .stat__lbl { font-size: 13px; opacity: .6; }
+    .bubble { max-width: 82%; padding: 10px 14px; border-radius: var(--gl-radius-input); background: var(--gl-surface-2); border: 1px solid var(--gl-border-subtle); }
+    .bubble--agent { align-self: flex-start; }
+    .bubble--caller { align-self: flex-end; background: var(--gl-surface-3); }
+    .bubble__who { font-size: 11px; opacity: .55; margin-bottom: 2px; }
+    .player { display: flex; align-items: center; gap: 12px; }
+    .ico { width: 20px; height: 20px; }
+    .ico--lg { width: 26px; height: 26px; }
+  </style>
+</head>
+<body>
+  <div class="glass-bg">
+    <div class="board">
+      <div class="board__head">
+        <h1 class="glass-title">Exius Voice Hub — Admin · Design-Vorschau</h1>
+        <button class="glass-theme-toggle" onclick="(()=>{const h=document.documentElement;h.setAttribute('data-theme',h.getAttribute('data-theme')==='dark'?'light':'dark')})()">
+          <svg class="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+      <p style="opacity:.6; margin-top:0; margin-bottom:22px;">Statische Vorschau (keine Live-Daten) — Glas-Look via GlassKit. Theme rechts oben umschaltbar.</p>
+
+      <div class="grid">
+
+        <!-- 0. NAVIGATION (Floating Tab-Bar) -->
+        <section>
+          <div class="screen__label">0 · Navigation · Floating Tab-Bar</div>
+          <div class="screen__frame" style="display:flex; justify-content:center; padding:24px 14px;">
+            <div class="glass-tab-bar-dock" style="position:static; left:auto; bottom:auto; transform:none;">
+              <nav class="glass-tab-bar glass-tab-bar--floating">
+                <button class="glass-tab-bar__item is-active">
+                  <span class="glass-tab-bar__icon"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg></span>
+                  <span class="glass-tab-bar__label">Dashboard</span>
+                </button>
+                <button class="glass-tab-bar__item">
+                  <span class="glass-tab-bar__icon"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+                  <span class="glass-tab-bar__label">Agents</span>
+                </button>
+                <button class="glass-tab-bar__item">
+                  <span class="glass-tab-bar__icon"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+                  <span class="glass-tab-bar__label">Anrufe</span>
+                </button>
+              </nav>
+            </div>
+          </div>
+        </section>
+
+        <!-- 1. LOGIN -->
+        <section>
+          <div class="screen__label">1 · Login</div>
+          <div class="screen__frame">
+            <div class="gl-stack gl-stack--md" style="text-align:center">
+              <div class="glass-avatar glass-avatar--lg" style="margin:8px auto 0">EV</div>
+              <h2 class="glass-title" style="font-size:20px">Exius Voice Hub</h2>
+              <p style="opacity:.6; margin:0">Admin-Anmeldung</p>
+              <div class="glass-input-group" style="text-align:left">
+                <label class="glass-label">Passwort</label>
+                <input class="glass-input" type="password" placeholder="••••••••" />
+              </div>
+              <button class="glass-btn glass-btn--primary">Anmelden</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 2. DASHBOARD -->
+        <section>
+          <div class="screen__label">2 · Dashboard</div>
+          <div class="screen__frame">
+            <nav class="glass-nav">
+              <span class="nav-brand"><span class="glass-avatar glass-avatar--sm">EV</span> Voice Hub</span>
+              <span class="nav-links">
+                <span class="glass-badge glass-badge--primary">Dashboard</span>
+                <span class="glass-badge">Agents</span>
+                <span class="glass-badge">Anrufe</span>
+              </span>
+            </nav>
+            <div class="gl-row" style="gap:12px; margin:16px 0">
+              <div class="glass-card stat" style="flex:1"><div class="stat__num">54</div><div class="stat__lbl">Anrufe</div></div>
+              <div class="glass-card stat" style="flex:1"><div class="stat__num">3</div><div class="stat__lbl">Agents</div></div>
+              <div class="glass-card stat" style="flex:1"><div class="stat__num">41</div><div class="stat__lbl">Aufnahmen</div></div>
+            </div>
+            <div class="glass-list__section-header">Letzte Anrufe</div>
+            <ul class="glass-list">
+              <li class="glass-list__item glass-list__item--interactive">
+                <div class="glass-list__content">
+                  <div class="glass-list__title">+49 151 … → 120 (Vertrieb)</div>
+                  <div class="glass-list__subtitle">vor 4 Min · 1:29 · Summary ✓</div>
+                </div>
+                <div class="glass-list__trailing"><span class="glass-badge glass-badge--success">agent</span></div>
+              </li>
+              <li class="glass-list__item glass-list__item--interactive">
+                <div class="glass-list__content">
+                  <div class="glass-list__title">+49 170 … → 122</div>
+                  <div class="glass-list__subtitle">vor 22 Min · 0:48 · weitergeleitet 101</div>
+                </div>
+                <div class="glass-list__trailing"><span class="glass-badge glass-badge--primary">passthrough</span></div>
+              </li>
+              <li class="glass-list__item glass-list__item--center glass-list__item--interactive glass-list__item--accent">Alle Anrufe anzeigen</li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- 3. AGENTS LIST -->
+        <section>
+          <div class="screen__label">3 · Agents</div>
+          <div class="screen__frame">
+            <nav class="glass-nav">
+              <h2 class="glass-title" style="font-size:20px">Agents</h2>
+              <button class="glass-btn glass-btn--primary glass-btn--auto glass-btn--sm">+ Neuer Agent</button>
+            </nav>
+            <ul class="glass-list" style="margin-top:14px">
+              <li class="glass-list__item glass-list__item--interactive">
+                <span class="glass-list__leading"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg></span>
+                <div class="glass-list__content">
+                  <div class="glass-list__title">Vertrieb Demo</div>
+                  <div class="glass-list__subtitle">DDI 120 · aura-2-viktoria-de</div>
+                </div>
+                <div class="glass-list__trailing"><span class="glass-badge glass-badge--success">agent</span></div>
+              </li>
+              <li class="glass-list__item glass-list__item--interactive">
+                <span class="glass-list__leading"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 0 0-6 0v4"/><rect x="2" y="9" width="20" height="11" rx="2"/></svg></span>
+                <div class="glass-list__content">
+                  <div class="glass-list__title">Support Demo</div>
+                  <div class="glass-list__subtitle">DDI 121 · aura-2-viktoria-de</div>
+                </div>
+                <div class="glass-list__trailing"><span class="glass-badge glass-badge--success">agent</span></div>
+              </li>
+              <li class="glass-list__item glass-list__item--interactive">
+                <span class="glass-list__leading"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></span>
+                <div class="glass-list__content">
+                  <div class="glass-list__title">Passthrough Demo (101)</div>
+                  <div class="glass-list__subtitle">DDI 122 · leitet an 101</div>
+                </div>
+                <div class="glass-list__trailing"><span class="glass-badge glass-badge--primary">passthrough</span></div>
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- 4. AGENT FORM -->
+        <section>
+          <div class="screen__label">4 · Agent bearbeiten</div>
+          <div class="screen__frame">
+            <nav class="glass-nav">
+              <button class="glass-pill"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
+              <h2 class="glass-title" style="font-size:20px">Vertrieb Demo</h2>
+            </nav>
+            <div class="gl-stack gl-stack--md" style="margin-top:14px">
+              <div class="glass-input-group"><label class="glass-label">Name</label><input class="glass-input" value="Vertrieb Demo" /></div>
+              <div class="glass-input-group"><label class="glass-label">Zielrufnummern (DDI)</label><input class="glass-input" value="120" /><span class="glass-hint">Komma-getrennt; in Prod E.164 (+49…)</span></div>
+              <div class="glass-input-group"><label class="glass-label">Modus</label>
+                <select class="glass-select"><option>agent</option><option>passthrough</option></select>
+              </div>
+              <div class="glass-input-group"><label class="glass-label">Begrüßung</label><input class="glass-input" value="Willkommen beim Vertrieb!" /></div>
+              <div class="glass-input-group"><label class="glass-label">System-Prompt</label><textarea class="glass-textarea" rows="3">Du bist eine freundliche Vertriebs-Assistentin…</textarea></div>
+              <div class="gl-row" style="gap:12px">
+                <div class="glass-input-group" style="flex:1"><label class="glass-label">Sprache</label><input class="glass-input" value="de" /></div>
+                <div class="glass-input-group" style="flex:1"><label class="glass-label">TTS-Stimme</label><input class="glass-input" value="aura-2-viktoria-de" /></div>
+              </div>
+              <label class="glass-toggle"><input class="glass-toggle__input" type="checkbox" checked /><span class="glass-toggle__track"><span class="glass-toggle__thumb"></span></span><span class="glass-toggle__label">Post-Call-Summary</span></label>
+              <label class="glass-toggle"><input class="glass-toggle__input" type="checkbox" checked /><span class="glass-toggle__track"><span class="glass-toggle__thumb"></span></span><span class="glass-toggle__label">Aktiv</span></label>
+              <hr class="glass-divider" />
+              <button class="glass-btn glass-btn--primary">Speichern</button>
+              <button class="glass-btn glass-btn--tertiary">Löschen</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5. REQUESTS LIST -->
+        <section>
+          <div class="screen__label">5 · Anrufe (Requests)</div>
+          <div class="screen__frame">
+            <nav class="glass-nav">
+              <h2 class="glass-title" style="font-size:20px">Anrufe</h2>
+              <span class="nav-links"><span class="glass-badge glass-badge--primary">Alle</span><span class="glass-badge">agent</span><span class="glass-badge">passthrough</span></span>
+            </nav>
+            <ul class="glass-list" style="margin-top:14px">
+              <li class="glass-list__item glass-list__item--interactive">
+                <div class="glass-list__content"><div class="glass-list__title">+49 151 234… → 120</div><div class="glass-list__subtitle">27.06. 18:31 · 1:29</div></div>
+                <div class="glass-list__trailing"><span class="glass-list__value">🎧</span><span class="glass-badge glass-badge--success">done</span></div>
+              </li>
+              <li class="glass-list__item glass-list__item--interactive">
+                <div class="glass-list__content"><div class="glass-list__title">+49 170 998… → 122</div><div class="glass-list__subtitle">27.06. 18:12 · 0:48</div></div>
+                <div class="glass-list__trailing"><span class="glass-list__value">🎧</span><span class="glass-badge glass-badge--success">done</span></div>
+              </li>
+              <li class="glass-list__item glass-list__item--interactive">
+                <div class="glass-list__content"><div class="glass-list__title">+49 89 55… → 121</div><div class="glass-list__subtitle">27.06. 17:58 · 2:03</div></div>
+                <div class="glass-list__trailing"><span class="glass-badge glass-badge--error">failed</span></div>
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- 6. REQUEST DETAIL -->
+        <section>
+          <div class="screen__label">6 · Anruf-Detail</div>
+          <div class="screen__frame">
+            <nav class="glass-nav">
+              <button class="glass-pill"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
+              <h2 class="glass-title" style="font-size:18px">+49 151 → 120</h2>
+            </nav>
+            <div class="gl-row" style="gap:8px; flex-wrap:wrap; margin:12px 0">
+              <span class="glass-badge glass-badge--success">agent</span>
+              <span class="glass-badge">de</span>
+              <span class="glass-badge">1:29</span>
+              <span class="glass-badge glass-badge--primary">Vertrieb Demo</span>
+            </div>
+            <div class="glass-card" style="margin-bottom:14px">
+              <div class="player">
+                <button class="glass-pill"><svg class="ico--lg" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg></button>
+                <div style="flex:1"><div class="glass-progress"><div class="glass-progress__fill" style="width:38%"></div></div></div>
+                <span class="glass-list__value">0:34 / 1:29</span>
+              </div>
+            </div>
+            <div class="glass-list__section-header">Transkript</div>
+            <div class="gl-stack gl-stack--sm" style="margin-bottom:14px">
+              <div class="bubble bubble--agent"><div class="bubble__who">Agent · 0:00</div>Willkommen beim Vertrieb! Wie kann ich helfen?</div>
+              <div class="bubble bubble--caller"><div class="bubble__who">Anrufer · 0:05</div>Ich hätte eine Frage zu einem Angebot.</div>
+              <div class="bubble bubble--agent"><div class="bubble__who">Agent · 0:09</div>Sehr gern — um welches Produkt geht es?</div>
+            </div>
+            <div class="glass-list__section-header">Zusammenfassung</div>
+            <div class="glass-card glass-card--glow">
+              <p class="glass-card__text">Anrufer erkundigt sich nach einem Angebot. Vereinbart: Rückruf morgen. Offen: konkrete Stückzahl.</p>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>
