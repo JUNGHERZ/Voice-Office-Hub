@@ -26,6 +26,7 @@ function emptyForm() {
     greeting: "",
     prompt: "",
     speakModel: "",
+    useTransferCallerId: false,
     summaryEnabled: false,
     enabled: true,
   };
@@ -42,6 +43,7 @@ function toForm(a) {
     greeting: a.greeting || "",
     prompt: a.prompt || "",
     speakModel: (a.speak && a.speak.model) || "",
+    useTransferCallerId: !!a.useTransferCallerId,
     summaryEnabled: !!(a.summary && a.summary.enabled),
     enabled: a.enabled !== false,
   };
@@ -62,6 +64,7 @@ function toBody(f) {
     greeting: f.greeting,
     prompt: f.prompt,
     speak: { model: f.speakModel.trim() || undefined },
+    useTransferCallerId: f.useTransferCallerId,
     summary: { enabled: f.summaryEnabled },
     enabled: f.enabled,
   };
@@ -212,6 +215,12 @@ export default define({
                   placeholder="z. B. aura-2-thalia-en"
                   onglk-input="${(host, e) => setField(host, "speakModel", e.detail.value)}"
                 ></glk-input>
+
+                <glk-toggle
+                  label="Anrufer-Nr. bei externem Transfer (CLIP no screening)"
+                  checked="${f.useTransferCallerId}"
+                  onglk-change="${(host, e) => setField(host, "useTransferCallerId", e.detail.checked)}"
+                ></glk-toggle>
 
                 <glk-toggle
                   label="Post-Call-Summary"

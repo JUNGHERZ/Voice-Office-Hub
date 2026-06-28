@@ -77,6 +77,16 @@ export interface Config {
     passthroughTarget: string;
     timeoutSec: number;
   };
+  /** SIP-Trunk-Parameter, die auch der Node-Code (Outbound/Transfer) braucht. */
+  trunk: {
+    server: string;
+    /** PJSIP-Endpoint-Name für ausgehende Wahl über den Trunk. */
+    endpoint: string;
+    /** Erlaubt der Trunk das Setzen einer fremden Absender-CLI (CLIP no screening)? */
+    clipNoScreening: boolean;
+    /** Eigene Default-Absendernummer (DID) als Fallback, z. B. für den Default-Agent. */
+    outboundCallerId: string;
+  };
   recordingPath: string;
   /**
    * Zeitfenster (ms), in dem ein zweiter eingehender Anruf mit gleicher
@@ -158,6 +168,12 @@ export const config: Config = {
   transfer: {
     passthroughTarget: opt("PASSTHROUGH_TARGET", ""),
     timeoutSec: int("TRANSFER_TIMEOUT", 30),
+  },
+  trunk: {
+    server: opt("TRUNK_SERVER", "sipconnect.sipgate.de"),
+    endpoint: opt("TRUNK_OUTBOUND_ENDPOINT", "trunk-endpoint"),
+    clipNoScreening: bool("TRUNK_CLIP_NO_SCREENING", false),
+    outboundCallerId: opt("OUTBOUND_CALLER_ID", ""),
   },
   recordingPath: opt("RECORDING_PATH", "/data/recordings"),
   callDedupWindowMs: int("CALL_DEDUP_WINDOW_MS", 4000),

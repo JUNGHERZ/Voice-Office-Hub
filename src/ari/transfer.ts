@@ -10,16 +10,57 @@
 import type { AriBridge, AriClient } from "ari-client";
 
 import { config } from "../config.js";
+import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
+import { looksExternal, normalizePhone, toSipgateCli } from "../util/phone.js";
 
 const log = logger.child({ mod: "transfer" });
+
+export interface TransferOptions {
+  /** Absender-CLI (SIPGate-Format `49…`) für externe Wahl über den Trunk → P-Preferred-Identity. */
+  callerId?: string;
+  appArgs?: string;
+}
+
+/**
+ * Entscheidet, WIE ein Transfer-Ziel gewählt wird:
+ *  - **intern** (kurze Durchwahl, z. B. `101`) → `PJSIP/<ziel>` wie bisher, keine CLI.
+ *  - **extern** (PSTN/Mobil) → `PJSIP/<e164>@<trunk-endpoint>` + Absender-CLI.
+ *    CLI = Original-Anrufernummer, wenn `agent.useTransferCallerId` UND der Trunk CLIP no screening
+ *    erlaubt (`TRUNK_CLIP_NO_SCREENING`); sonst die eigene Agent-DID (bzw. `OUTBOUND_CALLER_ID`).
+ */
+export function resolveOutboundTransfer(
+  agent: Pick<ResolvedAgent, "targetNumbers" | "useTransferCallerId">,
+  target: string,
+  callerNumber?: string,
+): { target: string; callerId?: string } {
+  if (!looksExternal(target)) return { target };
+
+  const dialNumber = normalizePhone(target);
+  const ownRaw = (agent.targetNumbers ?? []).find(looksExternal) || config.trunk.outboundCallerId;
+  const ownCli = toSipgateCli(ownRaw);
+
+  let callerId = ownCli;
+  if (agent.useTransferCallerId) {
+    if (config.trunk.clipNoScreening) {
+      callerId = toSipgateCli(callerNumber) || ownCli;
+    } else {
+      log.warn("useTransferCallerId aktiv, aber TRUNK_CLIP_NO_SCREENING=false → eigene Nummer", {
+        callerNumber,
+      });
+    }
+  }
+
+  return { target: `${dialNumber}@${config.trunk.endpoint}`, callerId: callerId || undefined };
+}
 
 export async function transferIntoBridge(
   client: AriClient,
   bridge: AriBridge,
   target: string,
-  appArgs = "transfer",
+  opts: TransferOptions = {},
 ): Promise<{ connected: boolean; channel?: any }> {
+  const appArgs = opts.appArgs ?? "transfer";
   const endpoint = target.startsWith("PJSIP/") ? target : `PJSIP/${target}`;
   let outbound: any;
 
@@ -57,13 +98,21 @@ export async function transferIntoBridge(
       }
     };
 
-    const originateOpts = {
+    const originateOpts: Record<string, unknown> = {
       endpoint,
       app: config.ari.app,
       appArgs,
       timeout: config.transfer.timeoutSec,
       formats: "slin16",
     };
+    // Externe Wahl über den Trunk: Absender-Rufnummer setzen. SIPGate wertet die angezeigte
+    // Nummer aus `P-Preferred-Identity` aus (gesetzt als PJSIP-Header beim Kanalaufbau).
+    if (opts.callerId) {
+      originateOpts.callerId = opts.callerId;
+      originateOpts.variables = {
+        "PJSIP_HEADER(add,P-Preferred-Identity)": `<sip:${opts.callerId}@${config.trunk.server}>`,
+      };
+    }
 
     // Named handlers, damit removeListener sie in done() entfernen kann.
     const onStart = (_ev: unknown, ch: any) => {

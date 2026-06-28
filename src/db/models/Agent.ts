@@ -64,6 +64,11 @@ const AgentSchema = new Schema(
     mode: { type: String, enum: ["agent", "passthrough"], default: "agent" },
     passthroughTarget: { type: String },
 
+    // Bei externem Transfer/Outbound über den Trunk die ORIGINAL-Anrufernummer als Absender
+    // präsentieren (transparente Weiterleitung). Wirkt nur, wenn der Trunk CLIP no screening
+    // erlaubt (ENV TRUNK_CLIP_NO_SCREENING). Aus = eigene Agent-Nummer (targetNumber).
+    useTransferCallerId: { type: Boolean, default: false },
+
     // STT-Sprache → agent.listen.provider.language ("multi", "de", "en" …). Fällt im Resolver
     // auf den Config-Default zurück, wenn leer.
     language: { type: String },

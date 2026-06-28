@@ -45,6 +45,10 @@ export interface ResolvedAgent {
   name: string;
   mode: CallMode;
   passthroughTarget?: string;
+  /** Eigene DDIs des Agenten (für die Absender-CLI bei externem Transfer/Outbound). */
+  targetNumbers: string[];
+  /** Bei externem Transfer die Original-Anrufernummer als Absender präsentieren (CLIP no screening). */
+  useTransferCallerId: boolean;
   /** STT-Sprache → agent.listen.provider.language ("multi" für nova-3 multilingual, "de", "en", …). */
   language: string;
   greeting?: string;

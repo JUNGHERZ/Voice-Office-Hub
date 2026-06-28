@@ -6,6 +6,22 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.4] – 2026-06-28
+
+Ausgehende Anrufe / externer Transfer über den Trunk.
+
+### Added
+- **Externer Transfer über den SIP-Trunk:** `transfer_call` erkennt externe Ziele (PSTN/Mobil) und
+  wählt über `PJSIP/<e164>@TRUNK_OUTBOUND_ENDPOINT` raus; interne Durchwahlen bleiben wie bisher.
+- **Absender-Rufnummer (CLIP) steuerbar:** SIP-Header `P-Preferred-Identity` (SIPGate-Format `49…`).
+  Installations-ENV **`TRUNK_CLIP_NO_SCREENING`** + Agent-Feld **`useTransferCallerId`** (Admin-UI-Toggle):
+  an + erlaubt ⇒ Original-Anrufernummer (transparente Weiterleitung), sonst eigene Agent-Nummer
+  (`targetNumbers[0]`, Fallback **`OUTBOUND_CALLER_ID`**). Neuer ENV `TRUNK_OUTBOUND_ENDPOINT`.
+- `util/phone.ts`: `looksExternal()` + `toSipgateCli()` (analog SIPGate-`dialhook`), mit Tests.
+
+### Changed
+- `docs/configuration.md`: Abschnitt „Ausgehende Anrufe / externer Transfer" + neue ENV-Parameter.
+
 ## [0.5.3] – 2026-06-28
 
 Live-Trunk-Härtung (erster echter SIPGate-Anruf auf der Appliance).

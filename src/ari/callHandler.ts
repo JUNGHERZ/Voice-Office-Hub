@@ -22,7 +22,7 @@ import { resolveAgent } from "./agentResolver.js";
 import { MediaBridge } from "./media.js";
 import { audioSocketServer, type MediaSession } from "./audiosocketServer.js";
 import { startBridgeRecording, wavDurationSec, type ActiveRecording } from "./recording.js";
-import { transferIntoBridge } from "./transfer.js";
+import { resolveOutboundTransfer, transferIntoBridge } from "./transfer.js";
 import { handlePassthrough } from "./passthrough.js";
 
 /**
@@ -278,8 +278,11 @@ async function runAgentCall(
         // begonnene Ansage ("Einen Moment bitte…") darf noch ausgespielt werden (kein flush, Output offen).
         // Das Zieltelefon klingelt parallel.
         transferRinging = true;
+        // Intern vs. extern (über den Trunk) auflösen + Absender-CLI bestimmen.
+        const dial = resolveOutboundTransfer(agent, target, meta.callerNumber);
+        if (dial.callerId) log.info("Externer Transfer über Trunk", { target, callerId: dial.callerId });
         await repo.setTransfer(requestId, { attempted: true, target });
-        const result = await transferIntoBridge(client, bridge, target);
+        const result = await transferIntoBridge(client, bridge, dial.target, { callerId: dial.callerId });
         await repo.setTransfer(requestId, { attempted: true, target, connected: result.connected });
         transferRinging = false;
         if (result.connected) {

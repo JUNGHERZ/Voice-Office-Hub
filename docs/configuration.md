@@ -24,6 +24,9 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `TRUNK_CODECS` | `!all,g722,alaw,ulaw` | Erlaubte Codecs (PJSIP-`allow`-Syntax). |
 | `PUBLIC_IP` | — | Öffentliche IP/Hostname, wenn Asterisk hinter NAT läuft (Docker-Bridge/Swarm-Overlay auf Host mit öffentlicher IP). Setzt `external_media_address`/`external_signaling_address` — **ohne das kommt RTP nur einseitig an** (stummes Audio). Leer + Trunk aktiv → entrypoint versucht Auto-Erkennung (best-effort, braucht `curl`). Siehe [NAT hinter Docker](#nat-hinter-docker). |
 | `LOCAL_NETS` | `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16` | Interne Subnetze, die vom NAT-Rewrite ausgenommen werden (`local_net`, Komma-getrennt). Nur relevant, wenn `PUBLIC_IP` gesetzt ist. |
+| `TRUNK_OUTBOUND_ENDPOINT` | `trunk-endpoint` | PJSIP-Endpoint-Name für ausgehende Wahl/Transfer über den Trunk. Siehe [Ausgehende Anrufe / externer Transfer](#ausgehende-anrufe--externer-transfer). |
+| `TRUNK_CLIP_NO_SCREENING` | `false` | Trunk erlaubt das Setzen einer **fremden** Absender-Rufnummer (CLIP no screening). Nur dann greift der Agent-Schalter `useTransferCallerId` (Original-Anrufernummer als Absender). |
+| `OUTBOUND_CALLER_ID` | — | Eigene Default-Absendernummer (DID, E.164) als Fallback (Default-Agent / Agent ohne echte `targetNumbers`). Muss dir auf dem Trunk gehören. |
 | `MEDIA_TRANSPORT` | `audiosocket` | `audiosocket` (TCP, Default) oder `rtp` (UDP). |
 | `AUDIO_ENCODING` / `AUDIO_SAMPLE_RATE` | `linear16` / `8000` | Audioformat Richtung Deepgram (kein Transcoding). |
 | `EXTERNAL_MEDIA_FORMAT` | `slin` | Asterisk-Format des externalMedia-Kanals (`slin`=8 kHz signed linear). |
@@ -165,6 +168,27 @@ Service-Änderungen beim Deploy überschreibt.
 **zwei parallele INVITEs** (zwei SIP-Dialoge, Call-IDs nur minimal verschieden) zu — ohne Gegenmaßnahme
 entstünden zwei Sessions/Requests/Summaries. `CALL_DEDUP_WINDOW_MS` (Default 4000) verwirft den zweiten
 Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters.
+
+## Ausgehende Anrufe / externer Transfer
+
+`transfer_call` leitet je nach Ziel unterschiedlich weiter ([transfer.ts](../src/ari/transfer.ts)):
+
+- **Internes Ziel** (kurze Durchwahl, z. B. `101`) → `PJSIP/<ziel>` wie bisher (registriertes Softphone).
+- **Externes Ziel** (PSTN/Mobil, ≥ 7 Ziffern bzw. `+`) → `PJSIP/<e164>@TRUNK_OUTBOUND_ENDPOINT`, also
+  **raus über den Trunk**. Die angezeigte **Absender-Rufnummer** wird über den SIP-Header
+  `P-Preferred-Identity: <sip:49…@TRUNK_SERVER>` gesetzt (SIPGate-Format `49…`, kein `+`/keine `0`).
+
+**Welche Absendernummer?** Zwei Stufen:
+
+1. **Installation** — `TRUNK_CLIP_NO_SCREENING`: Erlaubt der Trunk überhaupt eine **fremde** Nummer?
+   (Bei SIPGate im Trunk freischalten.) `false` ⇒ es geht **immer** die eigene Nummer.
+2. **Agent** — Feld `useTransferCallerId` (Admin-UI-Toggle „Anrufer-Nr. bei externem Transfer"):
+   - **an** *und* `TRUNK_CLIP_NO_SCREENING=true` ⇒ **Original-Anrufernummer** (transparente Weiterleitung).
+   - **aus** (Default) oder Trunk verbietet es ⇒ **eigene Agent-Nummer** (`targetNumbers[0]`), ersatzweise
+     `OUTBOUND_CALLER_ID`.
+
+> Hinweis: Wir leiten **per ARI** weiter (kein SIP-REFER) — der Outbound-Kanal wird direkt mit Endpoint
+> + Header originiert. Die CLI muss eine dir gehörende Trunk-Rufnummer sein (außer bei CLIP no screening).
 
 ## Volumes / Persistenz
 
