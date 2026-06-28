@@ -1,5 +1,16 @@
 # Voice-Office-Hub
 
+[![Version](https://img.shields.io/badge/version-0.5.0-f5a623)](CHANGELOG.md)
+![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
+![Status](https://img.shields.io/badge/status-active-success)
+[![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
+[![Changelog](https://img.shields.io/badge/changelog-0.5.0-blue)](CHANGELOG.md)
+
+> **VOH-Appliance** — Voice-Office-Hub. Teil der **„*-Office-Hub"**-Produktfamilie
+> (Schwesterprojekt: Message-Office-Hub für Chat/E-Mail/WhatsApp/SMS).
+
 Telefonisch erreichbarer KI-Voice-Agent: ein Anrufer aus dem öffentlichen Telefonnetz landet
 über **Asterisk** (ARI) in unserer **Node.js/TypeScript**-Engine, die pro Anruf eine Session
 gegen die **Deepgram Voice Agent API** orchestriert (Listen → Think → Speak). Der Agent kann
@@ -13,6 +24,15 @@ Die **Admin-UI** ist eine API-First-App: ein Node/**Fastify**-Service stellt ein
 (Agents-CRUD, Anrufe/Requests, OpenAPI) bereit; das Frontend ist eine **Hybrids.js**-SPA im
 **GlassKit**-Glas-Look (Web Components, ohne Build). Erreichbar auf `UI_PORT` (Default `8080`),
 sobald `ADMIN_PASSWORD` gesetzt ist; OpenAPI unter `/openapi.json`, Swagger-UI unter `/docs`.
+
+## Eingesetzt bei
+
+Voice-Office-Hub entsteht im Rahmen des Produkts **MonaHilft** und wird dort **produktiv** eingesetzt.
+
+Setzt deine Organisation VOH ebenfalls ein? Wir führen hier gern weitere Nutzer auf — einfach per PR/Issue melden:
+
+- **MonaHilft** — produktiver Einsatz (telefonische KI-Agenten)
+- _… dein Unternehmen?_
 
 ## Architektur (Kurzfassung)
 
@@ -54,6 +74,7 @@ npm run dev        # benötigt erreichbares Asterisk (ARI) + MongoDB
 - [docs/asterisk-sipgate.md](docs/asterisk-sipgate.md) — Asterisk + SIPGate-Trunk
 - [docs/configuration.md](docs/configuration.md) — ENV, Betriebsmodi, Tools, Betrieb
 - [docs/backlog.md](docs/backlog.md) — offene Punkte & Ideen (Web/WebRTC, Admin-UI, Denoising, Flux …)
+- [CHANGELOG.md](CHANGELOG.md) — Versionsverlauf
 
 ## Status
 
@@ -66,3 +87,9 @@ Zwei-Geräte-Setup zu verifizieren), **Multi-Agent/DDI-Routing** (`agents.target
 reicht echte DDI durch; Demo-Agents via `npm run seed`), **Admin-UI + Management-API**
 (Node/Fastify + Hybrids/GlassKit, JSON-API + OpenAPI, Login, Agents-CRUD, Anrufliste/Detail mit
 Audio-Player). Nächste Ausbaustufen: PWA-Feinschliff, Appliance-Härtung (SIPGate-Trunk).
+
+## Lizenz
+
+**Creative Commons Attribution-NonCommercial 4.0 (CC BY-NC 4.0)** — © 2026 Jungherz GmbH.
+Siehe [LICENSE](LICENSE): Nutzung/Weitergabe/Bearbeitung mit Namensnennung erlaubt, **keine
+kommerzielle Nutzung** ohne gesonderte Vereinbarung.
