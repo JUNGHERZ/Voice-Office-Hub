@@ -6,6 +6,26 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.7] – 2026-06-28
+
+Freie Trunk-Provider-Wahl (ein Trunk pro Appliance) + Doku.
+
+### Added
+- **Trunk-Anbindungsmodus** `TRUNK_AUTH_MODE` = `register` (SIP-Registrierung) **oder** `ip`
+  (statische IP-Auth, keine Registrierung) — deckt sipgate/easybell/Placetel ebenso ab wie
+  Telekom CompanyFlex/Twilio/Telnyx. Neu: `TRUNK_MATCH` (identify-IPs), `TRUNK_FROM_USER`,
+  `TRUNK_CLIP_HEADER` (`ppi`/`pai`). Defaults erhalten das bestehende sipgate-Verhalten.
+- **[docs/trunks.md](docs/trunks.md)**: Anbieter-Übersicht (DACH) mit Modus/CLIP/ENV je Provider
+  und Beispiel-Konstellationen; in README verlinkt.
+
+### Changed
+- README (EN/DE): Telefonie als **provider-agnostisch** beschrieben (nicht nur sipgate) + Verweis
+  auf docs/trunks.md. Markenschreibweise durchgängig **sipgate** (klein).
+
+### Ops (nicht im Image)
+- Auf dem Live-Host ein systemd-Watcher (`voh-ports.service`), der die Host-Mode-SIP/RTP-Ports nach
+  jedem EasyPanel-Redeploy automatisch neu publiziert (kein manuelles `voh-ports.sh` mehr).
+
 ## [0.5.6] – 2026-06-28
 
 ### Fixed
@@ -30,25 +50,25 @@ Ausgehende Anrufe / externer Transfer über den Trunk.
 ### Added
 - **Externer Transfer über den SIP-Trunk:** `transfer_call` erkennt externe Ziele (PSTN/Mobil) und
   wählt über `PJSIP/<e164>@TRUNK_OUTBOUND_ENDPOINT` raus; interne Durchwahlen bleiben wie bisher.
-- **Absender-Rufnummer (CLIP) steuerbar:** SIP-Header `P-Preferred-Identity` (SIPGate-Format `49…`).
+- **Absender-Rufnummer (CLIP) steuerbar:** SIP-Header `P-Preferred-Identity` (sipgate-Format `49…`).
   Installations-ENV **`TRUNK_CLIP_NO_SCREENING`** + Agent-Feld **`useTransferCallerId`** (Admin-UI-Toggle):
   an + erlaubt ⇒ Original-Anrufernummer (transparente Weiterleitung), sonst eigene Agent-Nummer
   (`targetNumbers[0]`, Fallback **`OUTBOUND_CALLER_ID`**). Neuer ENV `TRUNK_OUTBOUND_ENDPOINT`.
-- `util/phone.ts`: `looksExternal()` + `toSipgateCli()` (analog SIPGate-`dialhook`), mit Tests.
+- `util/phone.ts`: `looksExternal()` + `toSipgateCli()` (analog sipgate-`dialhook`), mit Tests.
 
 ### Changed
 - `docs/configuration.md`: Abschnitt „Ausgehende Anrufe / externer Transfer" + neue ENV-Parameter.
 
 ## [0.5.3] – 2026-06-28
 
-Live-Trunk-Härtung (erster echter SIPGate-Anruf auf der Appliance).
+Live-Trunk-Härtung (erster echter sipgate-Anruf auf der Appliance).
 
 ### Added
 - **NAT hinter Docker:** `PUBLIC_IP` (+ `LOCAL_NETS`) — der entrypoint annonciert die öffentliche
   IP via `external_media_address`/`external_signaling_address` und setzt `rtp_symmetric`/`force_rport`/
   `rewrite_contact` am Trunk-Endpoint. Verhindert einseitiges/stummes RTP hinter Container-NAT.
   Best-effort-Auto-Erkennung, wenn leer und Trunk aktiv.
-- **`CALL_DEDUP_WINDOW_MS`** (Default 4000): verwirft Doppel-INVITEs mancher Trunks (SIPGate stellt
+- **`CALL_DEDUP_WINDOW_MS`** (Default 4000): verwirft Doppel-INVITEs mancher Trunks (sipgate stellt
   einen Anruf als zwei parallele Dialoge zu) → keine doppelten Sessions/Requests/Summaries mehr.
 
 ### Changed

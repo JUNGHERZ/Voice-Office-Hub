@@ -1,4 +1,4 @@
-# Asterisk-Anbindung & SIPGate Trunking
+# Asterisk-Anbindung & sipgate Trunking
 
 Diese Komponente erwartet, dass **Asterisk** eingehende Anrufe per **ARI** an die Stasis-App
 `voice-office-hub` übergibt. Asterisk kann **im selben Container** laufen (`EMBED_ASTERISK=true`,
@@ -41,9 +41,9 @@ Im Dev-Image ist ein lokaler PJSIP-Endpoint vorbereitet ([pjsip.conf](../docker/
 - Im Softphone (Zoiper/Linphone) den Container-Host als SIP-Server (Port 5060) eintragen,
   als User `softphone` registrieren, dann die Test-Durchwahl **`100`** anrufen.
 
-## 4. Produktion: SIPGate Trunking (DE)
+## 4. Produktion: sipgate Trunking (DE)
 
-SIPGate Trunking buchen, dem Trunk **Rufnummern (DDI)** zuordnen. Eingehende Anrufe werden mit
+sipgate Trunking buchen, dem Trunk **Rufnummern (DDI)** zuordnen. Eingehende Anrufe werden mit
 der vollen **E.164-Nummer in der Request-URI** signalisiert → pro Nummer im Dialplan / über
 Agents routbar.
 
@@ -72,7 +72,7 @@ Der generierte Endpoint nutzt `context = inbound` → eingehende Anrufe laufen d
 Die folgende Vorlage ist nur noch **manuelle Referenz** (z. B. für eine externe PBX oder zum
 Verständnis dessen, was der entrypoint generiert). Für die Appliance Abschnitt 4a verwenden.
 
-In [pjsip.conf](../docker/asterisk/pjsip.conf) die SIPGate-Vorlage aktivieren und `#SIPID#` /
+In [pjsip.conf](../docker/asterisk/pjsip.conf) die sipgate-Vorlage aktivieren und `#SIPID#` /
 `#SIPPASSWORD#` aus dem Trunk-Account einsetzen:
 
 ```ini

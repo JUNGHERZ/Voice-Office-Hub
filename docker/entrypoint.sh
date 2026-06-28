@@ -41,12 +41,28 @@ fi
 # (Datenmodell N-Trunk-fähig vorgesehen) — siehe docs/backlog.md.
 TRUNK_FILE=/etc/asterisk/pjsip_trunk.conf
 if [[ "${EMBED_ASTERISK:-true}" == "true" && "${TRUNK_ENABLED:-false}" == "true" ]]; then
-  : "${TRUNK_SIP_ID:?TRUNK_ENABLED=true erfordert TRUNK_SIP_ID}"
-  : "${TRUNK_SIP_PASSWORD:?TRUNK_ENABLED=true erfordert TRUNK_SIP_PASSWORD}"
   TRUNK_SERVER="${TRUNK_SERVER:-sipconnect.sipgate.de}"
   TRUNK_CODECS="${TRUNK_CODECS:-!all,g722,alaw,ulaw}"
-  cat > "$TRUNK_FILE" <<EOF
-; AUTO-GENERIERT vom entrypoint aus ENV (TRUNK_*). Nicht manuell editieren.
+  # Anbindungsmodus: "register" (Provider verlangt SIP-Registrierung, z. B. sipgate/easybell/
+  # Placetel) oder "ip" (statische IP-Authentifizierung, z. B. Telekom CompanyFlex/Twilio).
+  TRUNK_AUTH_MODE="${TRUNK_AUTH_MODE:-register}"
+  # Provider-Hosts/IPs für die Inbound-Zuordnung (identify), Komma-getrennt. Default = Server.
+  TRUNK_MATCH="${TRUNK_MATCH:-$TRUNK_SERVER}"
+  # Absender-User im From-Header (Default = SIP-ID). Manche Provider wollen hier die Rufnummer.
+  TRUNK_FROM_USER="${TRUNK_FROM_USER:-${TRUNK_SIP_ID:-}}"
+
+  if [[ "$TRUNK_AUTH_MODE" == "register" ]]; then
+    : "${TRUNK_SIP_ID:?register-Modus erfordert TRUNK_SIP_ID}"
+    : "${TRUNK_SIP_PASSWORD:?register-Modus erfordert TRUNK_SIP_PASSWORD}"
+  fi
+  # Outbound-Auth einbinden, sobald Credentials vorhanden (auch IP-Trunks brauchen oft Auth).
+  HAS_AUTH=false; [[ -n "${TRUNK_SIP_PASSWORD:-}" ]] && HAS_AUTH=true
+
+  echo "; AUTO-GENERIERT vom entrypoint aus ENV (TRUNK_*). Nicht manuell editieren." > "$TRUNK_FILE"
+
+  if [[ "$TRUNK_AUTH_MODE" == "register" ]]; then
+    cat >> "$TRUNK_FILE" <<EOF
+
 [trunk-reg]
 type = registration
 server_uri = sip:${TRUNK_SIP_ID}@${TRUNK_SERVER}
@@ -59,20 +75,28 @@ type = auth
 auth_type = userpass
 username = ${TRUNK_SIP_ID}
 password = ${TRUNK_SIP_PASSWORD}
+EOF
+  fi
+
+  if [[ "$HAS_AUTH" == "true" ]]; then
+    cat >> "$TRUNK_FILE" <<EOF
 
 [trunk-auth]
 type = auth
 auth_type = userpass
 username = ${TRUNK_SIP_ID}
 password = ${TRUNK_SIP_PASSWORD}
+EOF
+  fi
+
+  cat >> "$TRUNK_FILE" <<EOF
 
 [trunk-endpoint]
 type = endpoint
 aors = trunk-aor
 context = inbound
-outbound_auth = trunk-auth
 from_domain = ${TRUNK_SERVER}
-from_user = ${TRUNK_SIP_ID}
+from_user = ${TRUNK_FROM_USER}
 allow = ${TRUNK_CODECS}
 direct_media = no
 transport = transport-udp
@@ -81,6 +105,10 @@ transport = transport-udp
 rtp_symmetric = yes
 force_rport = yes
 rewrite_contact = yes
+EOF
+  [[ "$HAS_AUTH" == "true" ]] && echo "outbound_auth = trunk-auth" >> "$TRUNK_FILE"
+
+  cat >> "$TRUNK_FILE" <<EOF
 
 [trunk-aor]
 type = aor
@@ -88,10 +116,12 @@ contact = sip:${TRUNK_SERVER}
 
 [trunk-identify]
 type = identify
-match = ${TRUNK_SERVER}
 endpoint = trunk-endpoint
 EOF
-  echo "entrypoint: SIP-Trunk aktiviert (Server ${TRUNK_SERVER})"
+  IFS=',' read -ra _matches <<< "$TRUNK_MATCH"
+  for m in "${_matches[@]}"; do m="${m// /}"; [[ -n "$m" ]] && echo "match = ${m}" >> "$TRUNK_FILE"; done
+
+  echo "entrypoint: SIP-Trunk aktiviert (Modus ${TRUNK_AUTH_MODE}, Server ${TRUNK_SERVER})"
 else
   echo "; Kein Trunk aktiv (TRUNK_ENABLED!=true)." > "$TRUNK_FILE"
 fi

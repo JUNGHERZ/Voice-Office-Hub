@@ -2,13 +2,13 @@
 
 **🇬🇧 English** · [🇩🇪 Deutsch](README.de.md)
 
-[![Version](https://img.shields.io/badge/version-0.5.6-f5a623)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.7-f5a623)](CHANGELOG.md)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-success)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
-[![Changelog](https://img.shields.io/badge/changelog-0.5.6-blue)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-0.5.7-blue)](CHANGELOG.md)
 
 > **VOH-Appliance** — Voice-Office-Hub. Part of the **"*-Office-Hub"** product family
 > (sister project: Message-Office-Hub for chat/email/WhatsApp/SMS).
@@ -46,6 +46,11 @@ as well as a **post-call summary**.
 
 Everything runs in a **single Docker container** (Asterisk + Node core + MongoDB + Node admin
 UI/API), local as in production — the only difference is the `.env`.
+
+The telephony side connects to a **freely selectable SIP trunk provider** — **sipgate** (tested in
+production), easybell, Placetel, fonial, Telekom CompanyFlex, Twilio/Telnyx, and more — configured
+via `.env` (one trunk per appliance, registration **or** static-IP auth). See the provider overview
+in **[docs/trunks.md](docs/trunks.md)**.
 
 The **admin UI** is an API-first app: a Node/**Fastify** service exposes a **JSON API**
 (agents CRUD, calls/requests, OpenAPI); the frontend is a **[Hybrids.js](https://hybrids.js.org/)** SPA
@@ -134,7 +139,8 @@ npm run dev        # requires a reachable Asterisk (ARI) + MongoDB
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — components, data flow, data model, implementation status (in German)
-- [docs/asterisk-sipgate.md](docs/asterisk-sipgate.md) — Asterisk + SIPGate trunk (in German)
+- [docs/trunks.md](docs/trunks.md) — supported SIP trunk providers (sipgate, easybell, Placetel, Telekom, Twilio …) & how to configure them (in German)
+- [docs/asterisk-sipgate.md](docs/asterisk-sipgate.md) — Asterisk + sipgate trunk, worked example (in German)
 - [docs/configuration.md](docs/configuration.md) — ENV, operating modes, tools, operations (in German)
 - [docs/backlog.md](docs/backlog.md) — open items & ideas (Web/WebRTC, admin UI, denoising, Flux …) (in German)
 - [CHANGELOG.md](CHANGELOG.md) — version history
@@ -150,7 +156,7 @@ transcription, `DEFAULT_MODE=passthrough`; diarization speaker separation still 
 a two-device setup), **multi-agent/DDI routing** (`agents.targetNumbers`, the dialplan passes the
 real DDI through; demo agents via `npm run seed`), **admin UI + management API** (Node/Fastify +
 Hybrids/GlassKit, JSON API + OpenAPI, login, agents CRUD, call list/detail with audio player).
-Next stages: PWA polish, appliance hardening (SIPGate trunk).
+Next stages: PWA polish, appliance hardening (sipgate trunk).
 
 ## License
 

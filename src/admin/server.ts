@@ -28,7 +28,7 @@ export async function buildAdminServer(): Promise<FastifyInstance> {
   // OpenAPI: muss VOR den Routen registriert werden (sammelt deren Schemas).
   await app.register(swagger, {
     openapi: {
-      info: { title: "Voice-Office-Hub — Management API", version: "0.5.6" },
+      info: { title: "Voice-Office-Hub — Management API", version: "0.5.7" },
       components: {
         securitySchemes: {
           apiKey: { type: "apiKey", in: "header", name: "x-api-key" },

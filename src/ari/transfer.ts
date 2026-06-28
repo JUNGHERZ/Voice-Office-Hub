@@ -17,7 +17,7 @@ import { looksExternal, toSipgateCli } from "../util/phone.js";
 const log = logger.child({ mod: "transfer" });
 
 export interface TransferOptions {
-  /** Absender-CLI (SIPGate-Format `49…`) für externe Wahl über den Trunk → P-Preferred-Identity. */
+  /** Absender-CLI (sipgate-Format `49…`) für externe Wahl über den Trunk → P-Preferred-Identity. */
   callerId?: string;
   appArgs?: string;
 }
@@ -36,7 +36,7 @@ export function resolveOutboundTransfer(
 ): { target: string; callerId?: string } {
   if (!looksExternal(target)) return { target };
 
-  // Ziel als E.164 mit führendem "+" (SIPGate erwartet das im Request-URI).
+  // Ziel als E.164 mit führendem "+" (sipgate erwartet das im Request-URI).
   const dialNumber = `+${toSipgateCli(target)}`;
   const ownRaw = (agent.targetNumbers ?? []).find(looksExternal) || config.trunk.outboundCallerId;
   const ownCli = toSipgateCli(ownRaw);
@@ -106,12 +106,12 @@ export async function transferIntoBridge(
       timeout: config.transfer.timeoutSec,
       formats: "slin16",
     };
-    // Externe Wahl über den Trunk: Absender-Rufnummer setzen. SIPGate wertet die angezeigte
+    // Externe Wahl über den Trunk: Absender-Rufnummer setzen. sipgate wertet die angezeigte
     // Nummer aus `P-Preferred-Identity` aus (gesetzt als PJSIP-Header beim Kanalaufbau).
     if (opts.callerId) {
       originateOpts.callerId = opts.callerId;
       originateOpts.variables = {
-        "PJSIP_HEADER(add,P-Preferred-Identity)": `<sip:${opts.callerId}@${config.trunk.server}>`,
+        [`PJSIP_HEADER(add,${config.trunk.clipHeader})`]: `<sip:${opts.callerId}@${config.trunk.server}>`,
       };
     }
 

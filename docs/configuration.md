@@ -22,6 +22,10 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `TRUNK_SIP_PASSWORD` | — | SIP-Passwort des Trunk-Accounts. |
 | `TRUNK_SERVER` | `sipconnect.sipgate.de` | SIP-Server/Registrar des Providers. |
 | `TRUNK_CODECS` | `!all,g722,alaw,ulaw` | Erlaubte Codecs (PJSIP-`allow`-Syntax). |
+| `TRUNK_AUTH_MODE` | `register` | Anbindungsmodus: `register` (SIP-Registrierung mit Login — sipgate/easybell/Placetel) oder `ip` (statische IP-Auth, keine Registrierung — Telekom CompanyFlex/Twilio). Anbieter-Übersicht: [docs/trunks.md](trunks.md). |
+| `TRUNK_MATCH` | =`TRUNK_SERVER` | Provider-Hosts/IPs für die Inbound-Zuordnung (`identify`), Komma-getrennt. Im `ip`-Modus die SBC-/Gateway-IPs des Providers. |
+| `TRUNK_FROM_USER` | =`TRUNK_SIP_ID` | User-Part im `From`-Header ausgehender INVITEs. Manche Provider erwarten hier die Rufnummer statt der SIP-ID. |
+| `TRUNK_CLIP_HEADER` | `ppi` | SIP-Header für die Absender-Rufnummer: `ppi` (`P-Preferred-Identity`, sipgate) oder `pai` (`P-Asserted-Identity`). |
 | `PUBLIC_IP` | — | Öffentliche IP/Hostname, wenn Asterisk hinter NAT läuft (Docker-Bridge/Swarm-Overlay auf Host mit öffentlicher IP). Setzt `external_media_address`/`external_signaling_address` — **ohne das kommt RTP nur einseitig an** (stummes Audio). Leer + Trunk aktiv → entrypoint versucht Auto-Erkennung (best-effort, braucht `curl`). Siehe [NAT hinter Docker](#nat-hinter-docker). |
 | `LOCAL_NETS` | `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16` | Interne Subnetze, die vom NAT-Rewrite ausgenommen werden (`local_net`, Komma-getrennt). Nur relevant, wenn `PUBLIC_IP` gesetzt ist. |
 | `TRUNK_OUTBOUND_ENDPOINT` | `trunk-endpoint` | PJSIP-Endpoint-Name für ausgehende Wahl/Transfer über den Trunk. Siehe [Ausgehende Anrufe / externer Transfer](#ausgehende-anrufe--externer-transfer). |
@@ -37,7 +41,7 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `DEFAULT_LISTEN_MODEL` / `DEFAULT_SPEAK_MODEL` | `nova-3` / `aura-2-thalia-en` | STT-/TTS-Modell des Default-Agenten (für DE z. B. `aura-2-viktoria-de`). |
 | `PASSTHROUGH_TARGET` | — | Standard-Durchwahl für `transfer_call` (ohne `target`) bzw. Passthrough-Ziel. |
 | `TRANSFER_TIMEOUT` | `30` | Sekunden bis zur Auto-Rückkehr bei Weiterleitung. |
-| `CALL_DEDUP_WINDOW_MS` | `4000` | Zeitfenster gegen Doppel-INVITEs mancher Trunks (z. B. SIPGate stellt einen Anruf als zwei parallele Dialoge zu). Zweiter Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters wird verworfen. `0` = aus. |
+| `CALL_DEDUP_WINDOW_MS` | `4000` | Zeitfenster gegen Doppel-INVITEs mancher Trunks (z. B. sipgate stellt einen Anruf als zwei parallele Dialoge zu). Zweiter Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters wird verworfen. `0` = aus. |
 | `RECORDING_PATH` | `/data/recordings` | (Reserviert) Staging-Pfad; ARI schreibt Aufnahmen aktuell nach `/var/spool/asterisk/recording`. |
 | `SUMMARY_ENABLED` | `false` | Post-Call-Summary aktiv. |
 | `SUMMARY_MODEL` | `openai/gpt-4.1-mini` | Eigenes Summary-Modell (Requesty), unabhängig vom Konversations-LLM. |
@@ -75,7 +79,7 @@ nur der Wert der DDI unterscheidet sich:
 - **Test (Dev):** gewählte **Durchwahlen** (z. B. `120`, `121`, `122`). Das anrufende Softphone
   wählt die Nummer; `_X.` routet sie nach Stasis. Diese „Service-Nummern" brauchen **keine** eigenen
   PJSIP-Endpoints — nur der Agent in der DB.
-- **Produktion (Trunk):** der Provider (z. B. SIPGate) liefert die **volle öffentliche Rufnummer
+- **Produktion (Trunk):** der Provider (z. B. sipgate) liefert die **volle öffentliche Rufnummer
   (E.164)** in der Request-URI → `${EXTEN}` = `+4930…`. Der Agent trägt dann genau diese E.164-Nummer
   in `targetNumbers`. → Künftige Admin-UI: beim Anbinden des Trunks die zugeteilten öffentlichen
   Nummern hinterlegen und je Nummer einen Agent zuordnen (feste DDI↔Agent-Bindung).
@@ -108,7 +112,9 @@ So überschreiben DB-Agents das ENV-Default pro Nummer. Das `agents`-Schema
 
 Für die Produktiv-Appliance wird der SIP-Trunk **vollständig über ENV-Variablen** gesteuert — kein
 manuelles Editieren der Asterisk-Config nötig. Gilt nur bei `EMBED_ASTERISK=true` (eingebetteter
-Asterisk).
+Asterisk). **Ein Trunk pro Appliance, aber freie Provider-Wahl** über `TRUNK_AUTH_MODE`
+(`register` | `ip`) — eine Übersicht der Anbieter (sipgate, easybell, Placetel, Telekom, Twilio …)
+samt der jeweils nötigen ENV-Optionen steht in **[docs/trunks.md](trunks.md)**.
 
 **Funktionsweise (ENV → entrypoint → `#include`):**
 
@@ -164,7 +170,7 @@ solchen Systemen die Ports per `docker service update --publish-add … ,mode=ho
 Skript pro Range genügt) und **nach jedem Redeploy erneut anwenden**, da der Orchestrator manuelle
 Service-Änderungen beim Deploy überschreibt.
 
-**Doppel-INVITE mancher Trunks:** SIPGate (und andere) stellen einen eingehenden Anruf teils als
+**Doppel-INVITE mancher Trunks:** sipgate (und andere) stellen einen eingehenden Anruf teils als
 **zwei parallele INVITEs** (zwei SIP-Dialoge, Call-IDs nur minimal verschieden) zu — ohne Gegenmaßnahme
 entstünden zwei Sessions/Requests/Summaries. `CALL_DEDUP_WINDOW_MS` (Default 4000) verwirft den zweiten
 Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters.
@@ -176,12 +182,12 @@ Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters.
 - **Internes Ziel** (kurze Durchwahl, z. B. `101`) → `PJSIP/<ziel>` wie bisher (registriertes Softphone).
 - **Externes Ziel** (PSTN/Mobil, ≥ 7 Ziffern bzw. `+`) → `PJSIP/<e164>@TRUNK_OUTBOUND_ENDPOINT`, also
   **raus über den Trunk**. Die angezeigte **Absender-Rufnummer** wird über den SIP-Header
-  `P-Preferred-Identity: <sip:49…@TRUNK_SERVER>` gesetzt (SIPGate-Format `49…`, kein `+`/keine `0`).
+  `P-Preferred-Identity: <sip:49…@TRUNK_SERVER>` gesetzt (sipgate-Format `49…`, kein `+`/keine `0`).
 
 **Welche Absendernummer?** Zwei Stufen:
 
 1. **Installation** — `TRUNK_CLIP_NO_SCREENING`: Erlaubt der Trunk überhaupt eine **fremde** Nummer?
-   (Bei SIPGate im Trunk freischalten.) `false` ⇒ es geht **immer** die eigene Nummer.
+   (Bei sipgate im Trunk freischalten.) `false` ⇒ es geht **immer** die eigene Nummer.
 2. **Agent** — Feld `useTransferCallerId` (Admin-UI-Toggle „Anrufer-Nr. bei externem Transfer"):
    - **an** *und* `TRUNK_CLIP_NO_SCREENING=true` ⇒ **Original-Anrufernummer** (transparente Weiterleitung).
    - **aus** (Default) oder Trunk verbietet es ⇒ **eigene Agent-Nummer** (`targetNumbers[0]`), ersatzweise

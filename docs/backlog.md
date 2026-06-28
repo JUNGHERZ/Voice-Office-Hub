@@ -103,7 +103,7 @@ skalieren muss?
      ~5.000 Timer-Wakeups/s in *einem* Thread. Der erste spürbare Effekt unter Last ist
      **Playout-Jitter (Knacken/Verzögerung)**, nicht CPU-Sättigung. Gegenmittel: mehrere
      Node-Worker pro Container, bevor man horizontal skaliert.
-  3. **SIP-Trunk-Kanäle** (extern, z. B. SIPGate 2/10/50) — limitiert oft früher als die Engine.
+  3. **SIP-Trunk-Kanäle** (extern, z. B. sipgate 2/10/50) — limitiert oft früher als die Engine.
 - **Hausnummer (geschätzt, nicht gemessen):** ~**50–150** gleichzeitige Anrufe pro Container auf
   einem dedizierten 10-Kern-ARM; limitierend eher Node-Event-Loop + Deepgram-Limits als CPU/RAM.
 - **Belastbar nur per Lasttest:** z. B. **SIPp** erzeugt N parallele Anrufe gegen den Container;
@@ -138,7 +138,7 @@ skalieren muss?
   **einem PC** (Headset-Echo) → Deepgram hört **eine** akustische Quelle und labelt alles als
   `caller`. Mit zwei getrennten Geräten (z. B. 101 vom Handy/zweiten Rechner) oder einem echten
   Trunk-Anruf erneut prüfen, dass die Diarization sauber auf zwei Sprecher aufteilt.
-  (Der Live-SIPGate-Trunk steht dafür inzwischen bereit — ein Passthrough-Agent auf eine echte DDI
+  (Der Live-sipgate-Trunk steht dafür inzwischen bereit — ein Passthrough-Agent auf eine echte DDI
   legen und gegenprüfen.)
 
 - **Akustisches Echo** ohne Headset (Selbsthören): Capture-seitig (Headset/Softphone-AEC/echtes

@@ -86,11 +86,13 @@ export interface Config {
     clipNoScreening: boolean;
     /** Eigene Default-Absendernummer (DID) als Fallback, z. B. für den Default-Agent. */
     outboundCallerId: string;
+    /** SIP-Header für die Absender-Rufnummer: "P-Preferred-Identity" (sipgate) oder "P-Asserted-Identity". */
+    clipHeader: string;
   };
   recordingPath: string;
   /**
    * Zeitfenster (ms), in dem ein zweiter eingehender Anruf mit gleicher
-   * Anrufer-/Zielnummer als Duplikat verworfen wird. SIP-Trunks (z. B. SIPGate)
+   * Anrufer-/Zielnummer als Duplikat verworfen wird. SIP-Trunks (z. B. sipgate)
    * stellen denselben Anruf teils als zwei parallele INVITEs zu — ohne Dedup
    * entstünden zwei Sessions/Requests. 0 = Dedup aus.
    */
@@ -174,6 +176,8 @@ export const config: Config = {
     endpoint: opt("TRUNK_OUTBOUND_ENDPOINT", "trunk-endpoint"),
     clipNoScreening: bool("TRUNK_CLIP_NO_SCREENING", false),
     outboundCallerId: opt("OUTBOUND_CALLER_ID", ""),
+    // "ppi" → P-Preferred-Identity (sipgate, Default), "pai" → P-Asserted-Identity (manche Provider).
+    clipHeader: opt("TRUNK_CLIP_HEADER", "ppi").toLowerCase() === "pai" ? "P-Asserted-Identity" : "P-Preferred-Identity",
   },
   recordingPath: opt("RECORDING_PATH", "/data/recordings"),
   callDedupWindowMs: int("CALL_DEDUP_WINDOW_MS", 4000),

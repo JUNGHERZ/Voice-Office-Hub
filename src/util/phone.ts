@@ -37,7 +37,7 @@ export function looksExternal(input: string | undefined | null): boolean {
 }
 
 /**
- * Absender-CLI im SIPGate-Format für `P-Preferred-Identity` (`<sip:49…@server>`):
+ * Absender-CLI im sipgate-Format für `P-Preferred-Identity` (`<sip:49…@server>`):
  * `+` entfernen, nationale führende `0` → `49`, `0049` → `49` (über normalizePhone).
  * Liefert nur Ziffern; leere/interne Eingaben → "".
  */

@@ -26,7 +26,7 @@ import { resolveOutboundTransfer, transferIntoBridge } from "./transfer.js";
 import { handlePassthrough } from "./passthrough.js";
 
 /**
- * Dedup gegen Doppel-INVITEs: SIP-Trunks (z. B. SIPGate) stellen denselben Anruf
+ * Dedup gegen Doppel-INVITEs: SIP-Trunks (z. B. sipgate) stellen denselben Anruf
  * teils als zwei parallele Dialoge zu (Call-IDs unterscheiden sich nur minimal).
  * Wir merken uns je Anrufer→Ziel-Kombination den letzten Eingang; ein zweiter
  * innerhalb des Fensters wird aufgelegt, bevor eine zweite Session entsteht.

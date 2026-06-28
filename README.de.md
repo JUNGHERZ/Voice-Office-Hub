@@ -2,13 +2,13 @@
 
 [🇬🇧 English](README.md) · **🇩🇪 Deutsch**
 
-[![Version](https://img.shields.io/badge/version-0.5.6-f5a623)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.7-f5a623)](CHANGELOG.md)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-success)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
-[![Changelog](https://img.shields.io/badge/changelog-0.5.6-blue)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-0.5.7-blue)](CHANGELOG.md)
 
 > **VOH-Appliance** — Voice-Office-Hub. Teil der **„*-Office-Hub"**-Produktfamilie
 > (Schwesterprojekt: Message-Office-Hub für Chat/E-Mail/WhatsApp/SMS).
@@ -46,6 +46,11 @@ gegen die **Deepgram Voice Agent API** orchestriert (Listen → Think → Speak)
 
 Alles läuft in **einem Docker-Container** (Asterisk + Node-Kern + MongoDB + Node-Admin-UI/API),
 lokal wie in Produktion — Unterschied nur über die `.env`.
+
+Die Telefonie-Seite bindet einen **frei wählbaren SIP-Trunk-Provider** an — **sipgate** (produktiv
+getestet), easybell, Placetel, fonial, Telekom CompanyFlex, Twilio/Telnyx u. a. —, konfiguriert über
+die `.env` (ein Trunk pro Appliance, Registrierung **oder** statische IP-Auth). Anbieter-Übersicht:
+**[docs/trunks.md](docs/trunks.md)**.
 
 Die **Admin-UI** ist eine API-First-App: ein Node/**Fastify**-Service stellt eine **JSON-API**
 (Agents-CRUD, Anrufe/Requests, OpenAPI) bereit; das Frontend ist eine **[Hybrids.js](https://hybrids.js.org/)**-SPA
@@ -135,7 +140,8 @@ npm run dev        # benötigt erreichbares Asterisk (ARI) + MongoDB
 ## Dokumentation
 
 - [docs/architecture.md](docs/architecture.md) — Komponenten, Datenfluss, Datenmodell, Implementierungsstand
-- [docs/asterisk-sipgate.md](docs/asterisk-sipgate.md) — Asterisk + SIPGate-Trunk
+- [docs/trunks.md](docs/trunks.md) — unterstützte SIP-Trunk-Anbieter (sipgate, easybell, Placetel, Telekom, Twilio …) & deren Konfiguration
+- [docs/asterisk-sipgate.md](docs/asterisk-sipgate.md) — Asterisk + sipgate-Trunk, ausführliches Beispiel
 - [docs/configuration.md](docs/configuration.md) — ENV, Betriebsmodi, Tools, Betrieb
 - [docs/backlog.md](docs/backlog.md) — offene Punkte & Ideen (Web/WebRTC, Admin-UI, Denoising, Flux …)
 - [CHANGELOG.md](CHANGELOG.md) — Versionsverlauf
@@ -150,7 +156,7 @@ Aufnahme + Batch-Transkription, `DEFAULT_MODE=passthrough`; Diarization-Sprecher
 Zwei-Geräte-Setup zu verifizieren), **Multi-Agent/DDI-Routing** (`agents.targetNumbers`, Dialplan
 reicht echte DDI durch; Demo-Agents via `npm run seed`), **Admin-UI + Management-API**
 (Node/Fastify + Hybrids/GlassKit, JSON-API + OpenAPI, Login, Agents-CRUD, Anrufliste/Detail mit
-Audio-Player). Nächste Ausbaustufen: PWA-Feinschliff, Appliance-Härtung (SIPGate-Trunk).
+Audio-Player). Nächste Ausbaustufen: PWA-Feinschliff, Appliance-Härtung (sipgate-Trunk).
 
 ## Lizenz
 
