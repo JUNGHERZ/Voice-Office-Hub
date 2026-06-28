@@ -22,6 +22,8 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `TRUNK_SIP_PASSWORD` | — | SIP-Passwort des Trunk-Accounts. |
 | `TRUNK_SERVER` | `sipconnect.sipgate.de` | SIP-Server/Registrar des Providers. |
 | `TRUNK_CODECS` | `!all,g722,alaw,ulaw` | Erlaubte Codecs (PJSIP-`allow`-Syntax). |
+| `PUBLIC_IP` | — | Öffentliche IP/Hostname, wenn Asterisk hinter NAT läuft (Docker-Bridge/Swarm-Overlay auf Host mit öffentlicher IP). Setzt `external_media_address`/`external_signaling_address` — **ohne das kommt RTP nur einseitig an** (stummes Audio). Leer + Trunk aktiv → entrypoint versucht Auto-Erkennung (best-effort, braucht `curl`). Siehe [NAT hinter Docker](#nat-hinter-docker). |
+| `LOCAL_NETS` | `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16` | Interne Subnetze, die vom NAT-Rewrite ausgenommen werden (`local_net`, Komma-getrennt). Nur relevant, wenn `PUBLIC_IP` gesetzt ist. |
 | `MEDIA_TRANSPORT` | `audiosocket` | `audiosocket` (TCP, Default) oder `rtp` (UDP). |
 | `AUDIO_ENCODING` / `AUDIO_SAMPLE_RATE` | `linear16` / `8000` | Audioformat Richtung Deepgram (kein Transcoding). |
 | `EXTERNAL_MEDIA_FORMAT` | `slin` | Asterisk-Format des externalMedia-Kanals (`slin`=8 kHz signed linear). |
@@ -32,6 +34,7 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `DEFAULT_LISTEN_MODEL` / `DEFAULT_SPEAK_MODEL` | `nova-3` / `aura-2-thalia-en` | STT-/TTS-Modell des Default-Agenten (für DE z. B. `aura-2-viktoria-de`). |
 | `PASSTHROUGH_TARGET` | — | Standard-Durchwahl für `transfer_call` (ohne `target`) bzw. Passthrough-Ziel. |
 | `TRANSFER_TIMEOUT` | `30` | Sekunden bis zur Auto-Rückkehr bei Weiterleitung. |
+| `CALL_DEDUP_WINDOW_MS` | `4000` | Zeitfenster gegen Doppel-INVITEs mancher Trunks (z. B. SIPGate stellt einen Anruf als zwei parallele Dialoge zu). Zweiter Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters wird verworfen. `0` = aus. |
 | `RECORDING_PATH` | `/data/recordings` | (Reserviert) Staging-Pfad; ARI schreibt Aufnahmen aktuell nach `/var/spool/asterisk/recording`. |
 | `SUMMARY_ENABLED` | `false` | Post-Call-Summary aktiv. |
 | `SUMMARY_MODEL` | `openai/gpt-4.1-mini` | Eigenes Summary-Modell (Requesty), unabhängig vom Konversations-LLM. |
@@ -136,6 +139,33 @@ TRUNK_CODECS=!all,g722,alaw,ulaw        # Default
 Manuelle PJSIP-Trunk-Vorlagen (Fallback/Referenz, z. B. für externe PBX) stehen in
 [docs/asterisk-sipgate.md](asterisk-sipgate.md).
 
+## NAT hinter Docker
+
+Läuft der eingebettete Asterisk hinter NAT — also praktisch **immer**, wenn der Container über
+Docker-Bridge/Swarm-Overlay auf einem Host mit öffentlicher IP betrieben wird (z. B. EasyPanel) —,
+muss Asterisk seine **öffentliche IP** in SDP und Contact-Header annoncieren. Sonst trägt es seine
+container-interne IP ein, der Provider schickt RTP dorthin, und das Ergebnis ist **einseitiges/
+stummes Audio**, obwohl Signalisierung und Registrierung funktionieren.
+
+1. **`PUBLIC_IP`** in der `.env` setzen (öffentliche IP/Hostname der Appliance). Ist sie leer und ein
+   Trunk aktiv, versucht der entrypoint eine Auto-Erkennung (best-effort via `curl`) — explizit setzen
+   ist robuster. `LOCAL_NETS` hält interne Subnetze vom Rewrite aus (Default deckt Docker ab).
+2. Der entrypoint injiziert daraus `external_media_address`/`external_signaling_address` + `local_net`
+   in den `transport-udp` und setzt am Trunk-Endpoint `rtp_symmetric`/`force_rport`/`rewrite_contact`.
+3. Bei externer PBX (`EMBED_ASTERISK=false`) ist das irrelevant.
+
+**Port-Veröffentlichung bei Orchestratoren (Swarm/EasyPanel):** `5060/udp` **und** die gesamte
+RTP-Range müssen im **Host-Modus** publiziert werden (nicht über das Swarm-Ingress-Mesh — das macht
+Source-NAT und bricht RTP). EasyPanel bildet weder Port-Ranges noch den Host-Modus in der UI ab; auf
+solchen Systemen die Ports per `docker service update --publish-add … ,mode=host` setzen (ein Helper-
+Skript pro Range genügt) und **nach jedem Redeploy erneut anwenden**, da der Orchestrator manuelle
+Service-Änderungen beim Deploy überschreibt.
+
+**Doppel-INVITE mancher Trunks:** SIPGate (und andere) stellen einen eingehenden Anruf teils als
+**zwei parallele INVITEs** (zwei SIP-Dialoge, Call-IDs nur minimal verschieden) zu — ohne Gegenmaßnahme
+entstünden zwei Sessions/Requests/Summaries. `CALL_DEDUP_WINDOW_MS` (Default 4000) verwirft den zweiten
+Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters.
+
 ## Sicherheit / Härtung
 
 Leitlinien für den Produktivbetrieb der Appliance:
@@ -148,7 +178,9 @@ Leitlinien für den Produktivbetrieb der Appliance:
 - **ARI-Passwort:** `ARI_PASSWORD` setzen — der entrypoint **warnt** bei leerem oder Default-Wert
   (`changeme`). ARI niemals nach außen exponieren.
 - **Admin-UI/-API:** läuft nur bei gesetztem `ADMIN_PASSWORD` (leer → Admin-Server startet nicht).
-  In Produktion zusätzlich ein eigenes `ADMIN_SESSION_SECRET` setzen.
+  In Produktion zusätzlich ein eigenes `ADMIN_SESSION_SECRET` setzen. **Achtung:** Manche ENV-Editoren
+  (u. a. EasyPanel) schneiden ein `#` im Wert als Kommentar ab — Passwörter/Secrets ohne `#` wählen
+  oder korrekt quoten, sonst schlägt der Login mit gekürztem Passwort fehl.
 - **Externer API-Zugriff (Drittsysteme):** Über `ADMIN_API_KEY` (ENV) lässt sich die JSON-Management-
   API per Header `x-api-key: <ADMIN_API_KEY>` ohne UI-Session nutzen (z. B. für Mona11/Kunden-Systeme).
   Leerer Key = **nur** UI-Session, kein Header-Zugriff. Den Key wie ein Secret behandeln (nur über

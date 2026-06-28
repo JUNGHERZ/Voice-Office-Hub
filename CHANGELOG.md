@@ -6,6 +6,22 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.3] – 2026-06-28
+
+Live-Trunk-Härtung (erster echter SIPGate-Anruf auf der Appliance).
+
+### Added
+- **NAT hinter Docker:** `PUBLIC_IP` (+ `LOCAL_NETS`) — der entrypoint annonciert die öffentliche
+  IP via `external_media_address`/`external_signaling_address` und setzt `rtp_symmetric`/`force_rport`/
+  `rewrite_contact` am Trunk-Endpoint. Verhindert einseitiges/stummes RTP hinter Container-NAT.
+  Best-effort-Auto-Erkennung, wenn leer und Trunk aktiv.
+- **`CALL_DEDUP_WINDOW_MS`** (Default 4000): verwirft Doppel-INVITEs mancher Trunks (SIPGate stellt
+  einen Anruf als zwei parallele Dialoge zu) → keine doppelten Sessions/Requests/Summaries mehr.
+
+### Changed
+- `docs/configuration.md`: neue ENV-Parameter, Abschnitt „NAT hinter Docker" (inkl. Host-Modus-Ports
+  bei Swarm/EasyPanel) und Hinweis auf die `#`-Falle in ENV-Editoren beim Admin-Passwort.
+
 ## [0.5.2] – 2026-06-28
 
 ### Changed
