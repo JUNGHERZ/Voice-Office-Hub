@@ -110,25 +110,14 @@ skalieren muss?
   dabei Event-Loop-Lag, Playout-Underruns und Deepgram-Fehlerquote messen. Erst dann sind
   Kundenzusagen seriös. (Bewusst (noch) nicht in der Doku.)
 
-## Management-API (extern, neben der Admin-UI)
-
-**Idee des Nutzers:** Zusätzlich zur Admin-UI eine **HTTP-API** anbieten, über die sich von außen
-(ohne direkten DB-Zugriff) Ressourcen verwalten lassen:
-
-- **Agents:** anlegen, listen, löschen, Parameter ändern (CRUD über die `agents`-Collection;
-  dieselben Felder wie das Agent-Schema / die UI).
-- **Requests:** abrufen (Liste + Detail inkl. Transkript/Summary/Transfer; Aufnahme-Download
-  über GridFS-`gridFsId`), read-only.
-
-- **Bewertung:** Sinnvoll als **API-First-Ansatz** — die Admin-UI wird dann nur ein Client dieser
-  API. Auth über API-Key/Token (getrennt vom Admin-Passwort der UI). Liegt nahe, das **direkt mit
-  der Admin-UI zusammen** zu bauen (gleicher Service), statt später nachzurüsten.
-- **Reihenfolge:** zusammen mit / direkt nach der Admin-UI.
-
 ## Admin-UI (Erweiterungen, Zukunft)
 
-Zusätzlich zu den geplanten Views (Anrufliste/Requests + Verlauf, Aufnahme abhören, Transkript
-ansehen, **Agents verwalten**):
+> **Basis umgesetzt:** Node/Fastify **API-First** (JSON-Management-API + OpenAPI/Swagger,
+> Auth via UI-Session **oder** Header `x-api-key`), Hybrids/GlassKit-SPA mit Login,
+> **Agents-CRUD**, Anrufliste/Detail (Transkript, Summary, Transfer-Status, **Aufnahme-Player**
+> via GridFS), PWA. Damit ist auch die früher separat geplante externe Management-API abgedeckt
+> (die UI ist nur ein Client). Offen sind nur noch folgende Erweiterungen:
+
 - **Trunk-/Telefonie-Anbindung — entschiedene Strategie (phasiert):**
   - **Phase 1 — umgesetzt:** **ENV-gesteuerter Einzel-Trunk** pro Appliance (`TRUNK_*` →
     [entrypoint](../docker/entrypoint.sh) generiert `pjsip_trunk.conf` via `#include`). Siehe
@@ -149,11 +138,11 @@ ansehen, **Agents verwalten**):
   **einem PC** (Headset-Echo) → Deepgram hört **eine** akustische Quelle und labelt alles als
   `caller`. Mit zwei getrennten Geräten (z. B. 101 vom Handy/zweiten Rechner) oder einem echten
   Trunk-Anruf erneut prüfen, dass die Diarization sauber auf zwei Sprecher aufteilt.
+  (Der Live-SIPGate-Trunk steht dafür inzwischen bereit — ein Passthrough-Agent auf eine echte DDI
+  legen und gegenprüfen.)
 
 - **Akustisches Echo** ohne Headset (Selbsthören): Capture-seitig (Headset/Softphone-AEC/echtes
   Telefon). Optional serverseitiges Halbduplex (schwächt Barge-in). Vom Nutzer vorerst zurückgestellt.
-- **Aufnahme (ARI `bridge.record`) liefert 500** „Internal Server Error" — best-effort, blockiert
-  nichts; gehört zu Plan-Phase „Aufnahme (KI-Modus)".
 - **Leichtes Knacken** in der Ausgabe (selten): wahrscheinlich Playout-Grenzübergänge (Übergang
   Audio↔Stille bei Underrun/Ende). Jitter-Puffer erhöht (80 ms); falls es bleibt → kurze Fade-In/Out
   an den Frame-Grenzen.
