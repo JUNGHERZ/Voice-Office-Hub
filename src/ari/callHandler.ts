@@ -25,6 +25,26 @@ import { startBridgeRecording, wavDurationSec, type ActiveRecording } from "./re
 import { transferIntoBridge } from "./transfer.js";
 import { handlePassthrough } from "./passthrough.js";
 
+/**
+ * Dedup gegen Doppel-INVITEs: SIP-Trunks (z. B. SIPGate) stellen denselben Anruf
+ * teils als zwei parallele Dialoge zu (Call-IDs unterscheiden sich nur minimal).
+ * Wir merken uns je Anrufer→Ziel-Kombination den letzten Eingang; ein zweiter
+ * innerhalb des Fensters wird aufgelegt, bevor eine zweite Session entsteht.
+ */
+const recentCalls = new Map<string, number>();
+
+function isDuplicateCall(callerNumber: string | undefined, targetNumber: string | undefined): boolean {
+  const window = config.callDedupWindowMs;
+  if (window <= 0) return false;
+  const now = Date.now();
+  // Abgelaufene Einträge aufräumen (klein halten).
+  for (const [k, ts] of recentCalls) if (now - ts > window) recentCalls.delete(k);
+  const key = `${callerNumber ?? "?"}->${targetNumber ?? "?"}`;
+  const prev = recentCalls.get(key);
+  recentCalls.set(key, now);
+  return prev !== undefined && now - prev <= window;
+}
+
 export async function handleStasisStart(
   client: AriClient,
   channel: AriChannel,
@@ -34,6 +54,13 @@ export async function handleStasisStart(
   const callerNumber = args[1] || undefined;
   const log = logger.child({ mod: "call", channel: channel.id });
   log.info("StasisStart", { targetNumber, callerNumber, echoTest: config.echoTest });
+
+  // Doppel-INVITE des Trunks verwerfen (siehe isDuplicateCall).
+  if (isDuplicateCall(callerNumber, targetNumber)) {
+    log.warn("Doppelter Anruf verworfen (Trunk-Duplikat)", { targetNumber, callerNumber });
+    try { await channel.hangup(); } catch { /* ignore */ }
+    return;
+  }
 
   // Spike/Diagnose: externalMedia-Pfad ohne Deepgram verifizieren.
   if (config.echoTest) {

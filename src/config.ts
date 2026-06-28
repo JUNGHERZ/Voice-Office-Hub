@@ -78,6 +78,13 @@ export interface Config {
     timeoutSec: number;
   };
   recordingPath: string;
+  /**
+   * Zeitfenster (ms), in dem ein zweiter eingehender Anruf mit gleicher
+   * Anrufer-/Zielnummer als Duplikat verworfen wird. SIP-Trunks (z. B. SIPGate)
+   * stellen denselben Anruf teils als zwei parallele INVITEs zu — ohne Dedup
+   * entstünden zwei Sessions/Requests. 0 = Dedup aus.
+   */
+  callDedupWindowMs: number;
   /** Admin-UI + Management-API (eigener Fastify-Prozess). */
   admin: {
     /** UI-Login-Passwort; ist es leer, startet der Admin-Server nicht. */
@@ -153,6 +160,7 @@ export const config: Config = {
     timeoutSec: int("TRANSFER_TIMEOUT", 30),
   },
   recordingPath: opt("RECORDING_PATH", "/data/recordings"),
+  callDedupWindowMs: int("CALL_DEDUP_WINDOW_MS", 4000),
   admin: {
     password: opt("ADMIN_PASSWORD"),
     apiKey: opt("ADMIN_API_KEY"),
