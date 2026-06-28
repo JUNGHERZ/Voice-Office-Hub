@@ -47,6 +47,31 @@ SIPGate Trunking buchen, dem Trunk **Rufnummern (DDI)** zuordnen. Eingehende Anr
 der vollen **E.164-Nummer in der Request-URI** signalisiert → pro Nummer im Dialplan / über
 Agents routbar.
 
+### 4a. Empfohlen: ENV-gesteuerter Trunk (Appliance)
+
+Für die eingebettete Appliance (`EMBED_ASTERISK=true`) ist der **ENV-gesteuerte Trunk** der
+empfohlene Weg — **kein manuelles Editieren der `pjsip.conf` nötig**. Die `TRUNK_*`-Variablen werden
+beim Start vom [entrypoint](../docker/entrypoint.sh) zu `/etc/asterisk/pjsip_trunk.conf` generiert,
+das [pjsip.conf](../docker/asterisk/pjsip.conf) per `#include pjsip_trunk.conf` lädt; bei
+`TRUNK_ENABLED!=true` bleibt die Datei leer (kein Trunk). Details + ENV-Tabelle:
+[configuration.md → SIP-Trunk (Appliance)](configuration.md#sip-trunk-appliance).
+
+```bash
+TRUNK_ENABLED=true
+TRUNK_SIP_ID=<SIP-ID>
+TRUNK_SIP_PASSWORD=<SIP-Passwort>
+TRUNK_SERVER=sipconnect.sipgate.de      # Default
+TRUNK_CODECS=!all,g722,alaw,ulaw        # Default
+```
+
+Der generierte Endpoint nutzt `context = inbound` → eingehende Anrufe laufen direkt in den Dialplan
+(Abschnitt 2) und damit in die Stasis-App / das DDI-Agent-Routing.
+
+### 4b. Manuelle Vorlage (Fallback / Referenz)
+
+Die folgende Vorlage ist nur noch **manuelle Referenz** (z. B. für eine externe PBX oder zum
+Verständnis dessen, was der entrypoint generiert). Für die Appliance Abschnitt 4a verwenden.
+
 In [pjsip.conf](../docker/asterisk/pjsip.conf) die SIPGate-Vorlage aktivieren und `#SIPID#` /
 `#SIPPASSWORD#` aus dem Trunk-Account einsetzen:
 
@@ -92,11 +117,25 @@ match = 217.10.68.150:5060
 endpoint = sipgateendpoint
 ```
 
-### Netzwerk/NAT
+### Netzwerk/NAT & Härtung
 
-- Nach außen nur **SIP (UDP 5060)** + **RTP-Portrange** öffnen.
+- Nach außen nur **SIP (UDP 5060)** + **RTP-Portrange** (Default 10000–10100/udp) öffnen.
 - Bei NAT die externe Adresse/Portrange in Asterisk-Transport bzw. via `external_media_address`
   korrekt setzen.
-- ARI (8088) und der externalMedia-UDP-Port bleiben **intern**.
+- **ARI (8088)** und der **Media-/externalMedia-Port (8090)** bleiben **intern** — nicht nach außen
+  mappen.
+- ARI-Zugang absichern: `ARI_PASSWORD` setzen (der entrypoint warnt bei leerem/Default-Wert
+  `changeme`).
+- Vollständige Härtungs-Leitlinien (Ports, Mongo-Mapping nur Dev, `ADMIN_API_KEY`/`x-api-key`,
+  DSGVO): [configuration.md → Sicherheit / Härtung](configuration.md#sicherheit--härtung).
+
+### Variante: externe PBX (`EMBED_ASTERISK=false`)
+
+Läuft Asterisk **außerhalb** des Containers (bestehende PBX), dann `EMBED_ASTERISK=false` setzen.
+Der Container startet dann **kein** eigenes Asterisk und die `TRUNK_*`-Variablen sind **ohne Wirkung**
+(Trunk/Registrierung verwaltet die externe PBX). Dort manuell sicherstellen: Dialplan übergibt an die
+Stasis-App `voice-office-hub` (Abschnitt 2), `direct_media=no`, ARI-User/Passwort passend zu
+`ARI_USERNAME`/`ARI_PASSWORD`, und der Container erreicht die externe ARI-URL (`ARI_URL`) bzw. die
+externe PBX erreicht `EXTERNAL_MEDIA_HOST/PORT`.
 
 > Quellen: sipgate Hilfecenter „Asterisk für sipgate trunking", sipgate Trunking-Produktseite.

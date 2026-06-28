@@ -9,12 +9,28 @@ import { config } from "../config.js";
 import { Agent } from "../db/models/Agent.js";
 import type { ResolvedAgent, ThinkSource } from "../types.js";
 import { logger } from "../util/logger.js";
+import { normalizePhone } from "../util/phone.js";
 
 const log = logger.child({ mod: "agentResolver" });
 
 export async function resolveAgent(targetNumber?: string): Promise<ResolvedAgent> {
   if (targetNumber) {
-    const doc = await Agent.findOne({ enabled: true, targetNumbers: targetNumber }).lean();
+    // 1. Exakte Übereinstimmung (schnellster Pfad, deckt Dev-Durchwahlen wie 120 ab).
+    let doc = await Agent.findOne({ enabled: true, targetNumbers: targetNumber }).lean();
+
+    // 2. Normalisierter Vergleich (E.164-Varianten: +49…/0049…/Trennzeichen). Erst bei Miss,
+    //    daher selten; pro Appliance gibt es nur wenige Agents → vollständiger Scan vertretbar.
+    if (!doc) {
+      const want = normalizePhone(targetNumber);
+      if (want) {
+        const candidates = await Agent.find({ enabled: true }).lean();
+        doc =
+          candidates.find((a) =>
+            (a.targetNumbers ?? []).some((n: string) => normalizePhone(n) === want),
+          ) ?? null;
+      }
+    }
+
     if (doc) {
       log.info("Agent per DDI aufgelöst", { agent: doc.name, targetNumber });
       return fromDoc(doc);

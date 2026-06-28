@@ -129,9 +129,17 @@ skalieren muss?
 
 Zusätzlich zu den geplanten Views (Anrufliste/Requests + Verlauf, Aufnahme abhören, Transkript
 ansehen, **Agents verwalten**):
-- **Trunk-/Telefonie-Anbindung konfigurierbar machen:** z. B. **SIPGate** auswählen, Zugangsdaten
-  (SIP-ID/Passwort) hinterlegen und den **Trunk aktivieren** — also die heute statische
-  `pjsip.conf`-Trunk-Vorlage über die UI verwalten (mehrere Trunks/Provider denkbar).
+- **Trunk-/Telefonie-Anbindung — entschiedene Strategie (phasiert):**
+  - **Phase 1 — umgesetzt:** **ENV-gesteuerter Einzel-Trunk** pro Appliance (`TRUNK_*` →
+    [entrypoint](../docker/entrypoint.sh) generiert `pjsip_trunk.conf` via `#include`). Siehe
+    [configuration.md → SIP-Trunk (Appliance)](configuration.md#sip-trunk-appliance). Deckt
+    Single-Tenant-Deployments ab — **MonaHilft** sowie **Kunden-Self-Host/RZ**.
+  - **Phase 2 — offen/später:** **Trunk-Verwaltung über die Admin-UI** — Trunks in der DB pflegen
+    (Provider auswählen, SIP-ID/Passwort hinterlegen, aktivieren), daraus pjsip generieren +
+    `pjsip reload` auslösen; **SIP-Credentials verschlüsselt** ablegen.
+  - **Phase 3 — offen/später:** **Multi-Trunk** (mehrere Provider/Failover, Multi-Tenant). Nur nötig
+    für **Failover / Multi-Provider / Multi-Tenant** — für den Standard-Einzelkunden nicht erforderlich.
+    Das Datenmodell ist bereits N-Trunk-fähig gedacht.
 
 ## Bekannte offene Punkte (separat)
 

@@ -7,6 +7,7 @@ import { connectMongo, disconnectMongo } from "./db/mongo.js";
 import { startAri } from "./ari/ariClient.js";
 import { audioSocketServer } from "./ari/audiosocketServer.js";
 import { registerAllTools } from "./tools/index.js";
+import { printBanner } from "./util/banner.js";
 import { logger } from "./util/logger.js";
 
 const log = logger.child({ mod: "bootstrap" });
@@ -19,6 +20,7 @@ process.on("uncaughtException", (err) => {
 });
 
 async function main(): Promise<void> {
+  printBanner();
   log.info("Starte Voice-Office-Hub", {
     app: config.ari.app,
     llm: config.llm.provider,

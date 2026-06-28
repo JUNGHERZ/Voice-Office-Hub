@@ -17,6 +17,11 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `ARI_URL` / `ARI_USERNAME` / `ARI_PASSWORD` | `http://127.0.0.1:8088` / `voiceagent` / — | ARI-Zugang. |
 | `ARI_APP` | `voice-office-hub` | Name der Stasis-App. |
 | `EMBED_ASTERISK` | `true` | Asterisk im Container starten (Dev/Appliance) vs. externe PBX. |
+| `TRUNK_ENABLED` | `false` | SIP-Trunk der Appliance aktivieren. Nur wirksam bei `EMBED_ASTERISK=true`. `false` → kein Trunk (Dev nutzt Softphone). Siehe [SIP-Trunk (Appliance)](#sip-trunk-appliance). |
+| `TRUNK_SIP_ID` | — | SIP-Account-ID (Benutzername) des Trunk-Providers. |
+| `TRUNK_SIP_PASSWORD` | — | SIP-Passwort des Trunk-Accounts. |
+| `TRUNK_SERVER` | `sipconnect.sipgate.de` | SIP-Server/Registrar des Providers. |
+| `TRUNK_CODECS` | `!all,g722,alaw,ulaw` | Erlaubte Codecs (PJSIP-`allow`-Syntax). |
 | `MEDIA_TRANSPORT` | `audiosocket` | `audiosocket` (TCP, Default) oder `rtp` (UDP). |
 | `AUDIO_ENCODING` / `AUDIO_SAMPLE_RATE` | `linear16` / `8000` | Audioformat Richtung Deepgram (kein Transcoding). |
 | `EXTERNAL_MEDIA_FORMAT` | `slin` | Asterisk-Format des externalMedia-Kanals (`slin`=8 kHz signed linear). |
@@ -67,8 +72,15 @@ nur der Wert der DDI unterscheidet sich:
 - **Produktion (Trunk):** der Provider (z. B. SIPGate) liefert die **volle öffentliche Rufnummer
   (E.164)** in der Request-URI → `${EXTEN}` = `+4930…`. Der Agent trägt dann genau diese E.164-Nummer
   in `targetNumbers`. → Künftige Admin-UI: beim Anbinden des Trunks die zugeteilten öffentlichen
-  Nummern hinterlegen und je Nummer einen Agent zuordnen (feste DDI↔Agent-Bindung). Wichtig:
-  **konsistentes Format** (E.164 mit `+`) zwischen dem, was Asterisk liefert, und `targetNumbers`.
+  Nummern hinterlegen und je Nummer einen Agent zuordnen (feste DDI↔Agent-Bindung).
+
+> **E.164-Normalisierung:** Das DDI-Routing ([phone.ts](../src/util/phone.ts) + agentResolver) ist
+> gegenüber Schreibvarianten tolerant. Zuerst wird **exakt** verglichen; greift das nicht, werden
+> eingehende DDI **und** `agents.targetNumbers` für einen **normalisierten Fallback-Vergleich**
+> vereinheitlicht (Trennzeichen entfernt, führendes `00` → `+`). So matchen `+49…`, `0049…` und
+> andere Schreibweisen derselben Nummer. Dev-Durchwahlen wie `120` bleiben unverändert und matchen
+> weiter exakt. Ein konsistentes Format (E.164 mit `+`) in `targetNumbers` bleibt empfohlen, ist aber
+> nicht mehr zwingend für ein Match.
 
 **Demo-Agents anlegen** (idempotent, ohne Admin-UI) über das Seed-Skript
 ([src/scripts/seedAgents.ts](../src/scripts/seedAgents.ts)) — legt `120` (Vertrieb/KI), `121`
@@ -85,6 +97,64 @@ Unbekannte DDI (z. B. `100`) → **Default-Agent** aus den ENV-Variablen.
 
 So überschreiben DB-Agents das ENV-Default pro Nummer. Das `agents`-Schema
 ([Agent.ts](../src/db/models/Agent.ts)) mappt 1:1 auf die Deepgram-`Settings`.
+
+## SIP-Trunk (Appliance)
+
+Für die Produktiv-Appliance wird der SIP-Trunk **vollständig über ENV-Variablen** gesteuert — kein
+manuelles Editieren der Asterisk-Config nötig. Gilt nur bei `EMBED_ASTERISK=true` (eingebetteter
+Asterisk).
+
+**Funktionsweise (ENV → entrypoint → `#include`):**
+
+1. Beim Container-Start liest [docker/entrypoint.sh](../docker/entrypoint.sh) die `TRUNK_*`-Variablen.
+2. Bei `TRUNK_ENABLED=true` generiert der entrypoint daraus `/etc/asterisk/pjsip_trunk.conf`
+   (Registration/Auth/Endpoint/AOR/Identify aus `TRUNK_SIP_ID`, `TRUNK_SIP_PASSWORD`, `TRUNK_SERVER`,
+   `TRUNK_CODECS`). Bei `TRUNK_ENABLED!=true` wird eine **leere** Datei geschrieben (kein Trunk —
+   Dev nutzt das lokale Softphone).
+3. [pjsip.conf](../docker/asterisk/pjsip.conf) bindet diese Datei per `#include pjsip_trunk.conf` ein.
+4. Der generierte Trunk-Endpoint nutzt `context = inbound` → eingehende Anrufe laufen in den Dialplan
+   ([extensions.conf](../docker/asterisk/extensions.conf)) und damit in die Stasis-App / das
+   DDI-Agent-Routing.
+
+**Minimale `.env` für einen aktiven Trunk:**
+
+```bash
+EMBED_ASTERISK=true
+TRUNK_ENABLED=true
+TRUNK_SIP_ID=<SIP-ID des Providers>
+TRUNK_SIP_PASSWORD=<SIP-Passwort>
+TRUNK_SERVER=sipconnect.sipgate.de      # Default
+TRUNK_CODECS=!all,g722,alaw,ulaw        # Default
+```
+
+> **Strategie (phasiert):** Aktuell **ein Trunk pro Appliance** über ENV — das deckt Single-Tenant-
+> Deployments (MonaHilft, Kunden-Self-Host/RZ) ab. Eine **Verwaltung mehrerer Trunks über die
+> Admin-UI** (Trunks in der DB → pjsip generieren + `pjsip reload`, verschlüsselte SIP-Credentials)
+> und **Multi-Trunk** (Failover/Multi-Provider) sind als spätere Ausbaustufen vorgesehen; das
+> Datenmodell ist bereits N-Trunk-fähig gedacht. Siehe [backlog.md](backlog.md#admin-ui-erweiterungen-zukunft).
+
+Manuelle PJSIP-Trunk-Vorlagen (Fallback/Referenz, z. B. für externe PBX) stehen in
+[docs/asterisk-sipgate.md](asterisk-sipgate.md).
+
+## Sicherheit / Härtung
+
+Leitlinien für den Produktivbetrieb der Appliance:
+
+- **Netzwerk / Ports (extern minimal):** Nach außen werden **nur** `5060/udp` (SIP) und die
+  **RTP-Portrange** (Default 10000–10100/udp) benötigt. **Intern bleiben:** ARI (`8088`) und der
+  Media-/AudioSocket-Port (`8090`) — diese sind in der Standard-Containerkonfiguration **nicht** nach
+  außen gemappt. Auch das Mongo-Mapping in [run.sh](../run.sh) (`127.0.0.1:27100:27017`) ist nur an
+  `localhost` gebunden = **Dev-Komfort**; für eine Prod-Appliance dieses Port-Mapping **entfernen**.
+- **ARI-Passwort:** `ARI_PASSWORD` setzen — der entrypoint **warnt** bei leerem oder Default-Wert
+  (`changeme`). ARI niemals nach außen exponieren.
+- **Admin-UI/-API:** läuft nur bei gesetztem `ADMIN_PASSWORD` (leer → Admin-Server startet nicht).
+  In Produktion zusätzlich ein eigenes `ADMIN_SESSION_SECRET` setzen.
+- **Externer API-Zugriff (Drittsysteme):** Über `ADMIN_API_KEY` (ENV) lässt sich die JSON-Management-
+  API per Header `x-api-key: <ADMIN_API_KEY>` ohne UI-Session nutzen (z. B. für Mona11/Kunden-Systeme).
+  Leerer Key = **nur** UI-Session, kein Header-Zugriff. Den Key wie ein Secret behandeln (nur über
+  TLS/internes Netz übertragen).
+- **DSGVO / Aufnahmen:** Gesprächsaufzeichnung erfordert i. d. R. eine Ansage/Einwilligung — siehe
+  [Aufnahme & Transkription](#aufnahme--transkription-gridfs).
 
 ## LLM-Umschalter (Requesty ↔ Deepgram-managed)
 
