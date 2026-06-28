@@ -6,6 +6,15 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.6] – 2026-06-28
+
+### Fixed
+- **Agent ohne Tools leitete nie weiter:** Über die Admin-UI angelegte Agents hatten `tools: []`,
+  womit das LLM weder `transfer_call` noch `end_call` kannte (Agent „redete" über Weiterleiten,
+  löste es aber nie aus). Jetzt: (a) der Resolver behandelt leere/fehlende `tools` als Default
+  `["transfer_call","end_call"]`, (b) das Agent-Formular hat ein **Tools-Feld** (Komma-getrennt,
+  Default `transfer_call, end_call`).
+
 ## [0.5.5] – 2026-06-28
 
 ### Fixed

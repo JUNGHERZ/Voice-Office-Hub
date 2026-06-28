@@ -112,7 +112,9 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
       speed: doc.speak?.speed,
       volume: doc.speak?.volume,
     },
-    tools: doc.tools ?? ["transfer_call", "end_call"],
+    // Leere/fehlende Tools → sinnvolle Defaults (sonst kennt das LLM weder transfer_call noch
+    // end_call; ein über die UI ohne Tools angelegter Agent würde nie weiterleiten/auflegen).
+    tools: Array.isArray(doc.tools) && doc.tools.length ? doc.tools : ["transfer_call", "end_call"],
     summary: {
       enabled: doc.summary?.enabled ?? config.summary.enabled,
       prompt: doc.summary?.prompt || config.summary.prompt,

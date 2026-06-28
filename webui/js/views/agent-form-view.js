@@ -26,6 +26,7 @@ function emptyForm() {
     greeting: "",
     prompt: "",
     speakModel: "",
+    tools: "transfer_call, end_call",
     useTransferCallerId: false,
     summaryEnabled: false,
     enabled: true,
@@ -43,6 +44,7 @@ function toForm(a) {
     greeting: a.greeting || "",
     prompt: a.prompt || "",
     speakModel: (a.speak && a.speak.model) || "",
+    tools: (a.tools && a.tools.length ? a.tools : ["transfer_call", "end_call"]).join(", "),
     useTransferCallerId: !!a.useTransferCallerId,
     summaryEnabled: !!(a.summary && a.summary.enabled),
     enabled: a.enabled !== false,
@@ -64,6 +66,10 @@ function toBody(f) {
     greeting: f.greeting,
     prompt: f.prompt,
     speak: { model: f.speakModel.trim() || undefined },
+    tools: f.tools
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
     useTransferCallerId: f.useTransferCallerId,
     summary: { enabled: f.summaryEnabled },
     enabled: f.enabled,
@@ -214,6 +220,13 @@ export default define({
                   value="${f.speakModel}"
                   placeholder="z. B. aura-2-thalia-en"
                   onglk-input="${(host, e) => setField(host, "speakModel", e.detail.value)}"
+                ></glk-input>
+
+                <glk-input
+                  label="Tools (Komma-getrennt)"
+                  value="${f.tools}"
+                  placeholder="transfer_call, end_call"
+                  onglk-input="${(host, e) => setField(host, "tools", e.detail.value)}"
                 ></glk-input>
 
                 <glk-toggle
