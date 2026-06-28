@@ -164,7 +164,7 @@ function renderShell() {
   const head = document.createElement("div");
   head.className = "app-head";
   head.innerHTML = `
-    <a class="app-head__brand" href="#/dashboard"><span class="glass-avatar glass-avatar--sm">EV</span> Voice Hub</a>
+    <a class="app-head__brand" href="#/dashboard"><span class="glass-avatar glass-avatar--sm">VOH</span> Voice-Office-Hub</a>
     <span class="app-head__actions">
       <button class="glass-theme-toggle" id="themeToggle" aria-label="Theme wechseln">
         <svg class="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>

@@ -28,7 +28,7 @@ export async function buildAdminServer(): Promise<FastifyInstance> {
   // OpenAPI: muss VOR den Routen registriert werden (sammelt deren Schemas).
   await app.register(swagger, {
     openapi: {
-      info: { title: "Exius Voice Hub — Management API", version: "0.1.0" },
+      info: { title: "Voice-Office-Hub — Management API", version: "0.1.0" },
       components: {
         securitySchemes: {
           apiKey: { type: "apiKey", in: "header", name: "x-api-key" },

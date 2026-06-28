@@ -1,7 +1,7 @@
 {
-  "name": "Exius Voice Hub",
-  "short_name": "Voice Hub",
-  "description": "Admin für den Exius Voice Hub Telefonie-Agenten.",
+  "name": "Voice-Office-Hub",
+  "short_name": "VOH Appliance",
+  "description": "Admin für den Voice-Office-Hub Telefonie-Agenten.",
   "lang": "de",
   "dir": "ltr",
   "start_url": "/",

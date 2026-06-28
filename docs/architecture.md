@@ -10,7 +10,7 @@ Post-Call-Summary hängen an **Requesty.ai** (OpenAI-kompatibel); optional ist e
 integriert gehostetes Modell wählbar.
 
 ```
-PSTN ──► Asterisk ──(Stasis: voice-agent)──► ARI (WebSocket) ──► Node-Kern
+PSTN ──► Asterisk ──(Stasis: voice-office-hub)──► ARI (WebSocket) ──► Node-Kern
             │                                                       │
             │   externalMedia (AudioSocket/TCP, slin 8 kHz)         ├─► Deepgram Voice Agent (WS)
             │◄──────── Audio (bidirektional) ──────────────────────┤        │ Think → Requesty.ai

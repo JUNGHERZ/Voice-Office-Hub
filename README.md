@@ -1,4 +1,4 @@
-# Exius Voice Hub
+# Voice-Office-Hub
 
 Telefonisch erreichbarer KI-Voice-Agent: ein Anrufer aus dem öffentlichen Telefonnetz landet
 über **Asterisk** (ARI) in unserer **Node.js/TypeScript**-Engine, die pro Anruf eine Session

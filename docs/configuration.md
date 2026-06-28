@@ -15,7 +15,7 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `MONGO_URI` | `mongodb://127.0.0.1:27017/voiceagent` | Lokal **oder** externes (repliziertes) Set. |
 | `USE_LOCAL_MONGO` | `true` | `false` → kein lokales `mongod` im Container. |
 | `ARI_URL` / `ARI_USERNAME` / `ARI_PASSWORD` | `http://127.0.0.1:8088` / `voiceagent` / — | ARI-Zugang. |
-| `ARI_APP` | `voice-agent` | Name der Stasis-App. |
+| `ARI_APP` | `voice-office-hub` | Name der Stasis-App. |
 | `EMBED_ASTERISK` | `true` | Asterisk im Container starten (Dev/Appliance) vs. externe PBX. |
 | `MEDIA_TRANSPORT` | `audiosocket` | `audiosocket` (TCP, Default) oder `rtp` (UDP). |
 | `AUDIO_ENCODING` / `AUDIO_SAMPLE_RATE` | `linear16` / `8000` | Audioformat Richtung Deepgram (kein Transcoding). |
@@ -76,7 +76,7 @@ nur der Wert der DDI unterscheidet sich:
 
 ```bash
 # im laufenden Container:
-docker exec exius-voice-hub node /app/dist/scripts/seedAgents.js
+docker exec voh-appliance node /app/dist/scripts/seedAgents.js
 # oder lokal mit gesetztem MONGO_URI (Dev-Port 27100):
 MONGO_URI=mongodb://127.0.0.1:27100/voiceagent npm run seed
 ```

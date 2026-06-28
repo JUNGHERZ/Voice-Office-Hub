@@ -36,8 +36,8 @@ export default define({
   render: ({ busy, error }) => html`
     <div class="wrap">
       <div class="stack">
-        <glk-avatar size="lg" style="margin:8px auto 0">EV</glk-avatar>
-        <glk-title style="font-size:20px">Exius Voice Hub</glk-title>
+        <glk-avatar size="lg" style="margin:8px auto 0">VOH</glk-avatar>
+        <glk-title style="font-size:20px">Voice-Office-Hub</glk-title>
         <p class="muted">Admin-Anmeldung</p>
         <div style="text-align:left">
           <glk-input

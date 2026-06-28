@@ -114,7 +114,7 @@ export const config: Config = {
     url: opt("ARI_URL", "http://127.0.0.1:8088"),
     username: opt("ARI_USERNAME", "voiceagent"),
     password: opt("ARI_PASSWORD", ""),
-    app: opt("ARI_APP", "voice-agent"),
+    app: opt("ARI_APP", "voice-office-hub"),
     embedAsterisk: bool("EMBED_ASTERISK", true),
   },
   audio: {

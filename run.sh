@@ -10,8 +10,8 @@ set -euo pipefail
 #   ./run.sh logs      Logs folgen
 #   ./run.sh shell     Shell im laufenden Container
 
-IMAGE="exius-voice-hub:local"
-NAME="exius-voice-hub"
+IMAGE="voh-appliance:local"
+NAME="voh-appliance"
 ENV_FILE=".env"
 
 cmd="${1:-up}"

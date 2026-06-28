@@ -19,7 +19,7 @@ process.on("uncaughtException", (err) => {
 });
 
 async function main(): Promise<void> {
-  log.info("Starte Voice-Agent", {
+  log.info("Starte Voice-Office-Hub", {
     app: config.ari.app,
     llm: config.llm.provider,
     embedAsterisk: config.ari.embedAsterisk,

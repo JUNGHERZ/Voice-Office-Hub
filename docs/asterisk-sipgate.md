@@ -1,7 +1,7 @@
 # Asterisk-Anbindung & SIPGate Trunking
 
 Diese Komponente erwartet, dass **Asterisk** eingehende Anrufe per **ARI** an die Stasis-App
-`voice-agent` übergibt. Asterisk kann **im selben Container** laufen (`EMBED_ASTERISK=true`,
+`voice-office-hub` übergibt. Asterisk kann **im selben Container** laufen (`EMBED_ASTERISK=true`,
 Default für Dev/Appliance) oder **extern** als PBX (`EMBED_ASTERISK=false`).
 
 Beispielkonfiguration liegt unter [docker/asterisk/](../docker/asterisk/) und wird beim
@@ -25,7 +25,7 @@ Container-Start nach `/etc/asterisk/` eingespielt, falls dort noch keine Config 
 [inbound]
 exten = _X.,1,NoOp(Eingehender Anruf an ${EXTEN} von ${CALLERID(num)})
  same = n,Answer()
- same = n,Stasis(voice-agent,${EXTEN},${CALLERID(num)})
+ same = n,Stasis(voice-office-hub,${EXTEN},${CALLERID(num)})
  same = n,Hangup()
 ```
 

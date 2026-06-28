@@ -1,8 +1,8 @@
 {
-  "name": "exius-voice-hub",
+  "name": "voice-office-hub",
   "version": "0.1.0",
   "private": true,
-  "description": "Telefonisch erreichbarer KI-Voice-Agent: Asterisk (ARI) <-> Deepgram Voice Agent API",
+  "description": "Voice-Office-Hub — telefonisch erreichbarer KI-Voice-Agent: Asterisk (ARI) <-> Deepgram Voice Agent API",
   "type": "module",
   "engines": {
     "node": ">=20"
