@@ -166,6 +166,22 @@ Service-Änderungen beim Deploy überschreibt.
 entstünden zwei Sessions/Requests/Summaries. `CALL_DEDUP_WINDOW_MS` (Default 4000) verwirft den zweiten
 Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters.
 
+## Volumes / Persistenz
+
+Persistiert werden muss **genau ein** Verzeichnis:
+
+- **`/data/db`** — MongoDB-Datenverzeichnis. Enthält **alles Dauerhafte**: die `requests` (Metadaten,
+  Transkripte, Summaries, functionCalls) **und** die Aufnahmen als **GridFS-Blobs**. Nur dieses Volume
+  braucht Persistenz/Backup — ein DB-Backup deckt Anrufe inkl. Audio vollständig ab.
+
+Nicht persistieren:
+
+- **Aufnahme-Staging** (`/var/spool/asterisk/recording`): Asterisk schreibt die WAV nur kurz dorthin;
+  nach dem Anruf wird sie nach GridFS hochgeladen und die Temp-Datei **gelöscht**. Rein flüchtig — kein
+  Volume, kein Backup (das Verzeichnis legt das Image an, es muss nur existieren).
+- **`/data/recordings`** (`RECORDING_PATH`): aktuell **ungenutzt** (Altlast — der Code nutzt den
+  Spool-Pfad oben). Als Volume entbehrlich.
+
 ## Sicherheit / Härtung
 
 Leitlinien für den Produktivbetrieb der Appliance:
