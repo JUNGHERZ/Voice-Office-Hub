@@ -6,6 +6,10 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Changed
+- README: Feature-Liste (mit Emojis), Admin-UI-Screenshots (4-spaltig), **B2B-Positionierung**
+  (Beratung & Umsetzung) und Verlinkung von **MonaHilft** (https://monahilft.de).
+
 ## [0.5.1] – 2026-06-28
 
 Appliance-Härtung.

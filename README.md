@@ -11,6 +11,31 @@
 > **VOH-Appliance** — Voice-Office-Hub. Teil der **„*-Office-Hub"**-Produktfamilie
 > (Schwesterprojekt: Message-Office-Hub für Chat/E-Mail/WhatsApp/SMS).
 
+**Telefonische KI-Agenten als selbst-hostbare Appliance.** Ein Anruf aus Festnetz/Mobilfunk wird
+von einem KI-Agenten angenommen, natürlich geführt und bei Bedarf an Menschen weitergeleitet —
+**DSGVO-konform im eigenen Rechenzentrum**, in **einem** Docker-Container.
+
+## ✨ Features
+
+- 📞 **Telefonie-KI-Agent** — Anrufannahme & natürliche Sprachdialoge (Deepgram Voice Agent)
+- 🇩🇪 **Mehrsprachig** — deutschsprachige Konversation ab Werk (nova-3 + Aura-2)
+- 🔀 **Transfer & Auflegen** — Warm-Transfer an Menschen, selbsttätiges Beenden
+- 🧩 **Tools / Function-Calling** — eigene Fachlogik per externer API anbinden
+- 🗂️ **Transkript & Aufnahme** — Volltext + Audio (MongoDB/GridFS) + Post-Call-Zusammenfassung
+- ☎️ **Passthrough-Modus** — reine Durchleitung + Mitschnitt + Batch-Transkription
+- 🎯 **Multi-Agent / DDI-Routing** — pro Rufnummer ein eigener Agent
+- 🖥️ **Admin-UI + API** — Glas-Look-Oberfläche + JSON-API (OpenAPI) zur Verwaltung & Integration
+- 📦 **Single-Container-Appliance** — Asterisk + Engine + DB + UI; ein Image, lokal wie Produktion
+- 🔒 **Self-hosted & DSGVO** — Anrufe, Aufnahmen, Transkripte bleiben in deiner Infrastruktur
+
+## 📸 Einblicke (Admin-UI)
+
+| Dashboard | Agents | Agent bearbeiten | Anruf-Detail |
+|:--:|:--:|:--:|:--:|
+| <img src="docs/screenshots/voh_admin_ui_intro1.png" alt="Dashboard" width="210"> | <img src="docs/screenshots/voh_admin_ui_intro3.png" alt="Agents-Liste" width="210"> | <img src="docs/screenshots/voh_admin_ui_intro4.png" alt="Agent bearbeiten" width="210"> | <img src="docs/screenshots/voh_admin_ui_intro2.png" alt="Anruf-Detail mit Audio-Player und Transkript" width="210"> |
+
+## Wie es funktioniert
+
 Telefonisch erreichbarer KI-Voice-Agent: ein Anrufer aus dem öffentlichen Telefonnetz landet
 über **Asterisk** (ARI) in unserer **Node.js/TypeScript**-Engine, die pro Anruf eine Session
 gegen die **Deepgram Voice Agent API** orchestriert (Listen → Think → Speak). Der Agent kann
@@ -27,12 +52,30 @@ sobald `ADMIN_PASSWORD` gesetzt ist; OpenAPI unter `/openapi.json`, Swagger-UI u
 
 ## Eingesetzt bei
 
-Voice-Office-Hub entsteht im Rahmen des Produkts **MonaHilft** und wird dort **produktiv** eingesetzt.
+Voice-Office-Hub entsteht im Rahmen des Produkts **[MonaHilft](https://monahilft.de)** und wird dort
+**produktiv** eingesetzt.
 
 Setzt deine Organisation VOH ebenfalls ein? Wir führen hier gern weitere Nutzer auf — einfach per PR/Issue melden:
 
-- **MonaHilft** — produktiver Einsatz (telefonische KI-Agenten)
+- **[MonaHilft](https://monahilft.de)** — produktiver Einsatz (telefonische KI-Agenten)
 - _… dein Unternehmen?_
+
+## 🏢 Für Unternehmen (B2B)
+
+Voice-Office-Hub ist als **Appliance für den Unternehmenseinsatz** konzipiert — für Organisationen,
+die telefonische KI-Agenten **in der eigenen Infrastruktur** betreiben wollen, statt Gespräche an
+eine fremde Cloud-Plattform zu geben.
+
+- 🔒 **Datenhoheit & DSGVO** — self-hosted im eigenen RZ; Anrufe/Aufnahmen/Transkripte bleiben bei dir.
+- 🧩 **Integrierbar** — JSON-API (OpenAPI) + Function-Calling binden CRM, Ticketing oder Fachsysteme an.
+- 📦 **Schnell ausgerollt** — ein Container, Konfiguration per `.env`; vom Softphone-Test bis zum
+  SIP-Trunk dasselbe Image.
+- 🎛️ **Anpassbar** — Agenten, Prompts, Stimmen und Routing pro Rufnummer; Branding/Funktionen erweiterbar.
+- 🧠 **Modell-flexibel** — STT/TTS/LLM wählbar (Deepgram, eigene Modelle via Requesty).
+
+**Beratung & Umsetzung:** Die **Jungherz GmbH** unterstützt bei Konzeption, Customizing und Betrieb —
+von der Trunk-Anbindung über maßgeschneiderte Agenten/Tools bis zum Deployment im eigenen
+Rechenzentrum. 👉 Kontakt & Referenz: **[monahilft.de](https://monahilft.de)** oder ein Issue in diesem Repo.
 
 ## Architektur (Kurzfassung)
 
