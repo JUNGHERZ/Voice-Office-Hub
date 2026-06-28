@@ -6,9 +6,14 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.2] – 2026-06-28
+
 ### Changed
-- README: Feature-Liste (mit Emojis), Admin-UI-Screenshots (4-spaltig), **B2B-Positionierung**
-  (Beratung & Umsetzung) und Verlinkung von **MonaHilft** (https://monahilft.de).
+- README: Feature-Liste (Emojis), Admin-UI-Screenshots (4-spaltig), **B2B-Positionierung**
+  (Anwendungsfälle, Self-hosted-vs-SaaS-Vergleich, Kontakt → Jungherz GmbH), **MonaHilft** verlinkt.
+- README **zweisprachig**: englische `README.md` als Default (international) + deutsche
+  `README.de.md`, mit gegenseitigem 🇬🇧/🇩🇪-Sprach-Umschalter.
+- GitHub-Repo-Beschreibung + Topics gesetzt (Auffindbarkeit/SEO).
 
 ## [0.5.1] – 2026-06-28
 

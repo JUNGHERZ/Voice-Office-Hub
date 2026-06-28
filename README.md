@@ -1,138 +1,159 @@
 # Voice-Office-Hub
 
-[![Version](https://img.shields.io/badge/version-0.5.1-f5a623)](CHANGELOG.md)
+**🇬🇧 English** · [🇩🇪 Deutsch](README.de.md)
+
+[![Version](https://img.shields.io/badge/version-0.5.2-f5a623)](CHANGELOG.md)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-success)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
-[![Changelog](https://img.shields.io/badge/changelog-0.5.1-blue)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-0.5.2-blue)](CHANGELOG.md)
 
-> **VOH-Appliance** — Voice-Office-Hub. Teil der **„*-Office-Hub"**-Produktfamilie
-> (Schwesterprojekt: Message-Office-Hub für Chat/E-Mail/WhatsApp/SMS).
+> **VOH-Appliance** — Voice-Office-Hub. Part of the **"*-Office-Hub"** product family
+> (sister project: Message-Office-Hub for chat/email/WhatsApp/SMS).
 
-**Telefonische KI-Agenten als selbst-hostbare Appliance.** Ein Anruf aus Festnetz/Mobilfunk wird
-von einem KI-Agenten angenommen, natürlich geführt und bei Bedarf an Menschen weitergeleitet —
-**DSGVO-konform im eigenen Rechenzentrum**, in **einem** Docker-Container.
+**AI phone agents as a self-hostable appliance.** A call from landline/mobile is answered by an
+AI agent, handled naturally, and handed off to a human when needed — **GDPR-compliant in your own
+data center**, in a **single** Docker container.
 
 ## ✨ Features
 
-- 📞 **Telefonie-KI-Agent** — Anrufannahme & natürliche Sprachdialoge (Deepgram Voice Agent)
-- 🇩🇪 **Mehrsprachig** — deutschsprachige Konversation ab Werk (nova-3 + Aura-2)
-- 🔀 **Transfer & Auflegen** — Warm-Transfer an Menschen, selbsttätiges Beenden
-- 🧩 **Tools / Function-Calling** — eigene Fachlogik per externer API anbinden
-- 🗂️ **Transkript & Aufnahme** — Volltext + Audio (MongoDB/GridFS) + Post-Call-Zusammenfassung
-- ☎️ **Passthrough-Modus** — reine Durchleitung + Mitschnitt + Batch-Transkription
-- 🎯 **Multi-Agent / DDI-Routing** — pro Rufnummer ein eigener Agent
-- 🖥️ **Admin-UI + API** — Glas-Look-Oberfläche + JSON-API (OpenAPI) zur Verwaltung & Integration
-- 📦 **Single-Container-Appliance** — Asterisk + Engine + DB + UI; ein Image, lokal wie Produktion
-- 🔒 **Self-hosted & DSGVO** — Anrufe, Aufnahmen, Transkripte bleiben in deiner Infrastruktur
+- 📞 **Telephony AI agent** — call answering & natural voice dialogue (Deepgram Voice Agent)
+- 🇩🇪 **Multilingual** — German-language conversation out of the box (nova-3 + Aura-2)
+- 🔀 **Transfer & hang-up** — warm transfer to humans, autonomous call ending
+- 🧩 **Tools / function calling** — connect your own business logic via external APIs
+- 🗂️ **Transcript & recording** — full text + audio (MongoDB/GridFS) + post-call summary
+- ☎️ **Passthrough mode** — pure forwarding + recording + batch transcription
+- 🎯 **Multi-agent / DDI routing** — a dedicated agent per phone number
+- 🖥️ **Admin UI + API** — glass-look interface + JSON API (OpenAPI) for management & integration
+- 📦 **Single-container appliance** — Asterisk + engine + DB + UI; one image, local as in production
+- 🔒 **Self-hosted & GDPR** — calls, recordings, transcripts stay in your infrastructure
 
-## 📸 Einblicke (Admin-UI)
+## 📸 Glimpses (Admin UI)
 
-| Dashboard | Agents | Agent bearbeiten | Anruf-Detail |
+| Dashboard | Agents | Edit agent | Call detail |
 |:--:|:--:|:--:|:--:|
-| <img src="docs/screenshots/voh_admin_ui_intro1.png" alt="Dashboard" width="210"> | <img src="docs/screenshots/voh_admin_ui_intro3.png" alt="Agents-Liste" width="210"> | <img src="docs/screenshots/voh_admin_ui_intro4.png" alt="Agent bearbeiten" width="210"> | <img src="docs/screenshots/voh_admin_ui_intro2.png" alt="Anruf-Detail mit Audio-Player und Transkript" width="210"> |
+| <img src="docs/screenshots/voh_admin_ui_intro1.png" alt="Dashboard" width="210"> | <img src="docs/screenshots/voh_admin_ui_intro3.png" alt="Agents list" width="210"> | <img src="docs/screenshots/voh_admin_ui_intro4.png" alt="Edit agent" width="210"> | <img src="docs/screenshots/voh_admin_ui_intro2.png" alt="Call detail with audio player and transcript" width="210"> |
 
-## Wie es funktioniert
+## How it works
 
-Telefonisch erreichbarer KI-Voice-Agent: ein Anrufer aus dem öffentlichen Telefonnetz landet
-über **Asterisk** (ARI) in unserer **Node.js/TypeScript**-Engine, die pro Anruf eine Session
-gegen die **Deepgram Voice Agent API** orchestriert (Listen → Think → Speak). Der Agent kann
-**Tools** aufrufen, **weiterleiten**, **auflegen** und das Gespräch als **Transkript + Audio**
-(MongoDB/GridFS) sowie eine **Post-Call-Zusammenfassung** ablegen.
+A phone-reachable AI voice agent: a caller from the public telephone network arrives via
+**Asterisk** (ARI) in our **Node.js/TypeScript** engine, which orchestrates one session per call
+against the **Deepgram Voice Agent API** (Listen → Think → Speak). The agent can call **tools**,
+**transfer**, **hang up**, and store the conversation as a **transcript + audio** (MongoDB/GridFS)
+as well as a **post-call summary**.
 
-Alles läuft in **einem Docker-Container** (Asterisk + Node-Kern + MongoDB + Node-Admin-UI/API),
-lokal wie in Produktion — Unterschied nur über die `.env`.
+Everything runs in a **single Docker container** (Asterisk + Node core + MongoDB + Node admin
+UI/API), local as in production — the only difference is the `.env`.
 
-Die **Admin-UI** ist eine API-First-App: ein Node/**Fastify**-Service stellt eine **JSON-API**
-(Agents-CRUD, Anrufe/Requests, OpenAPI) bereit; das Frontend ist eine **[Hybrids.js](https://hybrids.js.org/)**-SPA
-im **[GlassKit](https://glasskit.jungherz.com/)**-Glas-Look (Web Components, ohne Build). Erreichbar auf `UI_PORT` (Default `8080`),
-sobald `ADMIN_PASSWORD` gesetzt ist; OpenAPI unter `/openapi.json`, Swagger-UI unter `/docs`.
+The **admin UI** is an API-first app: a Node/**Fastify** service exposes a **JSON API**
+(agents CRUD, calls/requests, OpenAPI); the frontend is a **[Hybrids.js](https://hybrids.js.org/)** SPA
+in the **[GlassKit](https://glasskit.jungherz.com/)** glass look (Web Components, no build step). Available on `UI_PORT` (default `8080`)
+once `ADMIN_PASSWORD` is set; OpenAPI at `/openapi.json`, Swagger UI at `/docs`.
 
-## Eingesetzt bei
+## Used by
 
-Voice-Office-Hub entsteht im Rahmen des Produkts **[MonaHilft](https://monahilft.de)** und wird dort
-**produktiv** eingesetzt.
+Voice-Office-Hub is being built as part of the **[MonaHilft](https://monahilft.de)** product and is
+used there **in production**.
 
-Setzt deine Organisation VOH ebenfalls ein? Wir führen hier gern weitere Nutzer auf — einfach per PR/Issue melden:
+Is your organization using VOH too? We're happy to list additional users here — just let us know via PR/issue:
 
-- **[MonaHilft](https://monahilft.de)** — produktiver Einsatz (telefonische KI-Agenten)
-- _… dein Unternehmen?_
+- **[MonaHilft](https://monahilft.de)** — production use (AI phone agents)
+- _… your company?_
 
-## 🏢 Für Unternehmen (B2B)
+## 🏢 For companies (B2B)
 
-Voice-Office-Hub ist als **Appliance für den Unternehmenseinsatz** konzipiert — für Organisationen,
-die telefonische KI-Agenten **in der eigenen Infrastruktur** betreiben wollen, statt Gespräche an
-eine fremde Cloud-Plattform zu geben.
+Voice-Office-Hub is designed as an **appliance for enterprise use** — for organizations that want to
+run AI phone agents **in their own infrastructure** instead of handing conversations to a third-party
+cloud platform.
 
-- 🔒 **Datenhoheit & DSGVO** — self-hosted im eigenen RZ; Anrufe/Aufnahmen/Transkripte bleiben bei dir.
-- 🧩 **Integrierbar** — JSON-API (OpenAPI) + Function-Calling binden CRM, Ticketing oder Fachsysteme an.
-- 📦 **Schnell ausgerollt** — ein Container, Konfiguration per `.env`; vom Softphone-Test bis zum
-  SIP-Trunk dasselbe Image.
-- 🎛️ **Anpassbar** — Agenten, Prompts, Stimmen und Routing pro Rufnummer; Branding/Funktionen erweiterbar.
-- 🧠 **Modell-flexibel** — STT/TTS/LLM wählbar (Deepgram, eigene Modelle via Requesty).
+- 🔒 **Data sovereignty & GDPR** — self-hosted in your own data center; calls/recordings/transcripts stay with you.
+- 🧩 **Integratable** — JSON API (OpenAPI) + function calling connect CRM, ticketing, or business systems.
+- 📦 **Quick to roll out** — one container, configuration via `.env`; from softphone test to
+  SIP trunk, the same image.
+- 🎛️ **Customizable** — agents, prompts, voices, and routing per phone number; branding/features extensible.
+- 🧠 **Model-flexible** — STT/TTS/LLM selectable (Deepgram, your own models via Requesty).
 
-**Beratung & Umsetzung:** Die **Jungherz GmbH** unterstützt bei Konzeption, Customizing und Betrieb —
-von der Trunk-Anbindung über maßgeschneiderte Agenten/Tools bis zum Deployment im eigenen
-Rechenzentrum. 👉 Kontakt & Referenz: **[monahilft.de](https://monahilft.de)** oder ein Issue in diesem Repo.
+### 🎯 Typical use cases
 
-## Architektur (Kurzfassung)
+- **Hotline relief** — answer standard inquiries automatically, absorb load spikes.
+- **Appointment scheduling & rescheduling** — right within the call, connected to calendar/practice systems.
+- **After-hours / 24-7 answering** — stay reachable outside business hours.
+- **Pre-qualify & route** — capture the request and warm-transfer it to the right place.
+- **Callback & message capture** — structured, including transcript and summary.
+- **Phone information** — FAQ, status, opening hours in natural language.
+
+### ⚖️ Self-hosted instead of SaaS
+
+| | Voice-Office-Hub (self-hosted) | Cloud SaaS |
+|---|---|---|
+| **Data sovereignty** | ✅ data in your own data center | ❌ conversations at a third party |
+| **GDPR** | ✅ full control | ⚠️ DPA/third-country concerns |
+| **Cost model** | license/appliance, predictable | mostly per minute |
+| **Customizability** | ✅ open (API, tools, prompts) | limited |
+| **Vendor lock-in** | low (self-operated) | high |
+
+**Consulting & implementation:** **Jungherz GmbH** supports with conception, customizing, and
+operations — from trunk integration through tailored agents/tools to deployment in your own data
+center. 👉 Contact & reference: **[Jungherz GmbH](https://www.jungherz.com/)** or open an issue in this repo.
+
+## Architecture (short version)
 
 ```
-PSTN → Asterisk (ARI + externalMedia/AudioSocket) → Node-Engine → Deepgram Voice Agent → MongoDB/GridFS
+PSTN → Asterisk (ARI + externalMedia/AudioSocket) → Node engine → Deepgram Voice Agent → MongoDB/GridFS
                                                         │
-                                Think via Requesty (z. B. Gemini 3.1 Flash Lite)
-                                Summary via eigenes Modell (z. B. GPT-4.1 Mini)
+                                Think via Requesty (e.g. Gemini 3.1 Flash Lite)
+                                Summary via dedicated model (e.g. GPT-4.1 Mini)
 ```
 
 Details: [docs/architecture.md](docs/architecture.md).
 
-## Quickstart (lokal, OrbStack)
+## Quickstart (local, OrbStack)
 
 ```bash
-cp .env.example .env        # ausfüllen: DEEPGRAM_API_KEY, REQUESTY_API_KEY, ARI_PASSWORD, ...
+cp .env.example .env        # fill in: DEEPGRAM_API_KEY, REQUESTY_API_KEY, ARI_PASSWORD, ...
 ./run.sh build
 ./run.sh up
 ./run.sh logs
 ```
 
-Dann ein **SIP-Softphone** (Zoiper/Linphone) am Container-Asterisk registrieren
-(`softphone`/`softphone`) und die Test-Durchwahl `100` anrufen. Für Transfer-Tests ein zweites
-Softphone als `101`/`101` registrieren (Ziel von `transfer_call`).
+Then register a **SIP softphone** (Zoiper/Linphone) with the container's Asterisk
+(`softphone`/`softphone`) and call the test extension `100`. For transfer tests, register a second
+softphone as `101`/`101` (target of `transfer_call`).
 
-MongoDB lässt sich im Dev per GUI-Client (z. B. NoSQL Booster) auf `127.0.0.1:27100` (DB `voiceagent`)
-inspizieren.
+In dev, MongoDB can be inspected via a GUI client (e.g. NoSQL Booster) at `127.0.0.1:27100` (DB `voiceagent`).
 
-## Entwicklung ohne Container
+## Development without a container
 
 ```bash
 npm install
-npm run dev        # benötigt erreichbares Asterisk (ARI) + MongoDB
+npm run dev        # requires a reachable Asterisk (ARI) + MongoDB
 ```
 
-## Dokumentation
+## Documentation
 
-- [docs/architecture.md](docs/architecture.md) — Komponenten, Datenfluss, Datenmodell, Implementierungsstand
-- [docs/asterisk-sipgate.md](docs/asterisk-sipgate.md) — Asterisk + SIPGate-Trunk
-- [docs/configuration.md](docs/configuration.md) — ENV, Betriebsmodi, Tools, Betrieb
-- [docs/backlog.md](docs/backlog.md) — offene Punkte & Ideen (Web/WebRTC, Admin-UI, Denoising, Flux …)
-- [CHANGELOG.md](CHANGELOG.md) — Versionsverlauf
+- [docs/architecture.md](docs/architecture.md) — components, data flow, data model, implementation status (in German)
+- [docs/asterisk-sipgate.md](docs/asterisk-sipgate.md) — Asterisk + SIPGate trunk (in German)
+- [docs/configuration.md](docs/configuration.md) — ENV, operating modes, tools, operations (in German)
+- [docs/backlog.md](docs/backlog.md) — open items & ideas (Web/WebRTC, admin UI, denoising, Flux …) (in German)
+- [CHANGELOG.md](CHANGELOG.md) — version history
+- [README.de.md](README.de.md) — full German version of this README
 
 ## Status
 
-Funktionsfähig (über echte Anrufe verifiziert): Kern (ARI ↔ Deepgram über AudioSocket),
-deutsche Konversation, **Persistenz** (Transkript/functionCalls), **Tools** (`transfer_call`,
-`end_call`), **Transfer** mit Auto-Rückkehr + durchgeschalteter Beendigung, **Aufnahme** in GridFS,
-**Post-Call-Summary** (eigenes Modell, agent + passthrough), **Passthrough-Modus** (Durchleitung +
-Aufnahme + Batch-Transkription, `DEFAULT_MODE=passthrough`; Diarization-Sprecher-Trennung noch mit
-Zwei-Geräte-Setup zu verifizieren), **Multi-Agent/DDI-Routing** (`agents.targetNumbers`, Dialplan
-reicht echte DDI durch; Demo-Agents via `npm run seed`), **Admin-UI + Management-API**
-(Node/Fastify + Hybrids/GlassKit, JSON-API + OpenAPI, Login, Agents-CRUD, Anrufliste/Detail mit
-Audio-Player). Nächste Ausbaustufen: PWA-Feinschliff, Appliance-Härtung (SIPGate-Trunk).
+Functional (verified via real calls): core (ARI ↔ Deepgram over AudioSocket), German conversation,
+**persistence** (transcript/functionCalls), **tools** (`transfer_call`, `end_call`), **transfer**
+with auto-return + pass-through termination, **recording** in GridFS, **post-call summary**
+(dedicated model, agent + passthrough), **passthrough mode** (forwarding + recording + batch
+transcription, `DEFAULT_MODE=passthrough`; diarization speaker separation still to be verified with
+a two-device setup), **multi-agent/DDI routing** (`agents.targetNumbers`, the dialplan passes the
+real DDI through; demo agents via `npm run seed`), **admin UI + management API** (Node/Fastify +
+Hybrids/GlassKit, JSON API + OpenAPI, login, agents CRUD, call list/detail with audio player).
+Next stages: PWA polish, appliance hardening (SIPGate trunk).
 
-## Lizenz
+## License
 
 **Creative Commons Attribution-NonCommercial 4.0 (CC BY-NC 4.0)** — © 2026 Jungherz GmbH.
-Siehe [LICENSE](LICENSE): Nutzung/Weitergabe/Bearbeitung mit Namensnennung erlaubt, **keine
-kommerzielle Nutzung** ohne gesonderte Vereinbarung.
+See [LICENSE](LICENSE): use/distribution/adaptation with attribution permitted, **no commercial
+use** without a separate agreement.
