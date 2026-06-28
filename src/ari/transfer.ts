@@ -12,7 +12,7 @@ import type { AriBridge, AriClient } from "ari-client";
 import { config } from "../config.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
-import { looksExternal, normalizePhone, toSipgateCli } from "../util/phone.js";
+import { looksExternal, toSipgateCli } from "../util/phone.js";
 
 const log = logger.child({ mod: "transfer" });
 
@@ -36,7 +36,8 @@ export function resolveOutboundTransfer(
 ): { target: string; callerId?: string } {
   if (!looksExternal(target)) return { target };
 
-  const dialNumber = normalizePhone(target);
+  // Ziel als E.164 mit führendem "+" (SIPGate erwartet das im Request-URI).
+  const dialNumber = `+${toSipgateCli(target)}`;
   const ownRaw = (agent.targetNumbers ?? []).find(looksExternal) || config.trunk.outboundCallerId;
   const ownCli = toSipgateCli(ownRaw);
 

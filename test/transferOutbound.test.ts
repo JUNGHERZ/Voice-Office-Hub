@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { looksExternal, toSipgateCli } from "../src/util/phone.js";
+import { looksExternal, normalizePhone, toSipgateCli } from "../src/util/phone.js";
 import { resolveOutboundTransfer } from "../src/ari/transfer.js";
+
+test("normalizePhone: +49…/0049…/49… vereinheitlichen (DDI-Matching)", () => {
+  const ddi = normalizePhone("49236298381975"); // so liefert der Trunk die DDI
+  assert.equal(normalizePhone("+49236298381975"), ddi);
+  assert.equal(normalizePhone("0049236298381975"), ddi);
+  assert.equal(normalizePhone("+49 (0)236 298 381 975".replace(/\(0\)/, "")), ddi);
+  assert.equal(ddi, "49236298381975");
+  // Interne Durchwahl bleibt unverändert.
+  assert.equal(normalizePhone("120"), "120");
+});
 
 test("looksExternal: interne Durchwahl vs. externe Nummer", () => {
   assert.equal(looksExternal("101"), false);

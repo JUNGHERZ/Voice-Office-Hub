@@ -5,11 +5,18 @@
  * Seiten auf eine kanonische Form.
  */
 
-/** Kanonische Form: Trennzeichen entfernt, führendes `00` → `+`. */
+/**
+ * Kanonische Vergleichsform: Trennzeichen entfernt, internationaler Präfix vereinheitlicht —
+ * führendes `+` **oder** `00` wird entfernt. So matchen `+49236298381975`, `0049236298381975`
+ * und `49236298381975` (so wie der Trunk die DDI liefert) auf dieselbe Form. Eine nationale
+ * Schreibweise mit führender `0` (z. B. `0236…`) bleibt unverändert und matcht daher NICHT die
+ * internationale DDI — für das Routing-Feld immer die internationale Form eintragen.
+ */
 export function normalizePhone(input: string | undefined | null): string {
   if (!input) return "";
   let s = String(input).trim().replace(/[\s\-()/.]/g, "");
-  if (s.startsWith("00")) s = "+" + s.slice(2);
+  if (s.startsWith("+")) s = s.slice(1);
+  else if (s.startsWith("00")) s = s.slice(2);
   return s;
 }
 
@@ -26,7 +33,6 @@ export function samePhone(a: string | undefined | null, b: string | undefined | 
 export function looksExternal(input: string | undefined | null): boolean {
   const s = normalizePhone(input);
   if (!s) return false;
-  if (s.startsWith("+")) return true;
   return s.replace(/\D/g, "").length >= 7;
 }
 

@@ -6,6 +6,14 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.5] – 2026-06-28
+
+### Fixed
+- **DDI-Matching vereinheitlicht:** `normalizePhone` entfernt jetzt den internationalen Präfix
+  (`+` **oder** `00`), sodass `+49236298381975`, `0049236298381975` und `49236298381975` (so liefert
+  der Trunk die DDI) auf dieselbe Form matchen. Vorher matchte ein gespeichertes `+49…` nicht gegen
+  die vom Trunk gelieferte `49…`. Ausgehende Wahl nutzt weiterhin garantiertes E.164 mit `+`.
+
 ## [0.5.4] – 2026-06-28
 
 Ausgehende Anrufe / externer Transfer über den Trunk.
