@@ -6,6 +6,36 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.8] – 2026-06-29
+
+Sicherheits-Härtung gegen SIP-Scanner + sauberes Verhalten bei unbekannter Rufnummer.
+
+### Security
+- **Kein anonymer SIP-Zutritt mehr.** SIP-Scanner (sipvicious & Co.) klopfen den öffentlichen
+  `5060/udp` permanent ab; bisher waren die **fest ins Image gebackenen Dev-Softphones**
+  (`softphone`/`softphone`, `101`/`101`) immer aktiv und über erratbare Logins brute-force-bar →
+  eingeschleuste Anrufe lösten KI-Sessions aus (Kosten + volllaufendes Anruflog). Jetzt:
+  - Dev-Softphones werden nur noch bei **`DEV_SOFTPHONE_ENABLED=true`** (Default **aus**) vom
+    entrypoint als `pjsip_local.conf` erzeugt (Passwörter via `DEV_SOFTPHONE_PASSWORD` /
+    `DEV_SOFTPHONE_101_PASSWORD`). Auf einer öffentlichen Appliance existiert **kein** ratbarer
+    Endpoint mehr; Inbound läuft ausschließlich über den IP-gebundenen Trunk (`identify`).
+  - `[global]`-Härtung in der pjsip.conf; **kein** `anonymous`-Endpoint → unidentifizierte INVITEs
+    werden mit `401` abgewiesen.
+
+### Added
+- **`UNKNOWN_NUMBER_BEHAVIOR`** (Default `reject`): Verhalten, wenn eine DDI **keinem** Agent
+  zugeordnet ist — `reject` (vor dem Answer mit `404 unallocated` ablehnen → Anrufer-Netz spielt
+  „kein Anschluss"; **0 Kosten, kein Logeintrag**), `announce` (Ansage `UNKNOWN_NUMBER_ANNOUNCEMENT`
+  abspielen + auflegen, kein LLM) oder `agent` (Default-Agent — nur Dev). Der Default-Agent ist damit
+  **kein** stiller Catch-all mehr.
+
+### Changed
+- Dialplan `[inbound]`: **kein `Answer()`** mehr — der Anruf wird erst in der Stasis-App angenommen,
+  sobald ein Agent passt (ermöglicht das Pre-Answer-`reject`). `agentResolver` liefert bei Miss `null`;
+  der callHandler entscheidet anhand von `UNKNOWN_NUMBER_BEHAVIOR`.
+- `docs/configuration.md` + `.env.example`: neue ENV-Parameter, Abschnitt „Unbekannte Rufnummer",
+  erweiterte „Sicherheit / Härtung".
+
 ## [0.5.7] – 2026-06-28
 
 Freie Trunk-Provider-Wahl (ein Trunk pro Appliance) + Doku.

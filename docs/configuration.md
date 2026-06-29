@@ -17,6 +17,8 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `ARI_URL` / `ARI_USERNAME` / `ARI_PASSWORD` | `http://127.0.0.1:8088` / `voiceagent` / — | ARI-Zugang. |
 | `ARI_APP` | `voice-office-hub` | Name der Stasis-App. |
 | `EMBED_ASTERISK` | `true` | Asterisk im Container starten (Dev/Appliance) vs. externe PBX. |
+| `DEV_SOFTPHONE_ENABLED` | `false` | Lokale SIP-Testkonten (`softphone`, `101`) erzeugen. **Sicherheit: Standard AUS; auf öffentlich erreichbaren Hosts NIEMALS aktivieren** (5060/udp wird von SIP-Scannern abgeklopft). Siehe [Sicherheit / Härtung](#sicherheit--härtung). |
+| `DEV_SOFTPHONE_PASSWORD` / `DEV_SOFTPHONE_101_PASSWORD` | `softphone` / `101` | Passwörter der Dev-Konten (nur bei `DEV_SOFTPHONE_ENABLED=true`). |
 | `TRUNK_ENABLED` | `false` | SIP-Trunk der Appliance aktivieren. Nur wirksam bei `EMBED_ASTERISK=true`. `false` → kein Trunk (Dev nutzt Softphone). Siehe [SIP-Trunk (Appliance)](#sip-trunk-appliance). |
 | `TRUNK_SIP_ID` | — | SIP-Account-ID (Benutzername) des Trunk-Providers. |
 | `TRUNK_SIP_PASSWORD` | — | SIP-Passwort des Trunk-Accounts. |
@@ -35,6 +37,8 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `AUDIO_ENCODING` / `AUDIO_SAMPLE_RATE` | `linear16` / `8000` | Audioformat Richtung Deepgram (kein Transcoding). |
 | `EXTERNAL_MEDIA_FORMAT` | `slin` | Asterisk-Format des externalMedia-Kanals (`slin`=8 kHz signed linear). |
 | `EXTERNAL_MEDIA_HOST` / `EXTERNAL_MEDIA_PORT` | `127.0.0.1` / `8090` | Adresse, zu der sich Asterisks AudioSocket verbindet (extern: erreichbare Host-Adresse). |
+| `UNKNOWN_NUMBER_BEHAVIOR` | `reject` | Verhalten bei Anruf an eine DDI **ohne** zugeordneten Agent: `reject` (vor Answer mit 404 ablehnen → Netz-Standardansage, 0 Kosten, kein Logeintrag), `announce` (Ansage abspielen + auflegen, kein LLM) oder `agent` (Default-Agent beantwortet — nur Dev). Siehe [Unbekannte Rufnummer](#unbekannte-rufnummer-kein-agent). |
+| `UNKNOWN_NUMBER_ANNOUNCEMENT` | `sound:custom/kein-anschluss` | ARI-Media-ID der Ansage für `announce` (eigene WAV in Asterisks `sounds/custom/` ablegen). |
 | `DEFAULT_MODE` | `agent` | Modus des Default-Agenten: `agent` (KI) oder `passthrough` (Durchleitung an `PASSTHROUGH_TARGET` + Aufnahme/Batch-Transkription). |
 | `DEFAULT_LANGUAGE` | `multi` | STT-Sprache im listen-Provider (`multi`, `de`, `en` …; **nicht** das deprecatete `agent.language`). Wird auch der Batch-Transkription (Passthrough) als feste Sprache vorgegeben. |
 | `DEFAULT_AGENT_PROMPT` / `DEFAULT_AGENT_GREETING` | s. Beispiel | Fallback-Agent: System-Prompt + Begrüßung. |
@@ -64,7 +68,10 @@ Der Modus und alle Parameter kommen aus dem **aufgelösten Agent**:
 
 1. Bei `StasisStart` wird die gewählte **DDI** (`${EXTEN}`) in der `agents`-Collection gesucht.
 2. Treffer → dieser Agent (Modus, Prompt, listen/think/speak, Tools, Summary …).
-3. Kein Treffer → **Default-Agent** aus den `DEFAULT_AGENT_*`/`DEFAULT_MODE`-ENV-Variablen.
+3. Kein Treffer → Verhalten gemäß `UNKNOWN_NUMBER_BEHAVIOR` (Default **`reject`**: ablehnen).
+   Nur mit `UNKNOWN_NUMBER_BEHAVIOR=agent` greift der **Default-Agent** aus den
+   `DEFAULT_AGENT_*`/`DEFAULT_MODE`-ENV-Variablen (Dev). Siehe
+   [Unbekannte Rufnummer](#unbekannte-rufnummer-kein-agent).
 
 > Ohne DB-Agents (Admin-UI noch offen) lässt sich der Passthrough-Modus über `DEFAULT_MODE=passthrough`
 > + `PASSTHROUGH_TARGET=<Durchwahl>` für den Default-Agenten aktivieren (z. B. zum Testen).
@@ -103,10 +110,23 @@ docker exec voh-appliance node /app/dist/scripts/seedAgents.js
 MONGO_URI=mongodb://127.0.0.1:27100/voiceagent npm run seed
 ```
 
-Unbekannte DDI (z. B. `100`) → **Default-Agent** aus den ENV-Variablen.
-
 So überschreiben DB-Agents das ENV-Default pro Nummer. Das `agents`-Schema
 ([Agent.ts](../src/db/models/Agent.ts)) mappt 1:1 auf die Deepgram-`Settings`.
+
+### Unbekannte Rufnummer (kein Agent)
+
+Wird eine DDI angerufen, die **keinem** Agent zugeordnet ist, bestimmt `UNKNOWN_NUMBER_BEHAVIOR`
+das Verhalten — wichtig, damit Fehl-/Scanner-Anrufe **keine** kostenpflichtige KI-Session und keinen
+Log-Spam erzeugen:
+
+| Wert | Verhalten |
+|---|---|
+| `reject` *(Default)* | Anruf **vor** dem Answer mit `404 unallocated` ablehnen → das Netz des Anrufers spielt die Standardansage („kein Anschluss unter dieser Nummer"). Keine Deepgram-/LLM-Kosten, **kein** `requests`-Eintrag. |
+| `announce` | Kurz annehmen, die Ansage `UNKNOWN_NUMBER_ANNOUNCEMENT` abspielen, dann auflegen. Kein LLM. Eigene WAV in Asterisks `sounds/custom/` ablegen (z. B. `kein-anschluss.wav` → `sound:custom/kein-anschluss`). |
+| `agent` | Der **Default-Agent** (KI, `DEFAULT_AGENT_*`) beantwortet jeden nicht zugeordneten Anruf. Nur für **Dev/Tests** sinnvoll. |
+
+> Der Default-Agent ist damit **kein** stiller Catch-all mehr. Für Produktion `reject` (oder `announce`)
+> verwenden und echte Nummern als Agents in der DB anlegen.
 
 ## SIP-Trunk (Appliance)
 
@@ -221,6 +241,17 @@ Leitlinien für den Produktivbetrieb der Appliance:
   Media-/AudioSocket-Port (`8090`) — diese sind in der Standard-Containerkonfiguration **nicht** nach
   außen gemappt. Auch das Mongo-Mapping in [run.sh](../run.sh) (`127.0.0.1:27100:27017`) ist nur an
   `localhost` gebunden = **Dev-Komfort**; für eine Prod-Appliance dieses Port-Mapping **entfernen**.
+- **SIP-Zutritt (kein anonymer Zugang):** Eingehende Anrufe werden **nur** vom konfigurierten Trunk
+  (IP-gebunden über `identify`) bzw. von angemeldeten Endpoints angenommen. Unidentifizierte INVITEs
+  (SIP-Scanner wie *sipvicious*, die `5060/udp` im Minutentakt abklopfen) weist PJSIP mit `401` ab —
+  es gibt **keinen** `anonymous`-Endpoint. **Lokale Dev-Softphones (`softphone`/`101`) sind per Default
+  AUS** und werden nur bei `DEV_SOFTPHONE_ENABLED=true` erzeugt — auf einer öffentlich erreichbaren
+  Appliance **niemals** aktivieren, da ihre (schwachen) Logins sonst brute-force-bar wären und Anrufe
+  in die Stasis-App einschleusen könnten.
+- **Unbekannte Rufnummern werden nicht beantwortet:** Eine DDI ohne zugeordneten Agent löst per Default
+  (`UNKNOWN_NUMBER_BEHAVIOR=reject`) **keine** KI-Session aus — der Anruf wird vor dem Answer abgelehnt
+  (keine Deepgram-/LLM-Kosten, kein Logeintrag). Der frühere „Default-Agent als Catch-all" ist nur noch
+  über `=agent` (Dev) aktiv. Siehe [Unbekannte Rufnummer](#unbekannte-rufnummer-kein-agent).
 - **ARI-Passwort:** `ARI_PASSWORD` setzen — der entrypoint **warnt** bei leerem oder Default-Wert
   (`changeme`). ARI niemals nach außen exponieren.
 - **Admin-UI/-API:** läuft nur bei gesetztem `ADMIN_PASSWORD` (leer → Admin-Server startet nicht).

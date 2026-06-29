@@ -107,6 +107,20 @@ export interface Config {
     sessionSecret: string;
     port: number;
   };
+  /**
+   * Verhalten, wenn die gewählte DDI KEINEM Agent zugeordnet ist (kein Treffer in
+   * `agents`). Verhindert, dass Scanner-/Fehlanrufe einen Test-Default-Agent (Deepgram/
+   * LLM) auslösen und Kosten + Logeinträge produzieren.
+   *   - "reject"   (Default): vor dem Answer mit 404 ablehnen → Anrufer-Netz spielt
+   *                 die Standardansage ("kein Anschluss"). 0 Kosten, kein Logeintrag.
+   *   - "announce": kurz answern, eine Ansage abspielen, dann auflegen (kein LLM).
+   *   - "agent":    heutiges Verhalten — Default-Agent (nur für Dev sinnvoll).
+   */
+  unknownNumber: {
+    behavior: string;
+    /** ARI-Media-ID für die Ansage im "announce"-Modus (z. B. "sound:custom/kein-anschluss"). */
+    announcement: string;
+  };
   /** Spike/Diagnose: Anrufer-Audio direkt zurückspielen (ohne Deepgram). */
   echoTest: boolean;
   /** Echo-Variante: "packet" = re-paketisiert (eigene seq/ts), "raw" = 1:1 zurück. */
@@ -186,6 +200,10 @@ export const config: Config = {
     apiKey: opt("ADMIN_API_KEY"),
     sessionSecret: opt("ADMIN_SESSION_SECRET") || opt("ADMIN_PASSWORD"),
     port: int("UI_PORT", 8080),
+  },
+  unknownNumber: {
+    behavior: opt("UNKNOWN_NUMBER_BEHAVIOR", "reject").toLowerCase(),
+    announcement: opt("UNKNOWN_NUMBER_ANNOUNCEMENT", "sound:custom/kein-anschluss"),
   },
   echoTest: bool("ECHO_TEST", false),
   echoMode: opt("ECHO_MODE", "packet"),

@@ -13,7 +13,13 @@ import { normalizePhone } from "../util/phone.js";
 
 const log = logger.child({ mod: "agentResolver" });
 
-export async function resolveAgent(targetNumber?: string): Promise<ResolvedAgent> {
+/**
+ * Sucht den zur DDI passenden Agent. Liefert `null`, wenn keiner passt — die Entscheidung,
+ * was dann passiert (ablehnen/Ansage/Default-Agent), trifft der callHandler anhand von
+ * `config.unknownNumber.behavior`. So lösen Scanner-/Fehlanrufe nicht mehr automatisch eine
+ * (kostenpflichtige) Default-Agent-Session aus.
+ */
+export async function findAgent(targetNumber?: string): Promise<ResolvedAgent | null> {
   if (targetNumber) {
     // 1. Exakte Übereinstimmung (schnellster Pfad, deckt Dev-Durchwahlen wie 120 ab).
     let doc = await Agent.findOne({ enabled: true, targetNumbers: targetNumber }).lean();
@@ -36,11 +42,21 @@ export async function resolveAgent(targetNumber?: string): Promise<ResolvedAgent
       return fromDoc(doc);
     }
   }
+  return null;
+}
+
+/**
+ * Kompatibilitäts-Helfer: Agent zur DDI oder der Default-Agent als Fallback. Wird nur noch
+ * im Modus `UNKNOWN_NUMBER_BEHAVIOR=agent` (Dev) verwendet.
+ */
+export async function resolveAgent(targetNumber?: string): Promise<ResolvedAgent> {
+  const agent = await findAgent(targetNumber);
+  if (agent) return agent;
   log.info("Kein Agent für DDI — Default-Agent", { targetNumber });
   return defaultAgent();
 }
 
-function defaultAgent(): ResolvedAgent {
+export function defaultAgent(): ResolvedAgent {
   const d = config.defaultAgent;
   return {
     name: "default",

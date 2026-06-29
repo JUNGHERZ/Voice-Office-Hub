@@ -126,6 +126,61 @@ else
   echo "; Kein Trunk aktiv (TRUNK_ENABLED!=true)." > "$TRUNK_FILE"
 fi
 
+# Lokale Dev-Softphones (Zoiper/Linphone). Standard AUS — sonst läge auf einer öffentlich
+# erreichbaren Appliance ein ratbarer SIP-Account am offenen 5060/udp, den SIP-Scanner
+# brute-forcen und damit Anrufe in unsere Stasis-App einschleusen könnten. Nur lokal aktivieren.
+LOCAL_FILE=/etc/asterisk/pjsip_local.conf
+if [[ "${EMBED_ASTERISK:-true}" == "true" && "${DEV_SOFTPHONE_ENABLED:-false}" == "true" ]]; then
+  SP_PASS="${DEV_SOFTPHONE_PASSWORD:-softphone}"
+  SP101_PASS="${DEV_SOFTPHONE_101_PASSWORD:-101}"
+  echo "WARNUNG: DEV_SOFTPHONE_ENABLED=true — lokale SIP-Testkonten (softphone/101) aktiv."
+  echo "         NIEMALS auf einem öffentlich erreichbaren Host aktivieren (5060/udp wird gescannt)!"
+  cat > "$LOCAL_FILE" <<EOF
+; AUTO-GENERIERT vom entrypoint (DEV_SOFTPHONE_ENABLED=true). NUR für lokale Tests.
+[softphone]
+type = endpoint
+context = inbound
+disallow = all
+allow = ulaw,alaw,g722,slin16
+auth = softphone-auth
+aors = softphone
+direct_media = no
+
+[softphone-auth]
+type = auth
+auth_type = userpass
+username = softphone
+password = ${SP_PASS}
+
+[softphone]
+type = aor
+max_contacts = 1
+
+; Zweites Softphone als Transfer-Ziel: registriert sich als User "101".
+[101]
+type = endpoint
+context = inbound
+disallow = all
+allow = ulaw,alaw,g722,slin16
+auth = 101-auth
+aors = 101
+direct_media = no
+
+[101-auth]
+type = auth
+auth_type = userpass
+username = 101
+password = ${SP101_PASS}
+
+[101]
+type = aor
+max_contacts = 1
+EOF
+  echo "entrypoint: lokale Dev-Softphones aktiviert (softphone, 101)"
+else
+  echo "; Keine lokalen Softphones (DEV_SOFTPHONE_ENABLED!=true)." > "$LOCAL_FILE"
+fi
+
 # NAT: Läuft Asterisk hinter Docker-/Host-NAT (z. B. Container mit öffentlichem Host),
 # muss es seine ÖFFENTLICHE IP in SDP/Contact annoncieren — sonst schickt die Gegenstelle
 # RTP an die interne Container-IP (einseitiges/stummes Audio). PUBLIC_IP explizit setzen

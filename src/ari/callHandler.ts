@@ -18,7 +18,7 @@ import { runPostCallSummary } from "../llm/summarize.js";
 import { buildFunctionDefinitions, dispatchTool, type ToolContext } from "../tools/index.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
-import { resolveAgent } from "./agentResolver.js";
+import { findAgent, defaultAgent } from "./agentResolver.js";
 import { MediaBridge } from "./media.js";
 import { audioSocketServer, type MediaSession } from "./audiosocketServer.js";
 import { startBridgeRecording, wavDurationSec, type ActiveRecording } from "./recording.js";
@@ -68,7 +68,19 @@ export async function handleStasisStart(
     return;
   }
 
-  const agent = await resolveAgent(targetNumber);
+  let agent = await findAgent(targetNumber);
+
+  // Keine DDI-Zuordnung → konfiguriertes Verhalten (Default: ablehnen). Verhindert, dass
+  // Scanner-/Fehlanrufe eine kostenpflichtige Default-Agent-Session + Logeintrag auslösen.
+  if (!agent) {
+    if (config.unknownNumber.behavior === "agent") {
+      log.info("Kein Agent für DDI — Default-Agent (Dev)", { targetNumber });
+      agent = defaultAgent();
+    } else {
+      await handleUnknownNumber(client, channel, { targetNumber, callerNumber, log });
+      return;
+    }
+  }
 
   if (agent.mode === "passthrough") {
     await handlePassthrough(client, channel, agent, { targetNumber, callerNumber });
@@ -76,6 +88,50 @@ export async function handleStasisStart(
   }
 
   await runAgentCall(client, channel, agent, { targetNumber, callerNumber, log });
+}
+
+/**
+ * Behandelt einen Anruf an eine NICHT zugeordnete Nummer ohne Agent/LLM:
+ *   - "announce": kurz answern, Ansage abspielen, auflegen (kein Deepgram, minimal Kosten).
+ *   - sonst ("reject"): VOR dem Answer mit 404 "unallocated" ablehnen → das Netz des
+ *     Anrufers spielt die Standardansage ("kein Anschluss"). 0 Kosten, kein Logeintrag.
+ * In beiden Fällen wird bewusst KEIN `requests`-Dokument angelegt (kein Log-Spam).
+ */
+async function handleUnknownNumber(
+  client: AriClient,
+  channel: AriChannel,
+  meta: CallMeta,
+): Promise<void> {
+  const { log } = meta;
+  const behavior = config.unknownNumber.behavior;
+  log.warn("Unbekannte Nummer — kein Agent", { targetNumber: meta.targetNumber, behavior });
+
+  if (behavior === "announce") {
+    try {
+      await channel.answer();
+      const media = config.unknownNumber.announcement;
+      const playback = await channel.play({ media });
+      // Auf das Ende der Ansage warten (mit Sicherheits-Timeout), dann auflegen.
+      await new Promise<void>((resolve) => {
+        let done = false;
+        const finish = () => { if (done) return; done = true; client.removeListener("PlaybackFinished", onFinished); resolve(); };
+        const onFinished = (_ev: unknown, pb: any) => { if (pb?.id === playback.id) finish(); };
+        client.on("PlaybackFinished", onFinished);
+        setTimeout(finish, 15_000);
+      });
+    } catch (err) {
+      log.warn("Ansage fehlgeschlagen", { err: String(err) });
+    }
+    try { await channel.hangup(); } catch { /* ignore */ }
+    return;
+  }
+
+  // reject: ohne Answer mit "unallocated" (Q.850 #1) ablehnen → Netz-Standardansage.
+  try {
+    await channel.hangup({ reason: "unallocated" });
+  } catch {
+    try { await channel.hangup(); } catch { /* ignore */ }
+  }
 }
 
 type Media = MediaBridge | MediaSession;

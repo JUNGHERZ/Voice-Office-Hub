@@ -4,7 +4,9 @@ declare module "ari-client" {
   export interface AriChannel {
     id: string;
     answer(): Promise<void>;
-    hangup(): Promise<void>;
+    // Optional: ARI-Hangup mit Grund (z. B. { reason: "unallocated" } → 404 an den Anrufer).
+    hangup(opts?: { reason?: string; reason_code?: string }): Promise<void>;
+    play(opts: { media: string; [key: string]: unknown }): Promise<{ id: string; [key: string]: any }>;
     [key: string]: any;
   }
   export interface AriBridge {
