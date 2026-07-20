@@ -39,8 +39,29 @@ Unterschied steckt allein in der `.env`. (Python wurde entfernt — die Admin-UI
    REST für answer/bridge/externalMedia/dial/record).
 2. **Media-Bridge** — Audio Asterisk ↔ Node über einen `externalMedia`-Kanal
    ([src/ari/media.ts](../src/ari/media.ts)).
-3. **Deepgram-Session** — ein WebSocket Node ↔ Deepgram
-   ([src/deepgram/agentSession.ts](../src/deepgram/agentSession.ts)).
+3. **Voice-Session** — provider-neutral über das Interface `VoiceAgentSession`
+   ([src/voice/types.ts](../src/voice/types.ts)); die Factory
+   ([src/voice/factory.ts](../src/voice/factory.ts)) wählt die Implementierung anhand von
+   `agent.voiceProvider`. Aktuell implementiert: **Deepgram**
+   ([src/deepgram/agentSession.ts](../src/deepgram/agentSession.ts)); geplant: ElevenLabs,
+   OpenAI Realtime, xAI Grok sowie `NativeSession` (eigene STT→LLM→TTS-Kaskade, `src/native/`).
+
+## Zwei Nähte (Erweiterungspunkte)
+
+Der `callHandler` orchestriert zwischen zwei bewusst schmal gehaltenen Schnittstellen:
+
+- **Provider-Naht rechts — `VoiceAgentSession`** (`src/voice/types.ts`): Konstruktion ist inert,
+  `start()` verbindet; Events `audio`, `conversationText`, `functionCallRequest`,
+  `userStartedSpeaking`, `error` …; Methoden `sendAudio`, `sendFunctionResponse`,
+  `injectMessage`, `close`. Encoding, KeepAlive und Wire-Format sind Sache des Adapters.
+  Hier docken weitere Voice-Plattformen an — der callHandler bleibt unverändert.
+- **Transport-Naht links — `CallMedia`** (`src/ari/callHandler.ts`): `start()`,
+  `on("audio")`, `sendAudio()`, `flush()`, `pendingMs?()`, `close()` — rohes PCM in
+  20-ms-Frames. Erfüllt von `MediaSession` (AudioSocket) und `MediaBridge` (RTP); ein
+  künftiger WebRTC-/Web-Ingress wäre eine dritte Implementierung dieser Schnittstelle.
+
+Beide Nähte werden von den Call-Lifecycle-Tests ([test/callLifecycle.test.ts](../test/callLifecycle.test.ts))
+mit Fakes belegt — der komplette Anruf-Pfad läuft dort ohne Asterisk, Cloud oder DB.
 
 ## Anruf-Lifecycle (Modus „agent")
 
@@ -50,9 +71,10 @@ Siehe [src/ari/callHandler.ts](../src/ari/callHandler.ts):
    ([agentResolver.ts](../src/ari/agentResolver.ts)), `requests`-Dokument anlegen.
 2. Kanal `answer()`, Mixing-Bridge erstellen, Kanal hinein.
 3. `externalMedia`-Kanal erzeugen (AudioSocket/TCP, UUID-gebunden) → in die Bridge.
-4. Deepgram-Session öffnen, `Settings` aus dem Agent bauen
-   ([settings.ts](../src/deepgram/settings.ts)), senden.
-5. Audio-Bridging: Anrufer→Deepgram und Deepgram-TTS→Anrufer.
+4. Voice-Session über die Factory erzeugen (`agent.voiceProvider`, Default Deepgram);
+   der Deepgram-Adapter baut daraus die `Settings` ([settings.ts](../src/deepgram/settings.ts)).
+   Verbunden wird erst per `session.start()` nach kompletter Event-Verdrahtung.
+5. Audio-Bridging: Anrufer→Session und Session-TTS→Anrufer.
 6. Events:
    - `ConversationText` → Turn `{ t, speaker, text }` an `requests.transcript` (`$push`).
    - `FunctionCallRequest` → Tool ausführen ([tools/](../src/tools/)) → `FunctionCallResponse`.
@@ -110,7 +132,8 @@ src/
   config.ts           ENV-Konfiguration
   types.ts            ResolvedAgent u.a.
   ari/                ARI-Anbindung (Client, callHandler, media, transfer, recording, passthrough, agentResolver)
-  deepgram/           Voice-Agent-WS (agentSession, settings, events) + Batch-Transkription
+  voice/              Provider-neutrale Session-Schnittstelle (types) + Factory (voiceProvider-Switch)
+  deepgram/           Deepgram-Adapter der VoiceAgentSession (agentSession, settings, events) + Batch-Transkription
   tools/              Function-Calling (registry, handlers)
   llm/                Post-Call-Summary via Requesty
   db/                 Mongoose-Connection, Models, GridFS, Repository

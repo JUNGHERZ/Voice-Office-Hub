@@ -6,6 +6,48 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.0] – 2026-07-20
+
+Voice-Provider-Abstraktion als Fundament für weitere Agent-Plattformen (ElevenLabs, OpenAI
+Realtime, xAI Grok, eigene `NativeSession`-Kaskade) + Flux-Auswahl in der Admin-UI +
+Call-Lifecycle-Tests.
+
+### Added
+- **Provider-Abstraktion `VoiceAgentSession`** (`src/voice/types.ts`) + Factory
+  (`src/voice/factory.ts`): der `callHandler` spricht nur noch gegen das neutrale Interface;
+  die Deepgram-`AgentSession` ist der erste Adapter. Neue Provider = neuer Adapter + ein
+  case in der Factory — ohne Änderung am Call-Pfad.
+- **Agent-Feld `voiceProvider`** (Enum, Default `deepgram`; Nichtimplementiertes wird schon
+  beim Speichern abgewiesen) end-to-end: Mongoose-Schema, `ResolvedAgent`, Resolver,
+  Formular-Select in der Admin-UI.
+- **Admin-UI: STT-Modell-Auswahl** `nova-3` / `flux-general-multi` / `flux-general-en` als
+  Select im Agent-Formular; bei Flux erscheinen die Felder `eot_threshold` /
+  `eot_timeout_ms` (modellintegrierte End-of-Turn-Erkennung). Flux ist damit ohne
+  Code-Änderung pro Agent aktivierbar (A/B gegen nova-3 pro DDI).
+- **Call-Lifecycle-Tests** (`test/callLifecycle.test.ts`, 14 Fälle): Doppel-INVITE-Dedup
+  (sipgate-Regression), Unknown-DDI-Reject, Audio-Bridging, Barge-in, Transkript-Reihenfolge,
+  FunctionCall-Korrelation, end_call-Drain (Mock-Timer), Transfer connected/failed/Klingelphase,
+  Cleanup-Idempotenz, Session-Fehlerpfade — komplett gegen Fakes (`test/helpers/`), ohne
+  Asterisk/Cloud/DB. Dazu ein WS-Loopback-Test des Deepgram-Adapters und Factory-Tests.
+- **DI-Naht im callHandler** (`CallHandlerDeps`, optionaler 4. Parameter von
+  `handleStasisStart`) + transportneutrales `CallMedia`-Interface — zugleich die dokumentierte
+  Andockstelle für einen künftigen WebRTC-Ingress (siehe docs/architecture.md „Zwei Nähte").
+
+### Changed
+- **Session-Lifecycle:** WS-Connect aus dem `AgentSession`-Konstruktor in ein explizites
+  `await session.start()` **nach** der Event-Verdrahtung verschoben. Schlägt der Connect fehl,
+  endet der Anruf jetzt sauber mit `cleanup("failed")` + Hangup (vorher: stummes Hängen).
+- `eot_threshold`/`eot_timeout_ms` werden nur noch bei `flux-*`-Modellen an Deepgram gesendet
+  (nova-3 lehnt die Felder ab — schützt per API befüllte Altdaten).
+- `FunctionDefinition` ist provider-neutral nach `src/voice/types.ts` umgezogen
+  (`deepgram/events.ts` re-exportiert).
+
+### Fixed
+- **Admin-UI verlor beim Speichern Subdokument-Felder:** PATCH ersetzt `listen`/`speak`
+  komplett; das Formular schrieb bisher nur `speak.model` zurück → `speak.provider`,
+  `speak.voice`, `listen.keyterms` u. a. fielen bei jedem UI-Save auf Defaults zurück.
+  Jetzt werden beide Subdokumente vollständig gemergt zurückgeschrieben.
+
 ## [0.5.8] – 2026-06-29
 
 Sicherheits-Härtung gegen SIP-Scanner + sauberes Verhalten bei unbekannter Rufnummer.

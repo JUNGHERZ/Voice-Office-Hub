@@ -50,6 +50,92 @@ Wie bei uns?
   Aktuell antwortet der Agent zuverlässig, also kein Blocker. (Eigene `.env`-Schalter `LISTEN_MODEL`
   + eot-Werte machen den A/B-Test billig.)
 
+## Architektur / Engine-Weiterentwicklung (Architektur-Review 2026-07-18)
+
+### 4. ✅ Umgesetzt in 0.6.0 (2026-07-20): Voice-Provider-Abstraktion (`VoiceAgentSession`)
+Interface + Factory in `src/voice/`, Deepgram als erster Adapter (`start()` statt
+Konstruktor-Connect), Agent-Feld `voiceProvider` end-to-end (Schema/Resolver/Formular),
+DI-Naht `CallHandlerDeps` + transportneutraler `CallMedia`-Kontrakt (WebRTC-Andockpunkt).
+Details: [architecture.md → „Zwei Nähte"](architecture.md) + CHANGELOG 0.6.0.
+
+### 5. Externe Tool-Endpoints pro Agent fertigbauen
+**Befund:** Größte Lücke zwischen Konzept („fachliche Tools laufen extern, Engine bleibt
+Kern-Telefonie") und Implementierung: `tools/registry.ts` hat `endpoint {url, method, headers}`
+vorbereitet, aber kein Handler nutzt es; Agents referenzieren nur Namen global registrierter
+Tools (`transfer_call`, `end_call`, `get_weather`), keine eigenen Definitionen/URLs.
+- **Umsetzung:** Per-Agent-Tool-Definitionen im Schema (`name`, `description`,
+  JSON-Schema-`parameters`, `endpoint`-URL, Auth-Header) + Admin-UI-Formular;
+  `dispatchTool` → HTTP-Aufruf mit Timeout und Fehlertext als `FunctionCallResponse`
+  (Call darf bei Tool-Fehlern nie hängen). Auth-Secrets nicht im Klartext in die DB.
+- **Aufwand:** ~2–3 Tage inkl. UI.
+
+### 6. Audio-Pipeline auf 16 kHz (`slin16`) umstellen
+**Idee:** Durchgängig 16 kHz statt 8 kHz: bessere STT-Genauigkeit, Voraussetzung für
+ElevenLabs `pcm_16000`. Geht rein über ENV (`EXTERNAL_MEDIA_FORMAT=slin16`,
+`AUDIO_SAMPLE_RATE=16000`) — Frame-Größen werden im Code bereits aus der Rate berechnet,
+Resampling existiert bewusst nicht.
+- **Zu prüfen:** Trunk bleibt G.711/8 kHz → Asterisk transcodiert (CPU minimal); Bandbreite zur
+  Voice-API verdoppelt sich; Ambience-Dateien (→ 1) müssten dann 16 kHz sein; Regressionstest
+  Playout/Barge-in am echten Trunk.
+- **Aufwand:** ~0,5–1 Tag inkl. Test.
+
+### 7. Observability: Live-Call-Ansicht + Latenz-Metriken
+**Idee:** Admin-UI zeigt laufende Anrufe live (SSE/WebSocket aus der Engine): Zustand
+(Greeting/Listening/Speaking/Transfer), Live-Transkript, Dauer. Dazu Metriken: Zeit bis erste
+Agent-Antwort, Barge-in-Häufigkeit, Playout-Underruns, Provider-Fehler/Reconnects.
+- **Nutzen:** Fehlersuche im Live-Betrieb (arm2/EasyPanel — Stichwort sipgate-Doppel-INVITE)
+  ohne Log-Grepping; Latenz-Zahlen sind auch Verkaufsargument.
+- **Aufwand:** ~2–3 Tage.
+
+### 8. ✅ Umgesetzt in 0.6.0 (2026-07-20): Call-Lifecycle-Tests gegen FakeSession
+14 Fälle in `test/callLifecycle.test.ts` (Dedup/Doppel-INVITE, Unknown-DDI-Reject,
+Audio-Bridging, Barge-in, Transkript-Reihenfolge, FunctionCall-Korrelation, `end_call`-Drain
+mit Mock-Timern, Transfer connected/failed/Klingelphase, Cleanup-Idempotenz, Fehlerpfade)
++ WS-Loopback-Test des Deepgram-Adapters; Fakes in `test/helpers/`.
+
+### 9. ElevenLabs Conversational AI als zweites Voice-Backend (Voraussetzung 4 ✅; + 6 oder µ-law)
+**Idee:** ElevenLabs-Agents-Plattform als alternatives Komplett-Backend (STT + Turn-Taking +
+LLM + TTS) neben Deepgram — nicht zu verwechseln mit `speak.provider: eleven_labs` (nur
+TTS-Stimme innerhalb der Deepgram-Pipeline, heute schon möglich).
+- **Umsetzung:** `src/elevenlabs/agentSession.ts` als zweiter Adapter
+  (`wss://api.elevenlabs.io/v1/convai/conversation`): Audio als base64-JSON statt binär,
+  Mapping `interruption`→Barge-in, `client_tool_call`→`dispatchTool`,
+  `conversation_initiation_client_data` statt `Settings`. Audio: `ulaw_8000` oder
+  `pcm_16000` (→ 6). Design-Entscheidung: ElevenLabs-Agents per API provisionieren
+  (`agent_id` am Mongo-Agent speichern) vs. generischer Agent mit per-Call-Overrides
+  (passt besser zum DB-zentrierten Modell, hat aber Override-Einschränkungen).
+- **Aufwand:** ~2–4 Tage inkl. Telefontests.
+
+### 10. Kaskaden-Modus „NativeSession": STT + LLM + TTS direkt, ohne Voice-Agent-Layer (Voraussetzung 4 ✅)
+**Namensentscheidung (Nutzer, 2026-07-20):** heißt bei uns `NativeSession` —
+Modulplatz `src/native/`, `voiceProvider: "native"` (Enum wird erst bei Implementierung
+freigeschaltet).
+**Frage des Nutzers (2026-07-19):** Geht es auch ganz ohne externe Agentschicht — nur STT, LLM,
+TTS — wie [AVA](https://github.com/hkjarral/AVA-AI-Voice-Agent-for-Asterisk) und
+[Agent Voice Response](https://github.com/agentvoiceresponse)?
+- **Befund:** Ja — in unserer Architektur ist das schlicht ein weiterer
+  `VoiceAgentSession`-Adapter (`CascadeSession`), der intern Streaming-STT → LLM (Requesty,
+  vorhanden) → Streaming-TTS verkettet; `callHandler`/`MediaSession` bleiben unberührt.
+  Beide Referenzprojekte belegen die Machbarkeit. Bemerkenswert: **beide** bieten neben der
+  Kaskade weiterhin integrierte Agent-Provider an (OpenAI Realtime, Deepgram VA, Gemini Live,
+  ElevenLabs) — die Kaskade ersetzt die Agentschicht in der Praxis nicht, sie ergänzt sie.
+- **Selbst zu lösen (der eigentliche Preis):** (a) Turn-Taking/Endpointing — wann ist der
+  Anrufer fertig?; (b) Barge-in-Abbruchketten — laufende LLM-/TTS-Streams canceln, verspätete
+  Chunks verwerfen (AVA: „late LLM/TTS work is quarantined"); (c) Latenz-Engineering —
+  LLM-Token an Satzgrenzen in Streaming-TTS überlappen, Filler/Ringback zur Überbrückung
+  (AVA erreicht damit „sub-2s perceived"). Tools/Transkripte werden dagegen *einfacher*
+  (natives LLM-Tool-Calling, Transkript fällt ohnehin an).
+- **Pragmatischer Mittelweg:** **Flux als Standalone-STT** (→ 3) liefert
+  `EndOfTurn`/`EagerEndOfTurn`/`TurnResumed` → das schwerste Teilproblem (Endpointing) ist
+  ausgelagert, bleibt aber Kaskade; `EagerEndOfTurn` erlaubt spekulativen LLM-Start
+  (Abbruch bei `TurnResumed`).
+- **Strategischer Nutzen:** Voll-lokale Appliance möglich (Vosk/Whisper/Sherpa + Ollama +
+  Piper/Kokoro wie bei AVA) → DSGVO-/On-Prem-Tier ohne Cloud; Kostenkontrolle pro Baustein;
+  Unabhängigkeit von Deepgram-Ausfällen. Passt zum Single-Container-Appliance-Konzept —
+  AVRs Microservice-Zoo (Docker-Compose je Provider) wäre dagegen ein Architekturbruch.
+- **Aufwand:** ~1–2 Wochen bis produktionsreifes Turn-Taking/Barge-in — deutlich mehr als ein
+  S2S-Adapter (→ 9). Reihenfolge: erst 4, dann als dritte Session-Implementierung.
+
 ## Produkt / Schnittstellen (Zukunft)
 
 ### Multi-Channel-Plattform: Telefonie + Web (WebRTC)
