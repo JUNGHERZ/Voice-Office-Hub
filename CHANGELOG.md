@@ -6,6 +6,25 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.3] – 2026-07-20
+
+Live-Call-Ansicht im Admin-UI: laufende Anrufe auf einen Blick, wachsendes Transkript ohne
+manuelles Neuladen.
+
+### Added
+- **Tab „Live"** (`#/live`, `webui/js/views/live-view.js`): laufende Anrufe
+  (`status=in_progress`) mit tickender Dauer (1-s-Ticker) und Läuft-Badge; 3-s-Polling,
+  Klick öffnet das Anruf-Detail. Empty-State, stiller Retry bei Netzfehlern.
+- **Anruf-Detail:** bei laufendem Anruf alle 2 s stiller Reload (kein Lade-Flackern) —
+  Transkript und Funktionsaufrufe wachsen live mit; Polling endet mit dem Terminal-Status.
+- **Partial-Index** auf `requests.status` (nur `in_progress`) — die Live-Abfrage bleibt
+  billig, egal wie groß die Anruf-Historie wird.
+
+### Changed
+- Polling statt Push (bewusst): Admin-Prozess und Engine teilen nur die Standalone-MongoDB
+  (keine Change Streams). Ausbaustufe Replica-Set → Change Streams → SSE steht im Backlog.
+- Service-Worker-Shell-Cache auf v2 (neue View precached).
+
 ## [0.6.2] – 2026-07-20
 
 Tool-Verwaltung im Admin-UI: eingebaute Tools als Schalter, eigene HTTP-Tools als Liste mit

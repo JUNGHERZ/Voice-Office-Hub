@@ -29,6 +29,16 @@ async function load(host) {
   }
 }
 
+/* Bei laufendem Anruf still nachladen (kein loading-Flag → kein Flackern). */
+async function silentReload(host) {
+  try {
+    const res = await api.getRequest(host.requestId);
+    host.request = res.request;
+  } catch (e) {
+    /* still — der nächste Tick versucht es erneut */
+  }
+}
+
 // Sprecherseite → Bubble-Ausrichtung. agent-Modus: agent|caller; passthrough: caller|callee.
 function isLeft(speaker) {
   return speaker === "agent" || speaker === "callee";
@@ -179,6 +189,18 @@ export default define({
     },
     connect: (host) => {
       load(host);
+      // Laufender Anruf: Transkript/Status alle 2 s still aktualisieren; sobald der
+      // Anruf einen Terminal-Status hat, endet das Polling (sichtbar im Netzwerk-Tab).
+      const timer = setInterval(() => {
+        const r = host.request;
+        if (host.loading || !r) return;
+        if (r.status !== "in_progress") {
+          clearInterval(timer);
+          return;
+        }
+        silentReload(host);
+      }, 2000);
+      return () => clearInterval(timer);
     },
   },
 });

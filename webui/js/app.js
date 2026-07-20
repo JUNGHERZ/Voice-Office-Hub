@@ -23,6 +23,7 @@ import { api, UnauthorizedError } from "./api.js";
 import "./app-tabbar.js";
 import "./views/login-view.js";
 import "./views/dashboard-view.js";
+import "./views/live-view.js";
 import "./views/agents-view.js";
 import "./views/agent-form-view.js";
 import "./views/requests-view.js";
@@ -61,6 +62,7 @@ function toggleTheme() {
 // Bereiche, die in der Tab-Bar einen aktiven Reiter haben.
 const TAB_FOR_VIEW = {
   dashboard: "dashboard",
+  live: "live",
   agents: "agents",
   agent: "agents",
   "agent-new": "agents",
@@ -73,6 +75,8 @@ function routeToPath({ view, id }) {
   switch (view) {
     case "dashboard":
       return "/dashboard";
+    case "live":
+      return "/live";
     case "agents":
       return "/agents";
     case "agent-new":
@@ -99,6 +103,8 @@ function parseHash(hash) {
     case "":
     case "dashboard":
       return { view: "dashboard", id: null };
+    case "live":
+      return { view: "live", id: null };
     case "agents":
       if (sub === "new") return { view: "agent-new", id: null };
       if (sub) return { view: "agent", id: sub };
@@ -121,6 +127,8 @@ function createView(view, id) {
   switch (view) {
     case "dashboard":
       return document.createElement("dashboard-view");
+    case "live":
+      return document.createElement("live-view");
     case "agents":
       return document.createElement("agents-view");
     case "agent": {

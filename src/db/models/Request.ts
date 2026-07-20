@@ -94,5 +94,12 @@ const RequestSchema = new Schema(
   { timestamps: true, collection: "requests" },
 );
 
+// Live-Ansicht: laufende Anrufe werden alle paar Sekunden abgefragt. Partial-Index
+// hält nur in_progress-Dokumente vor (bleibt winzig, egal wie groß die Historie wird).
+RequestSchema.index(
+  { status: 1 },
+  { partialFilterExpression: { status: "in_progress" } },
+);
+
 export type RequestDoc = InferSchemaType<typeof RequestSchema>;
 export const RequestModel = model("Request", RequestSchema);
