@@ -12,10 +12,12 @@ import swaggerUi from "@fastify/swagger-ui";
 import Fastify, { type FastifyInstance } from "fastify";
 
 import { config } from "../config.js";
+import { appVersion } from "../util/banner.js";
 import { logger } from "../util/logger.js";
 import { clearSession, passwordValid, requireAuth, setSession } from "./auth.js";
 import { agentRoutes } from "./routes/agents.js";
 import { requestRoutes } from "./routes/requests.js";
+import { toolRoutes } from "./routes/tools.js";
 
 const log = logger.child({ mod: "admin" });
 const ROOT = process.cwd(); // im Container /app, in Dev das Repo-Root
@@ -28,7 +30,7 @@ export async function buildAdminServer(): Promise<FastifyInstance> {
   // OpenAPI: muss VOR den Routen registriert werden (sammelt deren Schemas).
   await app.register(swagger, {
     openapi: {
-      info: { title: "Voice-Office-Hub — Management API", version: "0.5.7" },
+      info: { title: "Voice-Office-Hub — Management API", version: appVersion() },
       components: {
         securitySchemes: {
           apiKey: { type: "apiKey", in: "header", name: "x-api-key" },
@@ -39,6 +41,7 @@ export async function buildAdminServer(): Promise<FastifyInstance> {
         { name: "auth", description: "Login / Session" },
         { name: "agents", description: "Agent-Verwaltung (CRUD)" },
         { name: "requests", description: "Anrufe / Requests (read-only) + Aufnahme" },
+        { name: "tools", description: "Verfügbare eingebaute Tools (read-only)" },
       ],
     },
   });
@@ -83,6 +86,7 @@ export async function buildAdminServer(): Promise<FastifyInstance> {
   // Ressourcen
   await app.register(agentRoutes, { prefix: "/api/agents" });
   await app.register(requestRoutes, { prefix: "/api/requests" });
+  await app.register(toolRoutes, { prefix: "/api/tools" });
 
   // OpenAPI-Spec (JSON) + interaktive Doku (wie FastAPI /docs)
   await app.register(swaggerUi, { routePrefix: "/docs" });

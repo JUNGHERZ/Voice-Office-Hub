@@ -1,8 +1,8 @@
 /*
  * Agent-Formular (Anlegen/Bearbeiten). Felder: name, targetNumbers (Komma→Array),
  * mode, voiceProvider, language, listen.model (nova-3/flux + eot-Felder), greeting,
- * prompt, speak.model, tools, summary.enabled, enabled.
- * Speichern → POST/PATCH, Löschen → Bestätigung via <glk-modal>.
+ * prompt, speak.model, Tools (Built-in-Toggles + Custom-HTTP-Tools mit Modal-Editor),
+ * summary.enabled, enabled. Speichern → POST/PATCH, Löschen → Bestätigung via <glk-modal>.
  *
  * Wichtig: PATCH ersetzt Subdokumente komplett ($set) — deshalb tragen _listen/_speak
  * das geladene Original-Subobjekt mit und toBody() schreibt es vollständig zurück
@@ -20,6 +20,25 @@ function navigate(host, view, id) {
   );
 }
 
+// Kurzlabels für die Built-in-Toggles (Fallback: erster Satz der Registry-Beschreibung).
+const TOOL_LABELS = {
+  transfer_call: "Weiterleitung an Mensch/Durchwahl",
+  end_call: "Gespräch selbst beenden (auflegen)",
+  get_weather: "Wetter-Demo",
+};
+
+function toolLabel(b) {
+  const short = TOOL_LABELS[b.name] || (b.description || "").split(". ")[0].slice(0, 70);
+  return short ? `${b.name} · ${short}` : b.name;
+}
+
+// Fallback, falls /api/tools nicht erreichbar ist (Formular bleibt benutzbar).
+const FALLBACK_BUILTINS = [
+  { name: "transfer_call", description: "" },
+  { name: "end_call", description: "" },
+  { name: "get_weather", description: "" },
+];
+
 // Leeres Formularmodell (Defaults wie im Mongoose-Schema).
 function emptyForm() {
   return {
@@ -35,7 +54,8 @@ function emptyForm() {
     greeting: "",
     prompt: "",
     speakModel: "",
-    tools: "transfer_call, end_call",
+    tools: ["transfer_call", "end_call"],
+    customTools: [],
     useTransferCallerId: false,
     summaryEnabled: false,
     enabled: true,
@@ -62,7 +82,8 @@ function toForm(a) {
     greeting: a.greeting || "",
     prompt: a.prompt || "",
     speakModel: (a.speak && a.speak.model) || "",
-    tools: (a.tools && a.tools.length ? a.tools : ["transfer_call", "end_call"]).join(", "),
+    tools: a.tools && a.tools.length ? [...a.tools] : ["transfer_call", "end_call"],
+    customTools: (a.customTools || []).map((t) => ({ ...t, endpoint: { ...(t.endpoint || {}) } })),
     useTransferCallerId: !!a.useTransferCallerId,
     summaryEnabled: !!(a.summary && a.summary.enabled),
     enabled: a.enabled !== false,
@@ -101,10 +122,8 @@ function toBody(f) {
       eot_timeout_ms: isFlux ? num(f.eotTimeoutMs) : undefined,
     },
     speak: { ...f._speak, model: f.speakModel.trim() || undefined },
-    tools: f.tools
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
+    tools: f.tools,
+    customTools: f.customTools,
     useTransferCallerId: f.useTransferCallerId,
     summary: { enabled: f.summaryEnabled },
     enabled: f.enabled,
@@ -113,12 +132,18 @@ function toBody(f) {
 
 async function load(host) {
   host.error = "";
+  host.loading = true;
+  try {
+    const res = await api.listTools();
+    host.builtins = (res && res.builtin) || FALLBACK_BUILTINS;
+  } catch (e) {
+    host.builtins = FALLBACK_BUILTINS;
+  }
   if (!host.agentId) {
     host.form = emptyForm();
     host.loading = false;
     return;
   }
-  host.loading = true;
   try {
     const res = await api.getAgent(host.agentId);
     host.form = toForm(res.agent);
@@ -133,6 +158,140 @@ async function load(host) {
 // Feld-Setter: erzeugt eine neue Form-Kopie (Hybrids erkennt so die Änderung).
 function setField(host, key, value) {
   host.form = { ...host.form, [key]: value };
+}
+
+function toggleBuiltinTool(host, name, checked) {
+  const current = new Set(host.form.tools);
+  if (checked) current.add(name);
+  else current.delete(name);
+  setField(host, "tools", [...current]);
+}
+
+// ── Custom-Tool-Editor (Modal) ──────────────────────────────────────────────
+
+function emptyToolDraft() {
+  return {
+    name: "",
+    description: "",
+    url: "",
+    method: "POST",
+    timeoutMs: "8000",
+    enabled: true,
+    parametersText: '{\n  "type": "object",\n  "properties": {}\n}',
+    headers: [], // [{k, v}] — Werte dürfen ${ENV:NAME}-Platzhalter enthalten
+  };
+}
+
+function openToolEditor(host, index) {
+  const t = index >= 0 ? host.form.customTools[index] : null;
+  host.toolError = "";
+  host.toolEditIndex = index;
+  host.toolDraft = t
+    ? {
+        name: t.name || "",
+        description: t.description || "",
+        url: (t.endpoint && t.endpoint.url) || "",
+        method: (t.endpoint && t.endpoint.method) || "POST",
+        timeoutMs: String(t.endpoint && t.endpoint.timeoutMs != null ? t.endpoint.timeoutMs : 8000),
+        enabled: t.enabled !== false,
+        parametersText: JSON.stringify(t.parameters || { type: "object", properties: {} }, null, 2),
+        headers: Object.entries((t.endpoint && t.endpoint.headers) || {}).map(([k, v]) => ({ k, v })),
+      }
+    : emptyToolDraft();
+  host.toolModalOpen = true;
+}
+
+function setDraft(host, key, value) {
+  host.toolDraft = { ...host.toolDraft, [key]: value };
+}
+
+function setDraftHeader(host, index, key, value) {
+  const headers = host.toolDraft.headers.map((row, i) =>
+    i === index ? { ...row, [key]: value } : row,
+  );
+  setDraft(host, "headers", headers);
+}
+
+function removeDraftHeader(host, index) {
+  setDraft(host, "headers", host.toolDraft.headers.filter((_, i) => i !== index));
+}
+
+function saveToolDraft(host) {
+  const d = host.toolDraft;
+  const name = d.name.trim();
+  if (!/^[a-z][a-z0-9_]{0,63}$/.test(name)) {
+    host.toolError = "Name: kleinbuchstaben_mit_unterstrichen (a–z, 0–9, _), max. 64 Zeichen.";
+    return;
+  }
+  const builtins = host.builtins || FALLBACK_BUILTINS;
+  if (builtins.some((b) => b.name === name)) {
+    host.toolError = `„${name}" ist ein eingebautes Tool — bitte anderen Namen wählen.`;
+    return;
+  }
+  const duplicate = host.form.customTools.some((t, i) => t.name === name && i !== host.toolEditIndex);
+  if (duplicate) {
+    host.toolError = `Es gibt bereits ein Tool „${name}".`;
+    return;
+  }
+  if (!d.description.trim()) {
+    host.toolError = "Beschreibung ist erforderlich (das LLM entscheidet danach, wann es das Tool nutzt).";
+    return;
+  }
+  if (!/^https?:\/\//i.test(d.url.trim())) {
+    host.toolError = "Endpoint-URL muss mit http:// oder https:// beginnen.";
+    return;
+  }
+  let parameters;
+  try {
+    parameters = JSON.parse(d.parametersText || "{}");
+  } catch (e) {
+    host.toolError = `Parameters: ungültiges JSON (${e.message}).`;
+    return;
+  }
+  if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) {
+    host.toolError = "Parameters muss ein JSON-Objekt (Schema) sein.";
+    return;
+  }
+  const headers = {};
+  for (const row of d.headers) {
+    const k = row.k.trim();
+    if (k) headers[k] = row.v;
+  }
+  const timeoutMs = Number(d.timeoutMs);
+  const tool = {
+    name,
+    description: d.description.trim(),
+    parameters,
+    endpoint: {
+      url: d.url.trim(),
+      method: d.method,
+      headers,
+      timeoutMs: Number.isFinite(timeoutMs) ? Math.min(30000, Math.max(500, timeoutMs)) : 8000,
+    },
+    enabled: d.enabled,
+  };
+  const list = [...host.form.customTools];
+  if (host.toolEditIndex >= 0) list[host.toolEditIndex] = tool;
+  else list.push(tool);
+  setField(host, "customTools", list);
+  host.toolModalOpen = false;
+}
+
+function removeCustomTool(host) {
+  if (host.toolEditIndex >= 0) {
+    setField(
+      host,
+      "customTools",
+      host.form.customTools.filter((_, i) => i !== host.toolEditIndex),
+    );
+  }
+  host.toolModalOpen = false;
+}
+
+function customToolSubtitle(t) {
+  const method = (t.endpoint && t.endpoint.method) || "POST";
+  const url = (t.endpoint && t.endpoint.url) || "";
+  return `${method} ${url}`;
 }
 
 async function save(host) {
@@ -180,8 +339,13 @@ export default define({
   error: "",
   confirmOpen: false,
   form: undefined,
+  builtins: undefined,
+  toolModalOpen: false,
+  toolEditIndex: -1,
+  toolDraft: undefined,
+  toolError: "",
   render: {
-    value: ({ agentId, loading, busy, error, confirmOpen, form }) => {
+    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, toolModalOpen, toolEditIndex, toolDraft, toolError }) => {
       const f = form || emptyForm();
       const title = agentId ? f.name || "Agent" : "Neuer Agent";
       return html`
@@ -296,12 +460,46 @@ export default define({
                   onglk-input="${(host, e) => setField(host, "speakModel", e.detail.value)}"
                 ></glk-input>
 
-                <glk-input
-                  label="Tools (Komma-getrennt)"
-                  value="${f.tools}"
-                  placeholder="transfer_call, end_call"
-                  onglk-input="${(host, e) => setField(host, "tools", e.detail.value)}"
-                ></glk-input>
+                <glk-divider></glk-divider>
+
+                <div class="group-label">Eingebaute Tools</div>
+                ${(builtins || FALLBACK_BUILTINS).map(
+                  (b) => html`
+                    <glk-toggle
+                      label="${toolLabel(b)}"
+                      checked="${f.tools.indexOf(b.name) !== -1}"
+                      onglk-change="${(host, e) => toggleBuiltinTool(host, b.name, e.detail.checked)}"
+                    ></glk-toggle>
+                  `,
+                )}
+
+                <div class="group-head">
+                  <div class="group-label">Eigene HTTP-Tools</div>
+                  <glk-button size="sm" variant="secondary" onclick="${(host) => openToolEditor(host, -1)}">
+                    + Tool
+                  </glk-button>
+                </div>
+                ${f.customTools.length
+                  ? html`
+                      <glk-list>
+                        ${f.customTools.map(
+                          (t, i) => html`
+                            <glk-list-item
+                              interactive
+                              title="${t.name}${t.enabled === false ? " (inaktiv)" : ""}"
+                              subtitle="${customToolSubtitle(t)}"
+                              onglk-click="${(host) => openToolEditor(host, i)}"
+                            ></glk-list-item>
+                          `,
+                        )}
+                      </glk-list>
+                    `
+                  : html`<div class="empty-hint">
+                      Fachliche Funktionen (CRM-Lookup, Termine …) als externe HTTP-Endpoints —
+                      Kontrakt siehe docs/tools.md.
+                    </div>`}
+
+                <glk-divider></glk-divider>
 
                 <glk-toggle
                   label="Anrufer-Nr. bei externem Transfer (CLIP no screening)"
@@ -357,10 +555,125 @@ export default define({
                   </button>
                 </div>
               </glk-modal>
+
+              <glk-modal
+                title="${toolEditIndex >= 0 ? "HTTP-Tool bearbeiten" : "Neues HTTP-Tool"}"
+                open="${toolModalOpen}"
+                onglk-close="${(host) => {
+                  host.toolModalOpen = false;
+                }}"
+              >
+                ${toolDraft &&
+                html`
+                  <div class="tool-form">
+                    ${toolError && html`<glk-status message="${toolError}"></glk-status>`}
+
+                    <glk-input
+                      label="Name"
+                      value="${toolDraft.name}"
+                      placeholder="crm_lookup"
+                      hint="a–z, 0–9, _ — unter diesem Namen ruft das LLM das Tool auf"
+                      onglk-input="${(host, e) => setDraft(host, "name", e.detail.value)}"
+                    ></glk-input>
+
+                    <glk-input
+                      label="Beschreibung"
+                      value="${toolDraft.description}"
+                      hint="Wann soll das LLM dieses Tool nutzen?"
+                      onglk-input="${(host, e) => setDraft(host, "description", e.detail.value)}"
+                    ></glk-input>
+
+                    <glk-select
+                      id="toolMethodSelect"
+                      label="Methode"
+                      onglk-change="${(host, e) => setDraft(host, "method", e.detail.value)}"
+                    >
+                      <option value="POST">POST (JSON-Envelope)</option>
+                      <option value="GET">GET (Query-Parameter)</option>
+                    </glk-select>
+
+                    <glk-input
+                      label="Endpoint-URL"
+                      value="${toolDraft.url}"
+                      placeholder="https://api.example.com/voice-tools/crm-lookup"
+                      onglk-input="${(host, e) => setDraft(host, "url", e.detail.value)}"
+                    ></glk-input>
+
+                    <glk-input
+                      label="Timeout (ms)"
+                      type="number"
+                      value="${toolDraft.timeoutMs}"
+                      hint="500–30000; während des Aufrufs herrscht Stille im Gespräch"
+                      onglk-input="${(host, e) => setDraft(host, "timeoutMs", e.detail.value)}"
+                    ></glk-input>
+
+                    <div class="group-label">
+                      HTTP-Header — Werte dürfen \${ENV:NAME} enthalten (Secret aus der Server-Umgebung)
+                    </div>
+                    ${toolDraft.headers.map(
+                      (row, i) => html`
+                        <div class="hdr-row">
+                          <glk-input
+                            placeholder="authorization"
+                            value="${row.k}"
+                            onglk-input="${(host, e) => setDraftHeader(host, i, "k", e.detail.value)}"
+                          ></glk-input>
+                          <glk-input
+                            placeholder="Bearer \${ENV:CRM_API_KEY}"
+                            value="${row.v}"
+                            onglk-input="${(host, e) => setDraftHeader(host, i, "v", e.detail.value)}"
+                          ></glk-input>
+                          <glk-button size="sm" variant="tertiary" onclick="${(host) => removeDraftHeader(host, i)}">
+                            ✕
+                          </glk-button>
+                        </div>
+                      `,
+                    )}
+                    <glk-button
+                      size="sm"
+                      variant="secondary"
+                      onclick="${(host) => setDraft(host, "headers", [...host.toolDraft.headers, { k: "", v: "" }])}"
+                    >+ Header</glk-button>
+
+                    <glk-textarea
+                      label="Parameters (JSON-Schema der Argumente)"
+                      rows="6"
+                      value="${toolDraft.parametersText}"
+                      onglk-input="${(host, e) => setDraft(host, "parametersText", e.detail.value)}"
+                    ></glk-textarea>
+
+                    <glk-toggle
+                      label="Aktiv"
+                      checked="${toolDraft.enabled}"
+                      onglk-change="${(host, e) => setDraft(host, "enabled", e.detail.checked)}"
+                    ></glk-toggle>
+                  </div>
+                `}
+                <div slot="actions">
+                  ${toolEditIndex >= 0 &&
+                  html`
+                    <button class="glass-modal__action glass-modal__action--danger" onclick="${removeCustomTool}">
+                      Entfernen
+                    </button>
+                  `}
+                  <button
+                    class="glass-modal__action"
+                    onclick="${(host) => {
+                      host.toolModalOpen = false;
+                    }}"
+                  >Abbrechen</button>
+                  <button class="glass-modal__action" onclick="${saveToolDraft}">Übernehmen</button>
+                </div>
+              </glk-modal>
             `}
       `.css`
         .head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
         .form { display: flex; flex-direction: column; gap: 14px; }
+        .group-label { font-size: 13px; opacity: 0.75; }
+        .group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .empty-hint { font-size: 13px; opacity: 0.55; }
+        .tool-form { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; padding-right: 4px; }
+        .hdr-row { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 8px; align-items: center; }
       `;
     },
     // Nach jedem Render die Selects imperativ auf den echten State setzen.
@@ -373,6 +686,7 @@ export default define({
         ["modeSelect", host.form.mode],
         ["voiceProviderSelect", host.form.voiceProvider],
         ["listenModelSelect", host.form.listenModel],
+        ["toolMethodSelect", host.toolDraft && host.toolDraft.method],
       ];
       for (const [id, value] of selects) {
         const sel = host.shadowRoot && host.shadowRoot.getElementById(id);

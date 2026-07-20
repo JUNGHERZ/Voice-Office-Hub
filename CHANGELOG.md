@@ -6,6 +6,23 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.2] – 2026-07-20
+
+Tool-Verwaltung im Admin-UI: eingebaute Tools als Schalter, eigene HTTP-Tools als Liste mit
+Modal-Editor — die Custom-Tools aus 0.6.1 sind damit ohne API-Handarbeit pflegbar.
+
+### Added
+- **Agent-Formular: Built-in-Tools als Toggle-Liste** (statt Komma-Text), gespeist aus dem
+  neuen **`GET /api/tools`** (Registry-Namen + Beschreibungen, requireAuth).
+- **Agent-Formular: Custom-Tool-Editor** (`glk-modal`): Name (Muster-, Built-in-Kollisions-
+  und Duplikat-Prüfung), Beschreibung, Methode (POST/GET), Endpoint-URL, Timeout, dynamische
+  Header-Zeilen mit `${ENV:NAME}`-Hinweis, Parameters als JSON-Schema-Textarea mit
+  JSON-Validierung, Aktiv-Toggle, Entfernen. Persistiert über den normalen Agent-PATCH.
+
+### Changed
+- OpenAPI-`info.version` kommt aus package.json statt hartkodiert (neuer Export
+  `appVersion()` in util/banner).
+
 ## [0.6.1] – 2026-07-20
 
 Per-Agent-HTTP-Tool-Endpoints: fachliche Tools (CRM-Lookup, Terminbuchung, …) laufen als

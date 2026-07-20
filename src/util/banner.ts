@@ -25,7 +25,8 @@ const V = ["█   █", "█   █", "█   █", " █ █ ", "  █  "];
 const O = [" ███ ", "█   █", "█   █", "█   █", " ███ "];
 const H = ["█   █", "█   █", "█████", "█   █", "█   █"];
 
-function version(): string {
+/** Version aus package.json (auch vom Admin-Server für die OpenAPI-Info genutzt). */
+export function appVersion(): string {
   try {
     const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
     return String(pkg.version ?? "?");
@@ -39,7 +40,7 @@ function flag(on: boolean): string {
 }
 
 export function printBanner(): void {
-  const side = ["", `${BOLD}${ORANGE}Voice-Office-Hub${RESET}`, `${DIM}VOH-Appliance · v${version()}${RESET}`, "", ""];
+  const side = ["", `${BOLD}${ORANGE}Voice-Office-Hub${RESET}`, `${DIM}VOH-Appliance · v${appVersion()}${RESET}`, "", ""];
   const out: string[] = [""];
   for (let i = 0; i < 5; i++) {
     let row = `  ${ORANGE}${V[i]}${RESET}  ${AMBER}${O[i]}${RESET}  ${RUST}${H[i]}${RESET}`;

@@ -73,6 +73,9 @@ export const api = {
   updateAgent: (id, data) => request("PATCH", `/api/agents/${id}`, data),
   deleteAgent: (id) => request("DELETE", `/api/agents/${id}`),
 
+  // Tools (eingebaute, read-only)
+  listTools: () => request("GET", "/api/tools"),
+
   // Requests (Anrufe)
   listRequests: (params = {}) => {
     const qs = new URLSearchParams();
