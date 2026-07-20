@@ -43,6 +43,11 @@ Call-Lifecycle-Tests.
   (`deepgram/events.ts` re-exportiert).
 
 ### Fixed
+- **Flux-Settings an die aktuelle API-Spec angepasst** (empirisch gegen die Live-API
+  verifiziert): Flux verlangt `version: "v2"` im listen-Provider und lehnt `language`/
+  `smart_format` mit „Error parsing client message" ab; `language_hints` nur beim
+  multilingualen Modell. `eot_threshold`/`eot_timeout_ms` werden akzeptiert. Ohne den Fix
+  wäre jeder über die neue GUI-Auswahl aktivierte Flux-Agent beim Anruf gescheitert.
 - **Admin-UI verlor beim Speichern Subdokument-Felder:** PATCH ersetzt `listen`/`speak`
   komplett; das Formular schrieb bisher nur `speak.model` zurück → `speak.provider`,
   `speak.voice`, `listen.keyterms` u. a. fielen bei jedem UI-Save auf Defaults zurück.

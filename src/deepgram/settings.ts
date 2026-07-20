@@ -12,22 +12,27 @@ import type { ResolvedAgent } from "../types.js";
 import type { FunctionDefinition, SettingsMessage } from "./events.js";
 
 export function buildSettings(agent: ResolvedAgent, functions: FunctionDefinition[]): SettingsMessage {
+  const isFlux = agent.listen.model.startsWith("flux");
   const listenProvider: Record<string, unknown> = {
     type: "deepgram",
     model: agent.listen.model,
-    // Sprache gehört in den Provider (agent.language ist deprecated). "multi" für nova-3 multilingual.
-    language: agent.language,
   };
-  // language_hints ist nur bei Flux-Modellen (flux-general-multi) gültig; nova-3 lehnt das Feld ab.
-  if (agent.listen.model.startsWith("flux") && agent.listen.language_hints.length)
-    listenProvider.language_hints = agent.listen.language_hints;
-  if (agent.listen.keyterms.length) listenProvider.keyterms = agent.listen.keyterms;
-  if (agent.listen.smart_format) listenProvider.smart_format = true;
-  // eot_* sind Flux-Parameter (modellintegrierte End-of-Turn-Erkennung); nova-3 lehnt sie ab.
-  if (agent.listen.model.startsWith("flux")) {
+  if (isFlux) {
+    // Flux läuft über die v2-Spec: `version` ist Pflicht; `language`/`smart_format` lehnt die
+    // API mit "Error parsing client message" ab (empirisch verifiziert 2026-07-20).
+    listenProvider.version = "v2";
+    // language_hints sind nur beim multilingualen Flux-Modell gültig.
+    if (agent.listen.model.includes("multi") && agent.listen.language_hints.length)
+      listenProvider.language_hints = agent.listen.language_hints;
+    // Modellintegrierte End-of-Turn-Erkennung (von der API akzeptiert).
     if (agent.listen.eot_threshold !== undefined) listenProvider.eot_threshold = agent.listen.eot_threshold;
     if (agent.listen.eot_timeout_ms !== undefined) listenProvider.eot_timeout_ms = agent.listen.eot_timeout_ms;
+  } else {
+    // nova-3: Sprache gehört in den Provider ("multi" für multilingual, sonst BCP-47 wie "de").
+    listenProvider.language = agent.language;
+    if (agent.listen.smart_format) listenProvider.smart_format = true;
   }
+  if (agent.listen.keyterms.length) listenProvider.keyterms = agent.listen.keyterms;
 
   const think = buildThink(agent, functions);
   const speakProvider = buildSpeakProvider(agent);

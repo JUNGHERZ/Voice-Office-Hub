@@ -48,13 +48,26 @@ test("buildSettings: listen-Optionen werden übernommen (nova-3: language statt 
   assert.equal(p.smart_format, true);
 });
 
-test("buildSettings: language_hints nur bei Flux-Modellen", () => {
+test("buildSettings: Flux → v2-Spec (version, hints; ohne language/smart_format)", () => {
   const s = buildSettings(
-    agent({ listen: { model: "flux-general-multi", language_hints: ["de", "en"], keyterms: [], smart_format: false } }),
+    agent({ listen: { model: "flux-general-multi", language_hints: ["de", "en"], keyterms: [], smart_format: true } }),
     [],
   );
   const p = s.agent.listen.provider as Record<string, unknown>;
+  assert.equal(p.version, "v2", "Flux verlangt version v2");
   assert.deepEqual(p.language_hints, ["de", "en"]);
+  // Die API lehnt language/smart_format bei Flux ab ("Error parsing client message").
+  assert.equal(p.language, undefined);
+  assert.equal(p.smart_format, undefined);
+
+  // flux-general-en: keine language_hints (nur beim multilingualen Modell gültig).
+  const en = buildSettings(
+    agent({ listen: { model: "flux-general-en", language_hints: ["de"], keyterms: [], smart_format: false } }),
+    [],
+  );
+  const pEn = en.agent.listen.provider as Record<string, unknown>;
+  assert.equal(pEn.version, "v2");
+  assert.equal(pEn.language_hints, undefined);
 });
 
 test("buildSettings: eot_* nur bei Flux-Modellen (nova-3 lehnt die Felder ab)", () => {
