@@ -228,6 +228,7 @@ export function testAgent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent
     speak: { provider: "deepgram", model: "aura-2-thalia-en" },
     tools: ["transfer_call", "end_call"],
     customTools: [],
+    mcpServers: [],
     summary: { enabled: false, prompt: "", model: "openai/gpt-4.1-mini" },
     tags: [],
     mip_opt_out: false,

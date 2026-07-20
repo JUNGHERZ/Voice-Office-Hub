@@ -10,10 +10,13 @@
  *     einer sprechbaren Antwort; ein kaputter Endpoint darf den Anruf nicht aufhängen.
  *   - close() räumt Call-gebundene Ressourcen auf (heute leer; MCP-Verbindungen folgen).
  */
-import type { ResolvedAgent, ResolvedCustomTool } from "../types.js";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+
+import type { ResolvedAgent, ResolvedCustomTool, ResolvedMcpServer } from "../types.js";
 import { fetchWithTimeout, substituteEnvPlaceholders } from "../util/http.js";
 import { logger } from "../util/logger.js";
 import type { FunctionDefinition } from "../voice/types.js";
+import { callMcpTool, connectMcp, listMcpTools } from "./mcp.js";
 import { getTool, type ToolContext } from "./registry.js";
 
 const log = logger.child({ mod: "toolset" });
@@ -58,6 +61,33 @@ export async function buildCallToolset(agent: ResolvedAgent): Promise<CallToolse
     dispatchers.set(tool.name, (rawArgs, ctx) => executeHttpTool(tool, parseArgs(rawArgs), ctx));
   }
 
+  // MCP-Server des Agenten: Tool-Listen (gecacht) einsammeln, Tools präfixiert anbieten.
+  // Verbindungen entstehen lazy beim ersten Dispatch und leben bis toolset.close().
+  const mcpConnections = new Map<string, Promise<Client>>();
+  for (const server of agent.mcpServers) {
+    if (!server.enabled) continue;
+    let tools;
+    try {
+      tools = await listMcpTools(server);
+    } catch (err) {
+      // Server nicht erreichbar → ohne dessen Tools starten; der Greeting-Pfad blockiert nie.
+      log.warn("MCP-Server nicht erreichbar — übersprungen", { server: server.name, err: String(err) });
+      continue;
+    }
+    for (const t of tools) {
+      if (server.toolFilter.length && !server.toolFilter.includes(t.name)) continue;
+      const prefixed = `${server.name}_${t.name}`;
+      if (dispatchers.has(prefixed)) {
+        log.warn("MCP-Tool kollidiert mit aktivem Tool — übersprungen", { name: prefixed });
+        continue;
+      }
+      definitions.push({ name: prefixed, description: t.description, parameters: t.parameters });
+      dispatchers.set(prefixed, (rawArgs) =>
+        dispatchMcpTool(server, t.name, parseArgs(rawArgs), mcpConnections),
+      );
+    }
+  }
+
   return {
     definitions,
     async dispatch(name, rawArgs, ctx) {
@@ -71,9 +101,45 @@ export async function buildCallToolset(agent: ResolvedAgent): Promise<CallToolse
       }
     },
     async close() {
-      // Noch nichts zu schließen — der Hook existiert für Call-gebundene Verbindungen (MCP).
+      // Call-gebundene MCP-Verbindungen schließen (lazy aufgebaute, siehe dispatchMcpTool).
+      await Promise.all(
+        [...mcpConnections.values()].map(async (pending) => {
+          try {
+            const client = await pending;
+            await client.close();
+          } catch {
+            /* ignore — Verbindung kam nie zustande */
+          }
+        }),
+      );
     },
   };
+}
+
+/**
+ * MCP-Dispatch mit lazy Verbindungsaufbau: erste Nutzung eines Servers verbindet,
+ * weitere Aufrufe teilen die Verbindung (Promise im Map). Ein fehlgeschlagener
+ * Aufbau wird entfernt, damit der nächste Aufruf neu verbinden kann.
+ */
+async function dispatchMcpTool(
+  server: ResolvedMcpServer,
+  toolName: string,
+  args: Record<string, unknown>,
+  connections: Map<string, Promise<Client>>,
+): Promise<unknown> {
+  let pending = connections.get(server.name);
+  if (!pending) {
+    pending = connectMcp(server);
+    connections.set(server.name, pending);
+  }
+  let client: Client;
+  try {
+    client = await pending;
+  } catch (err) {
+    connections.delete(server.name);
+    throw err;
+  }
+  return callMcpTool(client, server, toolName, args);
 }
 
 /**

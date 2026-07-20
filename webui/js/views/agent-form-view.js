@@ -56,6 +56,7 @@ function emptyForm() {
     speakModel: "",
     tools: ["transfer_call", "end_call"],
     customTools: [],
+    mcpServers: [],
     useTransferCallerId: false,
     summaryEnabled: false,
     enabled: true,
@@ -84,6 +85,7 @@ function toForm(a) {
     speakModel: (a.speak && a.speak.model) || "",
     tools: a.tools && a.tools.length ? [...a.tools] : ["transfer_call", "end_call"],
     customTools: (a.customTools || []).map((t) => ({ ...t, endpoint: { ...(t.endpoint || {}) } })),
+    mcpServers: (a.mcpServers || []).map((s) => ({ ...s })),
     useTransferCallerId: !!a.useTransferCallerId,
     summaryEnabled: !!(a.summary && a.summary.enabled),
     enabled: a.enabled !== false,
@@ -124,6 +126,7 @@ function toBody(f) {
     speak: { ...f._speak, model: f.speakModel.trim() || undefined },
     tools: f.tools,
     customTools: f.customTools,
+    mcpServers: f.mcpServers,
     useTransferCallerId: f.useTransferCallerId,
     summary: { enabled: f.summaryEnabled },
     enabled: f.enabled,
@@ -294,6 +297,107 @@ function customToolSubtitle(t) {
   return `${method} ${url}`;
 }
 
+// ── MCP-Server-Editor (Modal) ───────────────────────────────────────────────
+
+function emptyMcpDraft() {
+  return {
+    name: "",
+    url: "",
+    timeoutMs: "8000",
+    enabled: true,
+    toolFilter: "", // Komma-getrennt; leer = alle Tools des Servers
+    headers: [], // [{k, v}] — Werte dürfen ${ENV:NAME}-Platzhalter enthalten
+  };
+}
+
+function openMcpEditor(host, index) {
+  const s = index >= 0 ? host.form.mcpServers[index] : null;
+  host.mcpError = "";
+  host.mcpEditIndex = index;
+  host.mcpDraft = s
+    ? {
+        name: s.name || "",
+        url: s.url || "",
+        timeoutMs: String(s.timeoutMs != null ? s.timeoutMs : 8000),
+        enabled: s.enabled !== false,
+        toolFilter: (s.toolFilter || []).join(", "),
+        headers: Object.entries(s.headers || {}).map(([k, v]) => ({ k, v })),
+      }
+    : emptyMcpDraft();
+  host.mcpModalOpen = true;
+}
+
+function setMcpDraft(host, key, value) {
+  host.mcpDraft = { ...host.mcpDraft, [key]: value };
+}
+
+function setMcpHeader(host, index, key, value) {
+  const headers = host.mcpDraft.headers.map((row, i) =>
+    i === index ? { ...row, [key]: value } : row,
+  );
+  setMcpDraft(host, "headers", headers);
+}
+
+function removeMcpHeader(host, index) {
+  setMcpDraft(host, "headers", host.mcpDraft.headers.filter((_, i) => i !== index));
+}
+
+function saveMcpDraft(host) {
+  const d = host.mcpDraft;
+  const name = d.name.trim();
+  if (!/^[a-z][a-z0-9_]{0,31}$/.test(name)) {
+    host.mcpError = "Name: kleinbuchstaben_mit_unterstrichen (a–z, 0–9, _), max. 32 Zeichen.";
+    return;
+  }
+  const duplicate = host.form.mcpServers.some((s, i) => s.name === name && i !== host.mcpEditIndex);
+  if (duplicate) {
+    host.mcpError = `Es gibt bereits einen MCP-Server „${name}".`;
+    return;
+  }
+  if (!/^https?:\/\//i.test(d.url.trim())) {
+    host.mcpError = "URL muss mit http:// oder https:// beginnen.";
+    return;
+  }
+  const headers = {};
+  for (const row of d.headers) {
+    const k = row.k.trim();
+    if (k) headers[k] = row.v;
+  }
+  const timeoutMs = Number(d.timeoutMs);
+  const server = {
+    name,
+    url: d.url.trim(),
+    headers,
+    enabled: d.enabled,
+    toolFilter: d.toolFilter
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    timeoutMs: Number.isFinite(timeoutMs) ? Math.min(30000, Math.max(500, timeoutMs)) : 8000,
+  };
+  const list = [...host.form.mcpServers];
+  if (host.mcpEditIndex >= 0) list[host.mcpEditIndex] = server;
+  else list.push(server);
+  setField(host, "mcpServers", list);
+  host.mcpModalOpen = false;
+}
+
+function removeMcpServer(host) {
+  if (host.mcpEditIndex >= 0) {
+    setField(
+      host,
+      "mcpServers",
+      host.form.mcpServers.filter((_, i) => i !== host.mcpEditIndex),
+    );
+  }
+  host.mcpModalOpen = false;
+}
+
+function mcpSubtitle(s) {
+  const filter = s.toolFilter && s.toolFilter.length ? ` · Filter: ${s.toolFilter.join(", ")}` : "";
+  return `${s.url || ""}${filter}`;
+}
+
 async function save(host) {
   if (host.busy) return;
   host.error = "";
@@ -344,8 +448,12 @@ export default define({
   toolEditIndex: -1,
   toolDraft: undefined,
   toolError: "",
+  mcpModalOpen: false,
+  mcpEditIndex: -1,
+  mcpDraft: undefined,
+  mcpError: "",
   render: {
-    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, toolModalOpen, toolEditIndex, toolDraft, toolError }) => {
+    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, toolModalOpen, toolEditIndex, toolDraft, toolError, mcpModalOpen, mcpEditIndex, mcpDraft, mcpError }) => {
       const f = form || emptyForm();
       const title = agentId ? f.name || "Agent" : "Neuer Agent";
       return html`
@@ -497,6 +605,32 @@ export default define({
                   : html`<div class="empty-hint">
                       Fachliche Funktionen (CRM-Lookup, Termine …) als externe HTTP-Endpoints —
                       Kontrakt siehe docs/tools.md.
+                    </div>`}
+
+                <div class="group-head">
+                  <div class="group-label">MCP-Server (Tool-Quellen)</div>
+                  <glk-button size="sm" variant="secondary" onclick="${(host) => openMcpEditor(host, -1)}">
+                    + Server
+                  </glk-button>
+                </div>
+                ${f.mcpServers.length
+                  ? html`
+                      <glk-list>
+                        ${f.mcpServers.map(
+                          (s, i) => html`
+                            <glk-list-item
+                              interactive
+                              title="${s.name}${s.enabled === false ? " (inaktiv)" : ""}"
+                              subtitle="${mcpSubtitle(s)}"
+                              onglk-click="${(host) => openMcpEditor(host, i)}"
+                            ></glk-list-item>
+                          `,
+                        )}
+                      </glk-list>
+                    `
+                  : html`<div class="empty-hint">
+                      Tools eines MCP-Servers erscheinen dem Agenten als
+                      server_toolname (Streamable HTTP, statische Auth-Header).
                     </div>`}
 
                 <glk-divider></glk-divider>
@@ -663,6 +797,101 @@ export default define({
                     }}"
                   >Abbrechen</button>
                   <button class="glass-modal__action" onclick="${saveToolDraft}">Übernehmen</button>
+                </div>
+              </glk-modal>
+
+              <glk-modal
+                title="${mcpEditIndex >= 0 ? "MCP-Server bearbeiten" : "Neuer MCP-Server"}"
+                open="${mcpModalOpen}"
+                onglk-close="${(host) => {
+                  host.mcpModalOpen = false;
+                }}"
+              >
+                ${mcpDraft &&
+                html`
+                  <div class="tool-form">
+                    ${mcpError && html`<glk-status message="${mcpError}"></glk-status>`}
+
+                    <glk-input
+                      label="Name (Tool-Präfix)"
+                      value="${mcpDraft.name}"
+                      placeholder="crm"
+                      hint="Tools erscheinen als name_toolname (a–z, 0–9, _)"
+                      onglk-input="${(host, e) => setMcpDraft(host, "name", e.detail.value)}"
+                    ></glk-input>
+
+                    <glk-input
+                      label="Server-URL (Streamable HTTP)"
+                      value="${mcpDraft.url}"
+                      placeholder="https://mcp.example.com/mcp"
+                      onglk-input="${(host, e) => setMcpDraft(host, "url", e.detail.value)}"
+                    ></glk-input>
+
+                    <glk-input
+                      label="Tool-Filter (optional, Komma-getrennt)"
+                      value="${mcpDraft.toolFilter}"
+                      placeholder="leer = alle Tools des Servers"
+                      hint="Unpräfixierte Tool-Namen, z. B. search_customer, book_slot"
+                      onglk-input="${(host, e) => setMcpDraft(host, "toolFilter", e.detail.value)}"
+                    ></glk-input>
+
+                    <glk-input
+                      label="Timeout (ms)"
+                      type="number"
+                      value="${mcpDraft.timeoutMs}"
+                      hint="500–30000; gilt für Verbindung und Tool-Aufrufe"
+                      onglk-input="${(host, e) => setMcpDraft(host, "timeoutMs", e.detail.value)}"
+                    ></glk-input>
+
+                    <div class="group-label">
+                      HTTP-Header — Werte dürfen \${ENV:NAME} enthalten (Secret aus der Server-Umgebung)
+                    </div>
+                    ${mcpDraft.headers.map(
+                      (row, i) => html`
+                        <div class="hdr-row">
+                          <glk-input
+                            placeholder="authorization"
+                            value="${row.k}"
+                            onglk-input="${(host, e) => setMcpHeader(host, i, "k", e.detail.value)}"
+                          ></glk-input>
+                          <glk-input
+                            placeholder="Bearer \${ENV:MCP_API_KEY}"
+                            value="${row.v}"
+                            onglk-input="${(host, e) => setMcpHeader(host, i, "v", e.detail.value)}"
+                          ></glk-input>
+                          <glk-button size="sm" variant="tertiary" onclick="${(host) => removeMcpHeader(host, i)}">
+                            ✕
+                          </glk-button>
+                        </div>
+                      `,
+                    )}
+                    <glk-button
+                      size="sm"
+                      variant="secondary"
+                      onclick="${(host) => setMcpDraft(host, "headers", [...host.mcpDraft.headers, { k: "", v: "" }])}"
+                    >+ Header</glk-button>
+
+                    <glk-toggle
+                      label="Aktiv"
+                      checked="${mcpDraft.enabled}"
+                      onglk-change="${(host, e) => setMcpDraft(host, "enabled", e.detail.checked)}"
+                    ></glk-toggle>
+                  </div>
+                `}
+                <div slot="actions">
+                  ${mcpEditIndex >= 0 &&
+                  html`
+                    <button class="glass-modal__action glass-modal__action--danger" onclick="${removeMcpServer}">
+                      Entfernen
+                    </button>
+                  `}
+                  <button
+                    class="glass-modal__action"
+                    onclick="${(host) => {
+                      host.mcpModalOpen = false;
+                    }}"
+                  >Abbrechen</button>
+                  <button class="glass-modal__action" onclick="${saveMcpDraft}">Übernehmen</button>
                 </div>
               </glk-modal>
             `}

@@ -85,6 +85,7 @@ export function defaultAgent(): ResolvedAgent {
     },
     tools: ["transfer_call", "end_call"],
     customTools: [],
+    mcpServers: [],
     summary: {
       enabled: config.summary.enabled,
       prompt: config.summary.prompt,
@@ -152,6 +153,14 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
         timeoutMs: t.endpoint?.timeoutMs ?? 8000,
       },
       enabled: t.enabled ?? true,
+    })),
+    mcpServers: (doc.mcpServers ?? []).map((s: Record<string, any>) => ({
+      name: String(s.name ?? ""),
+      url: String(s.url ?? ""),
+      headers: toPlainStringRecord(s.headers),
+      enabled: s.enabled ?? true,
+      toolFilter: Array.isArray(s.toolFilter) ? s.toolFilter.map(String) : [],
+      timeoutMs: s.timeoutMs ?? 8000,
     })),
     summary: {
       enabled: doc.summary?.enabled ?? config.summary.enabled,

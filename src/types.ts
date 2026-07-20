@@ -53,6 +53,19 @@ export interface ResolvedCustomTool {
   enabled: boolean;
 }
 
+/** Am Agent hinterlegter MCP-Server als Tool-Quelle (Streamable HTTP, statische Header). */
+export interface ResolvedMcpServer {
+  /** Präfix der Tool-Namen: `<name>_<tool>` (kollisionsfrei, Deepgram-kompatibel). */
+  name: string;
+  url: string;
+  /** Werte dürfen `${ENV:NAME}`-Platzhalter enthalten (Auflösung erst beim Verbinden). */
+  headers: Record<string, string>;
+  enabled: boolean;
+  /** Leer = alle Tools des Servers; sonst Whitelist der (unpräfixierten) Tool-Namen. */
+  toolFilter: string[];
+  timeoutMs: number;
+}
+
 export interface ResolvedSummary {
   enabled: boolean;
   prompt: string;
@@ -80,6 +93,7 @@ export interface ResolvedAgent {
   speak: ResolvedSpeak;
   tools: string[];
   customTools: ResolvedCustomTool[];
+  mcpServers: ResolvedMcpServer[];
   summary: ResolvedSummary;
   tags: string[];
   mip_opt_out: boolean;

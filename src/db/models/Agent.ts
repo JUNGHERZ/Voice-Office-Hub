@@ -88,6 +88,32 @@ const CustomToolSchema = new Schema(
   { _id: false },
 );
 
+const McpServerSchema = new Schema(
+  {
+    // Präfix der Tool-Namen (`<name>_<tool>`) — gleiche Zeichenklasse wie Tool-Namen.
+    name: {
+      type: String,
+      required: true,
+      match: [/^[a-z][a-z0-9_]{0,31}$/, "MCP-Server-Name: kleinbuchstaben_mit_unterstrichen, max. 32 Zeichen"],
+    },
+    url: {
+      type: String,
+      required: true,
+      validate: {
+        validator: (v: string) => /^https?:\/\//i.test(v),
+        message: "url muss mit http:// oder https:// beginnen",
+      },
+    },
+    // Statische Auth-Header; Werte dürfen `${ENV:NAME}`-Platzhalter enthalten.
+    headers: { type: Map, of: String, default: () => ({}) },
+    enabled: { type: Boolean, default: true },
+    // Leer = alle Tools; sonst Whitelist der (unpräfixierten) Tool-Namen.
+    toolFilter: { type: [String], default: [] },
+    timeoutMs: { type: Number, default: 8000, min: 500, max: 30000 },
+  },
+  { _id: false },
+);
+
 const SummarySchema = new Schema(
   {
     enabled: { type: Boolean, default: false },
@@ -134,6 +160,16 @@ const AgentSchema = new Schema(
         validator: (tools: Array<{ name?: string }>) =>
           new Set(tools.map((t) => t.name)).size === tools.length,
         message: "customTools: Tool-Namen müssen eindeutig sein",
+      },
+    },
+    // MCP-Server als externe Tool-Quellen (Tools erscheinen präfixiert als <server>_<tool>).
+    mcpServers: {
+      type: [McpServerSchema],
+      default: [],
+      validate: {
+        validator: (servers: Array<{ name?: string }>) =>
+          new Set(servers.map((s) => s.name)).size === servers.length,
+        message: "mcpServers: Namen müssen eindeutig sein",
       },
     },
     summary: { type: SummarySchema, default: () => ({}) },

@@ -6,6 +6,25 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.5] – 2026-07-20
+
+MCP-Anbindung: ein Agent kann komplette MCP-Server (Model Context Protocol) als Tool-Quelle
+einbinden — Tools erscheinen dem LLM präfixiert als `<server>_<tool>`. Doku in `docs/tools.md`.
+
+### Added
+- **`agent.mcpServers[]`** (Schema-validiert): `name` (= Tool-Präfix), `url` (Streamable
+  HTTP), `headers` (statisch, `${ENV:NAME}`-Platzhalter), `toolFilter` (Whitelist),
+  `timeoutMs`, `enabled`. Editor im Agent-Formular (Liste + Modal analog Custom-Tools).
+- **`src/tools/mcp.ts`**: Tool-Listen-Cache pro Server-URL (TTL ~5 min — Call-Aufbau wartet
+  nie auf `tools/list`), Client-Aufbau via `@modelcontextprotocol/sdk` (gepinnt 1.29.0),
+  Ergebnis-Normalisierung (structuredContent bzw. konkatenierte Text-Teile).
+- **Toolset-Integration:** MCP-Tools präfixiert im per-Call-Toolset; Verbindung **lazy** beim
+  ersten Dispatch, lebt für die Call-Dauer, `toolset.close()` (Hook aus 0.6.1) schließt sie.
+  Unerreichbarer Server → Anruf startet ohne dessen Tools (Warn-Log), Greeting blockiert nie.
+- **Tests** (`test/mcpToolset.test.ts`): Mini-MCP-Server mit demselben SDK (stateless
+  Streamable HTTP) — list+call übers Toolset, isError→ok:false, toolFilter, Cache-Nachweis
+  (keine HTTP-Anfragen beim zweiten Toolset), unerreichbarer Server.
+
 ## [0.6.4] – 2026-07-20
 
 Per-Call-Metriken: Antwortlatenz und Interaktionszähler werden pro Anruf persistiert und im

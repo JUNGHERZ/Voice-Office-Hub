@@ -20,6 +20,7 @@ function agent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent {
     speak: { provider: "deepgram", model: "aura-2-thalia-en" },
     tools: [],
     customTools: [],
+    mcpServers: [],
     summary: { enabled: false, prompt: "", model: "openai/gpt-4.1-mini" },
     tags: ["support"],
     mip_opt_out: false,
