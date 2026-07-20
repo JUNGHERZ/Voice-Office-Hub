@@ -50,6 +50,20 @@ const FunctionCallSchema = new Schema(
   { _id: false },
 );
 
+/** Beim Finalisieren geschriebene Per-Call-Metriken (Latenz/Interaktion, siehe callHandler). */
+const MetricsSchema = new Schema(
+  {
+    // Answer → erstes TTS-Audio des Agenten (i. d. R. die Begrüßung), in Millisekunden.
+    timeToFirstAudioMs: { type: Number },
+    bargeIns: { type: Number, default: 0 },
+    toolCalls: { type: Number, default: 0 },
+    toolErrors: { type: Number, default: 0 },
+    voiceProvider: { type: String },
+    sttModel: { type: String },
+  },
+  { _id: false },
+);
+
 const TransferSchema = new Schema(
   {
     attempted: { type: Boolean, default: false },
@@ -90,6 +104,7 @@ const RequestSchema = new Schema(
     summary: { type: SummarySchema },
     functionCalls: { type: [FunctionCallSchema], default: [] },
     transfer: { type: TransferSchema },
+    metrics: { type: MetricsSchema },
   },
   { timestamps: true, collection: "requests" },
 );

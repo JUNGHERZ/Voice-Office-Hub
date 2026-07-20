@@ -6,6 +6,20 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.4] – 2026-07-20
+
+Per-Call-Metriken: Antwortlatenz und Interaktionszähler werden pro Anruf persistiert und im
+Admin-UI angezeigt — „fühlt sich langsam an" wird damit zur Zahl.
+
+### Added
+- **`requests.metrics`** (Subdokument, ein Write beim Finalisieren): `timeToFirstAudioMs`
+  (Answer → erstes Begrüßungs-Audio), `bargeIns` (gezählt nur, wenn der Agent gerade hörbar
+  war — Puffer spielt noch oder Audio < 1,5 s her), `toolCalls`/`toolErrors`,
+  `voiceProvider`/`sttModel` (für A/B-Vergleiche nova-3 vs. flux pro Anruf).
+- **Anruf-Detail:** Badge-Zeile „Erste Antwort 1,2 s", „2 Barge-ins", „3 Tools (1 Fehler)".
+- `finalizeRequest(id, status, metrics?)` — abwärtskompatibel erweitert; Lifecycle-Test für
+  Messpunkte inkl. Barge-in-Guard (kein Zähler beim regulären Nutzer-Turn).
+
 ## [0.6.3] – 2026-07-20
 
 Live-Call-Ansicht im Admin-UI: laufende Anrufe auf einen Blick, wachsendes Transkript ohne

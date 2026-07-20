@@ -40,6 +40,13 @@ export function fmtCallDuration(r) {
   return sec === undefined ? "—" : fmtDuration(sec);
 }
 
+/** Millisekunden → Sekunden mit einer Nachkommastelle ("1,2 s"). */
+export function fmtSecondsFromMs(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n)) return "—";
+  return `${(n / 1000).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`;
+}
+
 /** ISO-Zeit → relative deutsche Kurzform ("vor 4 Min", "27.06. 18:31"). */
 export function fmtTime(iso) {
   if (!iso) return "—";

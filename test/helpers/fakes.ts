@@ -9,6 +9,7 @@ import type { AriChannel, AriClient } from "ari-client";
 
 import type { CallRepo } from "../../src/ari/callHandler.js";
 import type {
+  CallMetrics,
   FunctionCallRecord,
   NewRequestInput,
   TranscriptTurn,
@@ -180,6 +181,7 @@ export class FakeRepo implements CallRepo {
   functionCalls: FunctionCallRecord[] = [];
   transfers: Array<{ attempted: boolean; target?: string; connected?: boolean }> = [];
   finalized: Array<{ id: string; status: "completed" | "failed" }> = [];
+  metrics: CallMetrics | undefined;
   requestId = "req-1";
 
   createRequest = async (input: NewRequestInput): Promise<string> => {
@@ -199,8 +201,13 @@ export class FakeRepo implements CallRepo {
     this.transfers.push(transfer);
   };
   setRecording = async (): Promise<void> => {};
-  finalizeRequest = async (id: string, status: "completed" | "failed"): Promise<void> => {
+  finalizeRequest = async (
+    id: string,
+    status: "completed" | "failed",
+    metrics?: CallMetrics,
+  ): Promise<void> => {
     this.finalized.push({ id, status });
+    this.metrics = metrics;
   };
 }
 

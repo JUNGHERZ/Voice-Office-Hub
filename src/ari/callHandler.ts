@@ -323,6 +323,14 @@ async function runAgentCall(
   let calleeChannel: any; // bei erfolgreichem Transfer: der durchverbundene Ziel-Kanal
   let endRequested = false;
   let lastAudioAt = 0; // Zeitpunkt des zuletzt empfangenen Agent-Audios (für Drain-Erkennung)
+  // Per-Call-Metriken — lokal gesammelt, EIN Write beim Finalisieren (cleanup).
+  const metrics: repo.CallMetrics = {
+    bargeIns: 0,
+    toolCalls: 0,
+    toolErrors: 0,
+    voiceProvider: agent.voiceProvider,
+    sttModel: agent.listen.model,
+  };
   let audioSinceEnd = false; // kam nach end_call noch Audio (der Abschied)?
   let drainInterval: NodeJS.Timeout | undefined;
   let hangupTimer: NodeJS.Timeout | undefined;
@@ -369,7 +377,7 @@ async function runAgentCall(
       }
     }
 
-    await deps.repo.finalizeRequest(requestId, status);
+    await deps.repo.finalizeRequest(requestId, status, metrics);
 
     // Post-Call-Summary (asynchron, blockiert nicht).
     if (status === "completed" && agent.summary.enabled) {
@@ -463,6 +471,7 @@ async function runAgentCall(
     });
     session.on("audio", (chunk) => {
       if (transferActive) return;
+      if (metrics.timeToFirstAudioMs === undefined) metrics.timeToFirstAudioMs = Date.now() - startTime;
       lastAudioAt = Date.now();
       if (endRequested) audioSinceEnd = true; // der Abschied nach end_call fließt
       media?.sendAudio(chunk);
@@ -470,7 +479,13 @@ async function runAgentCall(
 
     // ── Session-Events ───────────────────────────────────────────────────────
     session.on("welcome", (rid) => log.info("Voice-Session Welcome", { rid }));
-    session.on("userStartedSpeaking", () => media?.flush()); // Barge-in
+    session.on("userStartedSpeaking", () => {
+      // Barge-in nur zählen, wenn der Agent gerade hörbar war (Puffer spielt noch oder
+      // Audio kam eben) — sonst ist es schlicht der nächste reguläre Nutzer-Turn.
+      const agentAudible = (media?.pendingMs?.() ?? 0) > 0 || Date.now() - lastAudioAt < 1500;
+      if (lastAudioAt > 0 && agentAudible) metrics.bargeIns += 1;
+      media?.flush();
+    });
     session.on("conversationText", (ev) => {
       const speaker = ev.role === "assistant" ? "agent" : "caller";
       void deps.repo.appendTranscript(requestId, { t: elapsed(), speaker, text: ev.content });
@@ -482,6 +497,8 @@ async function runAgentCall(
         log.info("FunctionCall", { name: fn.name, args: fn.argumentsJson });
         const requestedAt = new Date();
         const { ok, result } = await callToolset.dispatch(fn.name, fn.argumentsJson, toolCtx);
+        metrics.toolCalls += 1;
+        if (!ok) metrics.toolErrors += 1;
         // Bei end_call (setzt endRequested) KEINE FunctionCallResponse senden — sonst startet
         // der Provider eine zweite Abschiedsrunde (doppeltes "Auf Wiederhören"). Der Abschied ist
         // bereits vor dem Tool-Aufruf gesprochen worden; danach wird aufgelegt.

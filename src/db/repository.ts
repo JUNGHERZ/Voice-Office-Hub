@@ -84,9 +84,21 @@ export async function setSummary(
   await RequestModel.updateOne({ _id: id }, { $set: { summary } });
 }
 
+/** Per-Call-Metriken; der callHandler sammelt sie lokal und übergibt sie beim Finalisieren. */
+export interface CallMetrics {
+  /** Answer → erstes TTS-Audio (Begrüßung), in Millisekunden. */
+  timeToFirstAudioMs?: number;
+  bargeIns: number;
+  toolCalls: number;
+  toolErrors: number;
+  voiceProvider?: string;
+  sttModel?: string;
+}
+
 export async function finalizeRequest(
   id: string,
   status: "completed" | "failed",
+  metrics?: CallMetrics,
 ): Promise<void> {
   const endedAt = new Date();
   // Anruflänge aus startedAt ableiten (immer, auch ohne Aufnahme — für Abrechnung/Statistik).
@@ -95,6 +107,7 @@ export async function finalizeRequest(
   if (doc?.startedAt) {
     set.durationSec = Math.max(0, Math.round((endedAt.getTime() - new Date(doc.startedAt).getTime()) / 1000));
   }
+  if (metrics) set.metrics = metrics;
   await RequestModel.updateOne({ _id: id }, { $set: set });
 }
 

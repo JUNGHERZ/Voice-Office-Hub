@@ -66,16 +66,12 @@ Konstruktor-Connect), Agent-Feld `voiceProvider` end-to-end (Schema/Resolver/For
 DI-Naht `CallHandlerDeps` + transportneutraler `CallMedia`-Kontrakt (WebRTC-Andockpunkt).
 Details: [architecture.md → „Zwei Nähte"](architecture.md) + CHANGELOG 0.6.0.
 
-### 5. Externe Tool-Endpoints pro Agent fertigbauen
-**Befund:** Größte Lücke zwischen Konzept („fachliche Tools laufen extern, Engine bleibt
-Kern-Telefonie") und Implementierung: `tools/registry.ts` hat `endpoint {url, method, headers}`
-vorbereitet, aber kein Handler nutzt es; Agents referenzieren nur Namen global registrierter
-Tools (`transfer_call`, `end_call`, `get_weather`), keine eigenen Definitionen/URLs.
-- **Umsetzung:** Per-Agent-Tool-Definitionen im Schema (`name`, `description`,
-  JSON-Schema-`parameters`, `endpoint`-URL, Auth-Header) + Admin-UI-Formular;
-  `dispatchTool` → HTTP-Aufruf mit Timeout und Fehlertext als `FunctionCallResponse`
-  (Call darf bei Tool-Fehlern nie hängen). Auth-Secrets nicht im Klartext in die DB.
-- **Aufwand:** ~2–3 Tage inkl. UI.
+### 5. ✅ Umgesetzt in 0.6.1/0.6.2 (2026-07-20): Externe Tool-Endpoints pro Agent
+`agent.customTools[]` (Schema-validiert) + per-Call-Toolset (`src/tools/toolset.ts`):
+POST-Envelope/GET-Query, `${ENV:NAME}`-Secrets (bleiben in der Server-Umgebung, nicht in
+der DB), hartes Timeout, Fehler → sprechbares `{error}`-Ergebnis + `status:"error"` im Log
+(Call hängt nie). Editor im Agent-Formular (0.6.2), Kontrakt in `docs/tools.md`.
+Offen (Phase 2): verschlüsselter Secret-Store zusammen mit Trunk-Credentials.
 
 ### 6. Audio-Pipeline auf 16 kHz (`slin16`) umstellen
 **Idee:** Durchgängig 16 kHz statt 8 kHz: bessere STT-Genauigkeit, Voraussetzung für
@@ -87,13 +83,16 @@ Resampling existiert bewusst nicht.
   Playout/Barge-in am echten Trunk.
 - **Aufwand:** ~0,5–1 Tag inkl. Test.
 
-### 7. Observability: Live-Call-Ansicht + Latenz-Metriken
-**Idee:** Admin-UI zeigt laufende Anrufe live (SSE/WebSocket aus der Engine): Zustand
-(Greeting/Listening/Speaking/Transfer), Live-Transkript, Dauer. Dazu Metriken: Zeit bis erste
-Agent-Antwort, Barge-in-Häufigkeit, Playout-Underruns, Provider-Fehler/Reconnects.
-- **Nutzen:** Fehlersuche im Live-Betrieb (arm2/EasyPanel — Stichwort sipgate-Doppel-INVITE)
-  ohne Log-Grepping; Latenz-Zahlen sind auch Verkaufsargument.
-- **Aufwand:** ~2–3 Tage.
+### 7. ✅ Umgesetzt in 0.6.3/0.6.4 (2026-07-20): Live-Call-Ansicht + Latenz-Metriken (v1)
+Tab „Live" (laufende Anrufe, tickende Dauer, 3-s-Polling; Partial-Index auf `in_progress`),
+Anruf-Detail lädt bei laufendem Anruf alle 2 s still nach (Live-Transkript). Metriken pro
+Anruf in `requests.metrics`: `timeToFirstAudioMs` (Answer→Begrüßungs-Audio), `bargeIns`
+(nur bei hörbarem Agent gezählt), `toolCalls`/`toolErrors`, Provider/STT-Modell — als
+Badges im Detail.
+- **Ausbaustufe (offen):** Standalone-Mongo → Single-Node-Replica-Set, dann Change Streams
+  → SSE statt Polling (EventSource mit Cookie-Auth funktioniert Same-Origin); zusätzliche
+  Messpunkte Playout-Underruns + Provider-Fehler/Reconnects; Metriken-Aggregation
+  (Durchschnitt pro Agent) im Dashboard.
 
 ### 8. ✅ Umgesetzt in 0.6.0 (2026-07-20): Call-Lifecycle-Tests gegen FakeSession
 14 Fälle in `test/callLifecycle.test.ts` (Dedup/Doppel-INVITE, Unknown-DDI-Reject,

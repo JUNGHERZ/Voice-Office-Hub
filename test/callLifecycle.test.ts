@@ -295,7 +295,29 @@ test("start()-Fehler: cleanup('failed') + Hangup", async () => {
   assert.ok(s.channel.hangups.length >= 1, "Anrufer wird aufgelegt");
 });
 
-// 15 ─ Toolset-Lebenszyklus: close() läuft im Teardown (Hook für MCP-Verbindungen).
+// 15 ─ Metriken: firstAudio-Zeit, Barge-in-Guard (zählt nur bei hörbarem Agent), Tool-Zähler.
+test("Metriken: timeToFirstAudio/bargeIns/toolCalls landen im finalizeRequest", async () => {
+  const s = makeCall();
+  await s.start();
+
+  s.session.emitUserStartedSpeaking(); // VOR jedem Agent-Audio → kein Barge-in
+  s.session.emitAudio(); // erstes TTS-Audio → timeToFirstAudioMs
+  s.session.emitUserStartedSpeaking(); // Agent gerade hörbar → Barge-in
+  await s.session.emitFunctionCall([{ id: "f1", name: "gibts_nicht" }]); // toolCalls+1, toolErrors+1
+
+  s.client.emitStasisEnd(s.channel);
+  await waitFor(() => s.repo.finalized.length === 1);
+  const m = s.repo.metrics;
+  assert.ok(m, "Metriken werden ans Repo übergeben");
+  assert.ok(typeof m.timeToFirstAudioMs === "number" && m.timeToFirstAudioMs >= 0);
+  assert.equal(m.bargeIns, 1, "nur das Reinreden bei hörbarem Agent zählt");
+  assert.equal(m.toolCalls, 1);
+  assert.equal(m.toolErrors, 1);
+  assert.equal(m.voiceProvider, "deepgram");
+  assert.equal(m.sttModel, "nova-3");
+});
+
+// 16 ─ Toolset-Lebenszyklus: close() läuft im Teardown (Hook für MCP-Verbindungen).
 test("Toolset: close() wird im Teardown aufgerufen", async () => {
   let closed = 0;
   const s = makeCall({

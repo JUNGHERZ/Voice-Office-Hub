@@ -8,7 +8,7 @@
 import { define, html } from "hybrids";
 
 import { api } from "../api.js";
-import { callDurationSec, callLabel, fmtDuration, modeLabel, statusLabel, statusVariant } from "../format.js";
+import { callDurationSec, callLabel, fmtDuration, fmtSecondsFromMs, modeLabel, statusLabel, statusVariant } from "../format.js";
 
 function navigate(host, view, id) {
   host.dispatchEvent(
@@ -94,6 +94,7 @@ export default define({
           : undefined;
       const transcript = r.transcript || [];
       const calls = r.functionCalls || [];
+      const m = r.metrics || {};
 
       return html`
         <div class="head">
@@ -107,6 +108,17 @@ export default define({
           ${r.language && html`<glk-badge>${r.language}</glk-badge>`}
           ${callSec !== undefined ? html`<glk-badge>${fmtDuration(callSec)}</glk-badge>` : ""}
           ${r.forwardedTo && html`<glk-badge variant="primary">→ ${r.forwardedTo}</glk-badge>`}
+          ${typeof m.timeToFirstAudioMs === "number"
+            ? html`<glk-badge>Erste Antwort ${fmtSecondsFromMs(m.timeToFirstAudioMs)}</glk-badge>`
+            : ""}
+          ${m.bargeIns > 0
+            ? html`<glk-badge>${m.bargeIns} Barge-in${m.bargeIns === 1 ? "" : "s"}</glk-badge>`
+            : ""}
+          ${m.toolCalls > 0
+            ? html`<glk-badge variant="${m.toolErrors > 0 ? "error" : ""}">
+                ${m.toolCalls} Tool${m.toolCalls === 1 ? "" : "s"}${m.toolErrors > 0 ? ` (${m.toolErrors} Fehler)` : ""}
+              </glk-badge>`
+            : ""}
         </div>
 
         ${hasRecording &&
