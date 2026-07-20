@@ -6,6 +6,14 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.6] – 2026-07-20
+
+### Fixed
+- **Anruf-Detail: Summary blieb auf „pending" stehen.** Das Auto-Refresh (0.6.3) endete mit
+  dem Statuswechsel auf completed — Post-Call-Summary (Agent-Modus) und Batch-Transkription
+  (Passthrough) starten aber erst danach. Das Polling läuft jetzt weiter, solange etwas auf
+  „pending" steht (Nachlauf-Deckel ~3 min gegen dauerhaft hängende Zustände).
+
 ## [0.6.5] – 2026-07-20
 
 MCP-Anbindung: ein Agent kann komplette MCP-Server (Model Context Protocol) als Tool-Quelle

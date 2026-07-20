@@ -39,6 +39,24 @@ async function silentReload(host) {
   }
 }
 
+/*
+ * Weiterpollen, solange sich noch etwas ändert: laufender Anruf ODER Post-Call-
+ * Nacharbeiten (Summary im Agent-Modus, Batch-Transkription im Passthrough) —
+ * beide starten erst NACH dem Statuswechsel auf completed und blieben sonst
+ * dauerhaft als „pending" stehen.
+ */
+function needsLiveRefresh(r) {
+  if (!r) return false;
+  if (r.status === "in_progress") return true;
+  if (r.summary && r.summary.status === "pending") return true;
+  if (r.transcriptionStatus === "pending") return true;
+  return false;
+}
+
+/* Nachlauf-Deckel: bleibt ein "pending" dauerhaft hängen (z. B. Engine-Absturz
+   mitten in der Summary), soll die offene Ansicht nicht endlos weiterpollen. */
+const POST_CALL_MAX_TICKS = 90; // ~3 Minuten à 2 s
+
 // Sprecherseite → Bubble-Ausrichtung. agent-Modus: agent|caller; passthrough: caller|callee.
 function isLeft(speaker) {
   return speaker === "agent" || speaker === "callee";
@@ -201,12 +219,17 @@ export default define({
     },
     connect: (host) => {
       load(host);
-      // Laufender Anruf: Transkript/Status alle 2 s still aktualisieren; sobald der
-      // Anruf einen Terminal-Status hat, endet das Polling (sichtbar im Netzwerk-Tab).
+      // Alle 2 s still aktualisieren, solange der Anruf läuft oder Nacharbeiten
+      // (Summary/Transkription) offen sind; danach endet das Polling (Netzwerk-Tab).
+      let postCallTicks = 0;
       const timer = setInterval(() => {
         const r = host.request;
         if (host.loading || !r) return;
-        if (r.status !== "in_progress") {
+        if (!needsLiveRefresh(r)) {
+          clearInterval(timer);
+          return;
+        }
+        if (r.status !== "in_progress" && ++postCallTicks > POST_CALL_MAX_TICKS) {
           clearInterval(timer);
           return;
         }
