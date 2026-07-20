@@ -49,6 +49,14 @@ Wie bei uns?
   dann Flux als gezielten A/B-Test gegen nova-3 — sofern sich Turn-Taking als Schwachpunkt zeigt.
   Aktuell antwortet der Agent zuverlässig, also kein Blocker. (Eigene `.env`-Schalter `LISTEN_MODEL`
   + eot-Werte machen den A/B-Test billig.)
+- **Status 2026-07-20 (0.6.0): weitgehend beantwortet.** Flux ist pro Agent über die Admin-UI
+  schaltbar (STT-Modell-Select + eot-Felder); Settings-Format an die aktuelle v2-Spec angepasst
+  (Fix `eed7cac` — Flux verlangt `version: "v2"`, lehnt `language`/`smart_format` ab).
+  **Deutsch über `flux-general-multi` funktioniert** — vom Nutzer im Live-Test bestätigt
+  (Agent 121), inkl. sauberer Mehrsprachigkeit. Gemessene Antwortlatenz lokal: Flux ≈ 2,6 s
+  vs. nova-3 ≈ 3,5 s ab Sprechende. **Offen nur noch:** Qualitäts-/Langzeitvergleich am echten
+  Trunk (A/B pro DDI). Achtung fürs Testen: loopendes Einspiel-Audio cancelt Flux-Antworten
+  (Barge-in) — Test-Audio mit einer Äußerung + Stille verwenden.
 
 ## Architektur / Engine-Weiterentwicklung (Architektur-Review 2026-07-18)
 
