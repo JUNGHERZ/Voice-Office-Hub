@@ -117,14 +117,16 @@ Frontend aus. Er teilt mit dem Telefonie-Kern nur die **Mongoose-Modelle** (eine
 kein Schema-Drift) und ist von der Telefonie entkoppelt (startet nur bei gesetztem `ADMIN_PASSWORD`).
 
 - **API:** Agents-CRUD (`/api/agents`), Anrufe/Requests read + Aufnahme-Stream (`/api/requests`,
-  `/api/requests/:id/recording` aus GridFS), Login/Session (`/api/login|logout|me`).
+  `/api/requests/:id/recording` aus GridFS), eingebaute Tools (`/api/tools`),
+  Login/Session (`/api/login|logout|me`).
 - **Auth:** UI-Login per `ADMIN_PASSWORD` → signiertes Session-Cookie; zusätzlich API-Key
   (`x-api-key` = `ADMIN_API_KEY`) für externen Zugriff.
 - **OpenAPI:** Spec unter `/openapi.json`, Swagger-UI unter `/docs` (`@fastify/swagger`).
 - **Frontend** (`webui/`): **Hybrids.js**-SPA im **GlassKit**-Glas-Look (eigene `<glk-*>`-Web-Components),
   **ohne Build** (native ES-Module + Import-Map; GlassKit/Hybrids aus `node_modules` ausgeliefert).
   Zentrierte 640px-Spalte, Dark-Default, Floating-Tab-Bar, View-Transitions. Views: Login, Dashboard,
-  Agents (Liste/CRUD), Anrufe (Liste/Detail mit Audio-Player, Transkript, Summary).
+  Live (laufende Anrufe, Polling), Agents (Liste/CRUD inkl. Tool-/MCP-Editoren), Anrufe (Liste/Detail
+  mit Audio-Player, Transkript, Summary, Metrik-Badges; laufende Anrufe aktualisieren sich selbst).
 
 ## Verzeichnisstruktur
 

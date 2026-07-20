@@ -111,7 +111,31 @@ MONGO_URI=mongodb://127.0.0.1:27100/voiceagent npm run seed
 ```
 
 So überschreiben DB-Agents das ENV-Default pro Nummer. Das `agents`-Schema
-([Agent.ts](../src/db/models/Agent.ts)) mappt 1:1 auf die Deepgram-`Settings`.
+([Agent.ts](../src/db/models/Agent.ts)) mappt 1:1 auf die Provider-Settings (heute Deepgram).
+
+### Agent-Felder (Referenz)
+
+Alle Felder sind über Admin-UI **und** API (`PATCH /api/agents/:id`) pflegbar; Validierung macht
+Mongoose (Fehler → HTTP 400). Die wichtigsten Felder:
+
+| Feld | Zweck |
+|---|---|
+| `name` / `enabled` | Anzeigename; `enabled:false` nimmt den Agent aus dem DDI-Routing. |
+| `targetNumbers[]` | Rufnummern (DDIs) des Agenten — der Routing-Schlüssel (E.164 empfohlen). |
+| `mode` | `agent` (KI) oder `passthrough` (+ `passthroughTarget`). |
+| `voiceProvider` *(0.6.0)* | Voice-Plattform des Anrufs. Enum enthält nur Implementiertes — heute `deepgram`; weitere Provider (elevenlabs, openai-realtime, grok, native) docken über die Factory ([voice/factory.ts](../src/voice/factory.ts)) an. |
+| `language` | STT-Sprache (`multi`, `de`, `en` …; wirkt bei nova-3). |
+| `greeting` / `prompt` | Begrüßungssatz + System-Prompt. |
+| `listen.model` *(0.6.0)* | `nova-3` (Default) oder **Flux** (`flux-general-multi` / `flux-general-en`) mit modellintegrierter Turn-Detection. Bei Flux blendet die UI `listen.eot_threshold` / `listen.eot_timeout_ms` ein (End-of-Turn-Feintuning; leer = Deepgram-Default). |
+| `listen.language_hints[]` / `keyterms[]` / `smart_format` | STT-Feintuning. `language_hints` gelten nur für `flux-general-multi`, `smart_format` nur für nova-3 — der Settings-Builder sendet je Modell nur Gültiges. |
+| `think.source` / `model` / `temperature` | Konversations-LLM: `requesty` (BYO-Router) oder `deepgram` (managed). |
+| `speak.provider` / `model` / `voice` … | TTS (z. B. `aura-2-viktoria-de`). |
+| `tools[]` | Aktivierte **eingebaute** Tools (UI: Toggle-Liste, Quelle `GET /api/tools`). |
+| `customTools[]` *(0.6.1)* | **Eigene HTTP-Tools** (Name, Beschreibung, JSON-Schema, Endpoint mit Methode/Headern/Timeout, `${ENV:}`-Secrets) — Kontrakt in [docs/tools.md](tools.md). |
+| `mcpServers[]` *(0.6.5)* | **MCP-Server** als Tool-Quellen (Streamable HTTP; Tools präfixiert `<server>_<tool>`, optional `toolFilter`) — siehe [docs/tools.md](tools.md). |
+| `useTransferCallerId` | Original-Anrufernummer als Absender bei externem Transfer (setzt `TRUNK_CLIP_NO_SCREENING=true` voraus). |
+| `summary.enabled` / `prompt` / `model` | Post-Call-Summary pro Agent (Override der `SUMMARY_*`-ENV). |
+| `tags[]` / `mip_opt_out` | Deepgram-Request-Tags / Model-Improvement-Opt-out. |
 
 ### Unbekannte Rufnummer (kein Agent)
 
@@ -283,20 +307,28 @@ Die **Post-Call-Summary** nutzt immer die Requesty-Request-API
 
 ## Tools (Function Calling)
 
-Aktive Tools pro Agent in `agent.tools`. Implementiert ([src/tools/handlers/](../src/tools/handlers/)):
+Pro Anruf wird **ein Toolset** aus drei Quellen zusammengeführt
+([tools/toolset.ts](../src/tools/toolset.ts)); Details + Endpoint-Kontrakt: **[docs/tools.md](tools.md)**.
 
-- `transfer_call` — Weiterleitung mit Auto-Rückkehr (Vorstufe Warm Transfer). Parameter `target`
-  = Ziel-Durchwahl (nur bekannte verwenden; ohne Angabe `PASSTHROUGH_TARGET`). Während des Klingelns
-  läuft die Ansage weiter, der Agent hört nicht mehr zu; nach Connect ist er stumm.
-- `end_call` — Gespräch beenden/auflegen (nach dem gesprochenen Abschied).
-- `get_weather` — Demo eines externen Calls.
-
-Neue Tools: Handler unter `handlers/` anlegen und in [tools/index.ts](../src/tools/index.ts)
-registrieren.
+1. **Eingebaute Tools** (`agent.tools`, im UI Toggle-Liste; [src/tools/handlers/](../src/tools/handlers/)):
+   - `transfer_call` — Weiterleitung mit Auto-Rückkehr (Vorstufe Warm Transfer). Parameter `target`
+     = Ziel-Durchwahl (nur bekannte verwenden; ohne Angabe `PASSTHROUGH_TARGET`). Während des Klingelns
+     läuft die Ansage weiter, der Agent hört nicht mehr zu; nach Connect ist er stumm.
+   - `end_call` — Gespräch beenden/auflegen (nach dem gesprochenen Abschied).
+   - `get_weather` — Demo.
+   Neue eingebaute Tools: Handler unter `handlers/` anlegen, in [tools/index.ts](../src/tools/index.ts)
+   registrieren und den Namen in [tools/names.ts](../src/tools/names.ts) ergänzen.
+2. **Eigene HTTP-Tools** (`agent.customTools[]`, UI-Editor im Agent-Formular): Fachlogik als
+   externer Endpoint. Die Engine ruft selbst auf (POST-Envelope `{arguments, call}` bzw. GET-Query),
+   `${ENV:NAME}`-Platzhalter halten Secrets aus der DB, hartes Timeout; Fehler werden zum
+   sprechbaren `{error}`-Ergebnis (`functionCalls[].status: "error"`) — der Anruf hängt nie.
+3. **MCP-Server** (`agent.mcpServers[]`, UI-Editor): Tools eines MCP-Servers (Streamable HTTP)
+   erscheinen präfixiert als `<server>_<tool>`; Tool-Listen-Cache ~5 min, Verbindung lazy pro Call,
+   optionaler `toolFilter`.
 
 > **Engine-Abgrenzung:** Die Engine deckt **Kern-Telefonie** ab. Fachliche Tools kommen pro Agent
-> dazu und rufen i.d.R. **externe APIs** (server-side Function-Endpoints per URL) auf — sie gehören
-> nicht in die Engine. Das frühere Demo-Tool `lookup_customer` (+ `customers`-Collection) wurde entfernt.
+> dazu und leben in **externen APIs/MCP-Servern** — sie gehören nicht in die Engine. Das frühere
+> Demo-Tool `lookup_customer` (+ `customers`-Collection) wurde entfernt.
 
 ## Aufnahme & Transkription (GridFS)
 
@@ -320,17 +352,25 @@ Eigener **Node/Fastify**-Prozess (kein Python), startet nur bei gesetztem `ADMIN
 ist nur ein Client der **JSON-API**. Details: [architecture.md](architecture.md#admin-ui--management-api).
 
 - **API:** `/api/login` · `/api/logout` · `/api/me`; `/api/agents` (GET/POST/PATCH/DELETE);
-  `/api/requests` (GET Liste/Detail) + `/api/requests/:id/recording` (WAV-Stream aus GridFS).
+  `/api/requests` (GET Liste/Detail, Filter `status=in_progress` für Live) +
+  `/api/requests/:id/recording` (WAV-Stream aus GridFS); `/api/tools` (GET, eingebaute Tools).
 - **Auth:** UI-Login → signiertes Session-Cookie; extern alternativ `x-api-key: <ADMIN_API_KEY>`.
-- **OpenAPI/Doku:** Spec `/openapi.json`, Swagger-UI `/docs`.
+- **OpenAPI/Doku:** Spec `/openapi.json`, Swagger-UI `/docs` (Version aus package.json).
 - **Agents pflegen:** über die UI **oder** das Seed-Skript ([seedAgents.ts](../src/scripts/seedAgents.ts),
-  `npm run seed`) **oder** direkt per API.
+  `npm run seed`) **oder** direkt per API. Im Agent-Formular: Built-in-Tools als Toggles,
+  Editoren für Custom-HTTP-Tools und MCP-Server, STT-Modellwahl nova-3/Flux (mit eot-Feldern).
+- **Tab „Live":** laufende Anrufe mit tickender Dauer (3-s-Polling); das Anruf-Detail aktualisiert
+  sich bei laufendem Anruf und offener Summary/Transkription selbst (2-s-Takt).
+- **Metriken im Anruf-Detail:** Badges „Erste Antwort x,x s" (`metrics.timeToFirstAudioMs`),
+  Barge-ins, Tool-Aufrufe (inkl. Fehler) — nützlich für A/B nova-3 vs. Flux.
 
 ## Betrieb / Troubleshooting
 
 - **Start lokal:** `cp .env.example .env` → ausfüllen → `./run.sh build && ./run.sh up && ./run.sh logs`.
 - **Logs:** strukturierte JSON-Zeilen auf stdout/stderr (`LOG_LEVEL=debug` für mehr Detail).
-- **Latenz:** `AgentStartedSpeaking` liefert `total_latency`/`tts_latency`/`ttt_latency` (Ziel < ~1 s).
+- **Latenz:** `AgentStartedSpeaking` liefert `total_latency`/`tts_latency`/`ttt_latency` (Ziel < ~1 s);
+  zusätzlich steht pro Anruf `metrics.timeToFirstAudioMs` (Answer → Begrüßungs-Audio) am Request
+  und als Badge im Anruf-Detail.
 - **Keine Audio-Rückkehr:** `EXTERNAL_MEDIA_HOST/PORT` prüfen (Asterisk verbindet sich dorthin),
   `direct_media=no` am Endpoint; bei `MEDIA_TRANSPORT=rtp` zusätzlich die RTP-Portrange.
 - **„Failed to think":** managed-LLM-Problem (z. B. GPT-5 + `temperature`, oder managed-Google gesperrt) →

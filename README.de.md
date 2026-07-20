@@ -2,13 +2,13 @@
 
 [🇬🇧 English](README.md) · **🇩🇪 Deutsch**
 
-[![Version](https://img.shields.io/badge/version-0.5.8-f5a623)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.6-f5a623)](CHANGELOG.md)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-success)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
-[![Changelog](https://img.shields.io/badge/changelog-0.5.8-blue)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-0.6.6-blue)](CHANGELOG.md)
 
 > **VOH-Appliance** — Voice-Office-Hub. Teil der **„*-Office-Hub"**-Produktfamilie
 > (Schwesterprojekt: Message-Office-Hub für Chat/E-Mail/WhatsApp/SMS).
@@ -20,9 +20,16 @@ von einem KI-Agenten angenommen, natürlich geführt und bei Bedarf an Menschen 
 ## ✨ Features
 
 - 📞 **Telefonie-KI-Agent** — Anrufannahme & natürliche Sprachdialoge (Deepgram Voice Agent)
-- 🇩🇪 **Mehrsprachig** — deutschsprachige Konversation ab Werk (nova-3 + Aura-2)
+- 🔌 **Provider-neutrale Engine** — Voice-Plattformen docken hinter einer Schnittstelle an:
+  heute Deepgram; ElevenLabs, OpenAI Realtime, xAI Grok und eine eigene STT→LLM→TTS-Pipeline
+  sind als Nähte vorbereitet
+- 🇩🇪 **Mehrsprachig** — deutschsprachige Konversation ab Werk (nova-3/Flux + Aura-2,
+  STT-Modell pro Agent wählbar)
 - 🔀 **Transfer & Auflegen** — Warm-Transfer an Menschen, selbsttätiges Beenden
-- 🧩 **Tools / Function-Calling** — eigene Fachlogik per externer API anbinden
+- 🧩 **Tools / Function-Calling** — eigene Fachlogik als HTTP-Endpoints pro Agent **plus
+  MCP-Server** als Tool-Quellen, beides im Admin-UI pflegbar (`${ENV:}`-Secrets bleiben serverseitig)
+- 📡 **Live-Ansicht & Metriken** — laufende Anrufe mit Live-Transkript; pro Anruf Zeit bis zur
+  ersten Antwort, Barge-ins und Tool-Statistik
 - 🗂️ **Transkript & Aufnahme** — Volltext + Audio (MongoDB/GridFS) + Post-Call-Zusammenfassung
 - ☎️ **Passthrough-Modus** — reine Durchleitung + Mitschnitt + Batch-Transkription
 - 🎯 **Multi-Agent / DDI-Routing** — pro Rufnummer ein eigener Agent
@@ -40,9 +47,12 @@ von einem KI-Agenten angenommen, natürlich geführt und bei Bedarf an Menschen 
 
 Telefonisch erreichbarer KI-Voice-Agent: ein Anrufer aus dem öffentlichen Telefonnetz landet
 über **Asterisk** (ARI) in unserer **Node.js/TypeScript**-Engine, die pro Anruf eine Session
-gegen die **Deepgram Voice Agent API** orchestriert (Listen → Think → Speak). Der Agent kann
-**Tools** aufrufen, **weiterleiten**, **auflegen** und das Gespräch als **Transkript + Audio**
-(MongoDB/GridFS) sowie eine **Post-Call-Zusammenfassung** ablegen.
+gegen einen **Voice-Agent-Provider hinter einer neutralen Schnittstelle** orchestriert — heute
+die **Deepgram Voice Agent API** (Listen → Think → Speak); weitere Plattformen (ElevenLabs,
+OpenAI Realtime, xAI Grok) und eine eigene STT→LLM→TTS-Pipeline docken an derselben Naht an.
+Der Agent kann **Tools** aufrufen (HTTP-Endpoints und **MCP-Server** pro Agent), **weiterleiten**,
+**auflegen** und das Gespräch als **Transkript + Audio** (MongoDB/GridFS) sowie eine
+**Post-Call-Zusammenfassung** ablegen.
 
 Alles läuft in **einem Docker-Container** (Asterisk + Node-Kern + MongoDB + Node-Admin-UI/API),
 lokal wie in Produktion — Unterschied nur über die `.env`.
@@ -106,13 +116,16 @@ Rechenzentrum. 👉 Kontakt & Referenz: **[Jungherz GmbH](https://www.jungherz.c
 ## Architektur (Kurzfassung)
 
 ```
-PSTN → Asterisk (ARI + externalMedia/AudioSocket) → Node-Engine → Deepgram Voice Agent → MongoDB/GridFS
-                                                        │
+PSTN → Asterisk (ARI + externalMedia/AudioSocket) → Node-Engine → Voice-Provider (heute Deepgram;
+                                                        │          ElevenLabs/OpenAI Realtime/Grok andockbar)
+                                                        │                → MongoDB/GridFS
                                 Think via Requesty (z. B. Gemini 3.1 Flash Lite)
                                 Summary via eigenes Modell (z. B. GPT-4.1 Mini)
+                                Tools: HTTP-Endpoints + MCP-Server pro Agent
 ```
 
-Details: [docs/architecture.md](docs/architecture.md).
+Details: [docs/architecture.md](docs/architecture.md) (inkl. der beiden Nähte für künftige
+Provider und einen WebRTC-Ingress).
 
 ## Quickstart (lokal, OrbStack)
 
@@ -123,9 +136,12 @@ cp .env.example .env        # ausfüllen: DEEPGRAM_API_KEY, REQUESTY_API_KEY, AR
 ./run.sh logs
 ```
 
-Dann ein **SIP-Softphone** (Zoiper/Linphone) am Container-Asterisk registrieren
-(`softphone`/`softphone`) und die Test-Durchwahl `100` anrufen. Für Transfer-Tests ein zweites
-Softphone als `101`/`101` registrieren (Ziel von `transfer_call`).
+Dann einmalig die Demo-Agents anlegen (`docker exec voh-appliance node /app/dist/scripts/seedAgents.js`),
+ein **SIP-Softphone** (Zoiper/Linphone) am Container-Asterisk registrieren (`softphone`/`softphone`,
+setzt `DEV_SOFTPHONE_ENABLED=true` voraus) und die `120` (Vertrieb-Demo) oder `121` (Support-Demo,
+Flux) anrufen. Für Transfer-Tests ein zweites Softphone als `101`/`101` registrieren (Ziel von
+`transfer_call`); die `199` ist ein reiner Asterisk-Echo-Test (Mikro-Check). Anrufe an Nummern ohne
+Agent werden per Default abgewiesen (`UNKNOWN_NUMBER_BEHAVIOR=reject`).
 
 MongoDB lässt sich im Dev per GUI-Client (z. B. NoSQL Booster) auf `127.0.0.1:27100` (DB `voiceagent`)
 inspizieren.
@@ -142,7 +158,8 @@ npm run dev        # benötigt erreichbares Asterisk (ARI) + MongoDB
 - [docs/architecture.md](docs/architecture.md) — Komponenten, Datenfluss, Datenmodell, Implementierungsstand
 - [docs/trunks.md](docs/trunks.md) — unterstützte SIP-Trunk-Anbieter (sipgate, easybell, Placetel, Telekom, Twilio …) & deren Konfiguration
 - [docs/asterisk-sipgate.md](docs/asterisk-sipgate.md) — Asterisk + sipgate-Trunk, ausführliches Beispiel
-- [docs/configuration.md](docs/configuration.md) — ENV, Betriebsmodi, Tools, Betrieb
+- [docs/configuration.md](docs/configuration.md) — ENV, Betriebsmodi, Agent-Felder, Betrieb
+- [docs/tools.md](docs/tools.md) — Tools pro Agent: HTTP-Endpoint-Kontrakt & MCP-Server
 - [docs/backlog.md](docs/backlog.md) — offene Punkte & Ideen (Web/WebRTC, Admin-UI, Denoising, Flux …)
 - [CHANGELOG.md](CHANGELOG.md) — Versionsverlauf
 
@@ -156,7 +173,13 @@ Aufnahme + Batch-Transkription, `DEFAULT_MODE=passthrough`; Diarization-Sprecher
 Zwei-Geräte-Setup zu verifizieren), **Multi-Agent/DDI-Routing** (`agents.targetNumbers`, Dialplan
 reicht echte DDI durch; Demo-Agents via `npm run seed`), **Admin-UI + Management-API**
 (Node/Fastify + Hybrids/GlassKit, JSON-API + OpenAPI, Login, Agents-CRUD, Anrufliste/Detail mit
-Audio-Player). Nächste Ausbaustufen: PWA-Feinschliff, Appliance-Härtung (sipgate-Trunk).
+Audio-Player), **Voice-Provider-Abstraktion** (neutrale `VoiceAgentSession` + Factory; nova-3/Flux
+pro Agent wählbar), **Tools pro Agent** (HTTP-Endpoints + **MCP-Server** mit Admin-UI-Editoren),
+**Live-Call-Ansicht** (laufende Anrufe, selbstaktualisierendes Detail) und **Per-Call-Metriken**
+(Zeit bis zum ersten Audio, Barge-ins, Tool-Zähler) — abgesichert durch 56 Unit-/Integrationstests
+(Call-Lifecycle gegen Fakes, Toolset gegen lokalen HTTP-Server, MCP gegen SDK-Loopback-Server).
+Nächste Ausbaustufen: weitere Voice-Provider (ElevenLabs, OpenAI Realtime, Grok), eigene
+STT→LLM→TTS-Pipeline (NativeSession), WebRTC-Web-Widget.
 
 ## Lizenz
 
