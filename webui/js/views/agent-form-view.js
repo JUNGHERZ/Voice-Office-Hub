@@ -1,7 +1,12 @@
 /*
  * Agent-Formular (Anlegen/Bearbeiten). Felder: name, targetNumbers (Komma→Array),
- * mode, language, greeting, prompt, speak.model, summary.enabled, enabled.
+ * mode, voiceProvider, language, listen.model (nova-3/flux + eot-Felder), greeting,
+ * prompt, speak.model, tools, summary.enabled, enabled.
  * Speichern → POST/PATCH, Löschen → Bestätigung via <glk-modal>.
+ *
+ * Wichtig: PATCH ersetzt Subdokumente komplett ($set) — deshalb tragen _listen/_speak
+ * das geladene Original-Subobjekt mit und toBody() schreibt es vollständig zurück
+ * (sonst verlöre jeder UI-Save z. B. listen.keyterms oder speak.voice).
  *
  * Attribut "agent-id" steuert den Modus: leer = neu, gesetzt = bearbeiten.
  */
@@ -21,8 +26,12 @@ function emptyForm() {
     name: "",
     targetNumbers: "",
     mode: "agent",
+    voiceProvider: "deepgram",
     passthroughTarget: "",
     language: "",
+    listenModel: "nova-3",
+    eotThreshold: "",
+    eotTimeoutMs: "",
     greeting: "",
     prompt: "",
     speakModel: "",
@@ -30,17 +39,26 @@ function emptyForm() {
     useTransferCallerId: false,
     summaryEnabled: false,
     enabled: true,
+    // Carry-along: komplette Subdokumente des geladenen Agents (siehe Kopfkommentar).
+    _listen: {},
+    _speak: {},
   };
 }
 
 // API-Agent → Formularmodell.
 function toForm(a) {
+  const listen = a.listen || {};
   return {
     name: a.name || "",
     targetNumbers: (a.targetNumbers || []).join(", "),
     mode: a.mode || "agent",
+    voiceProvider: a.voiceProvider || "deepgram",
     passthroughTarget: a.passthroughTarget || "",
     language: a.language || "",
+    listenModel: listen.model || "nova-3",
+    // != null, damit ein gespeicherter 0-Wert erhalten bleibt.
+    eotThreshold: listen.eot_threshold != null ? String(listen.eot_threshold) : "",
+    eotTimeoutMs: listen.eot_timeout_ms != null ? String(listen.eot_timeout_ms) : "",
     greeting: a.greeting || "",
     prompt: a.prompt || "",
     speakModel: (a.speak && a.speak.model) || "",
@@ -48,11 +66,19 @@ function toForm(a) {
     useTransferCallerId: !!a.useTransferCallerId,
     summaryEnabled: !!(a.summary && a.summary.enabled),
     enabled: a.enabled !== false,
+    _listen: { ...listen },
+    _speak: { ...(a.speak || {}) },
   };
+}
+
+function isFluxModel(model) {
+  return typeof model === "string" && model.indexOf("flux") === 0;
 }
 
 // Formularmodell → API-Body.
 function toBody(f) {
+  const isFlux = isFluxModel(f.listenModel);
+  const num = (v) => (v !== "" && Number.isFinite(Number(v)) ? Number(v) : undefined);
   return {
     name: f.name.trim(),
     targetNumbers: f.targetNumbers
@@ -60,12 +86,21 @@ function toBody(f) {
       .map((s) => s.trim())
       .filter(Boolean),
     mode: f.mode,
+    voiceProvider: f.voiceProvider,
     // passthroughTarget nur im passthrough-Modus mitsenden.
     passthroughTarget: f.mode === "passthrough" ? f.passthroughTarget.trim() || undefined : undefined,
     language: f.language.trim() || undefined,
     greeting: f.greeting,
     prompt: f.prompt,
-    speak: { model: f.speakModel.trim() || undefined },
+    // Subdokumente vollständig zurückschreiben (Merge über _listen/_speak); eot_* nur bei
+    // Flux — undefined lässt JSON.stringify die Keys fallen (Rückwechsel auf nova-3 räumt auf).
+    listen: {
+      ...f._listen,
+      model: f.listenModel,
+      eot_threshold: isFlux ? num(f.eotThreshold) : undefined,
+      eot_timeout_ms: isFlux ? num(f.eotTimeoutMs) : undefined,
+    },
+    speak: { ...f._speak, model: f.speakModel.trim() || undefined },
     tools: f.tools
       .split(",")
       .map((s) => s.trim())
@@ -195,12 +230,51 @@ export default define({
                   ></glk-input>
                 `}
 
+                <glk-select
+                  id="voiceProviderSelect"
+                  label="Voice-Provider"
+                  onglk-change="${(host, e) => setField(host, "voiceProvider", e.detail.value)}"
+                >
+                  <option value="deepgram">Deepgram (weitere Provider folgen)</option>
+                </glk-select>
+
                 <glk-input
                   label="Sprache"
                   value="${f.language}"
                   placeholder="z. B. de, en, multi"
                   onglk-input="${(host, e) => setField(host, "language", e.detail.value)}"
                 ></glk-input>
+
+                <glk-select
+                  id="listenModelSelect"
+                  label="STT-Modell (listen.model)"
+                  onglk-change="${(host, e) => setField(host, "listenModel", e.detail.value)}"
+                >
+                  <option value="nova-3">nova-3</option>
+                  <option value="flux-general-multi">flux-general-multi (mehrsprachig, Turn-Detection)</option>
+                  <option value="flux-general-en">flux-general-en (Englisch, Turn-Detection)</option>
+                </glk-select>
+
+                ${isFluxModel(f.listenModel) &&
+                html`
+                  <glk-input
+                    label="End-of-Turn-Schwelle (eot_threshold)"
+                    type="number"
+                    value="${f.eotThreshold}"
+                    placeholder="z. B. 0.7"
+                    hint="0–1; leer = Deepgram-Default"
+                    onglk-input="${(host, e) => setField(host, "eotThreshold", e.detail.value)}"
+                  ></glk-input>
+
+                  <glk-input
+                    label="End-of-Turn-Timeout (eot_timeout_ms)"
+                    type="number"
+                    value="${f.eotTimeoutMs}"
+                    placeholder="z. B. 3000"
+                    hint="Millisekunden; leer = Deepgram-Default"
+                    onglk-input="${(host, e) => setField(host, "eotTimeoutMs", e.detail.value)}"
+                  ></glk-input>
+                `}
 
                 <glk-input
                   label="Begrüßung"
@@ -289,17 +363,22 @@ export default define({
         .form { display: flex; flex-direction: column; gap: 14px; }
       `;
     },
-    // Nach jedem Render den Modus-Select imperativ auf den echten State setzen.
+    // Nach jedem Render die Selects imperativ auf den echten State setzen.
     // Grund: glk-select klont seine <option>s per rAF und übernimmt nur das
     // value-ATTRIBUT (nicht die von Hybrids gesetzte selected-Property), daher
     // greift weder option[selected] noch das value-Property zuverlässig.
     observe: (host) => {
       if (!host.form) return;
-      const sel = host.shadowRoot && host.shadowRoot.getElementById("modeSelect");
-      if (sel) {
+      const selects = [
+        ["modeSelect", host.form.mode],
+        ["voiceProviderSelect", host.form.voiceProvider],
+        ["listenModelSelect", host.form.listenModel],
+      ];
+      for (const [id, value] of selects) {
+        const sel = host.shadowRoot && host.shadowRoot.getElementById(id);
         // Attribut → glk-select.onAttributeChanged('value') wendet es an;
         // wird auch von der initialen rAF-Option-Übernahme gelesen.
-        sel.setAttribute("value", host.form.mode);
+        if (sel && value) sel.setAttribute("value", value);
       }
     },
     connect: (host) => {
