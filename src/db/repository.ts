@@ -111,6 +111,21 @@ export async function finalizeRequest(
   await RequestModel.updateOne({ _id: id }, { $set: set });
 }
 
+/**
+ * Boot-Sweep der Engine: Requests, die beim Start noch in_progress sind, stammen
+ * zwangsläufig von einer früheren Engine-Instanz (Absturz/Redeploy mitten im Anruf) —
+ * diese Anrufe existieren nicht mehr. Als failed markieren, damit Live-Ansicht und
+ * Statistik sauber bleiben. endedAt bleibt bewusst leer (die echte Endezeit ist
+ * unbekannt; eine Dauer aus „jetzt" wäre um Tage falsch — UI zeigt dann „—").
+ */
+export async function failOrphanedRequests(): Promise<number> {
+  const res = await RequestModel.updateMany(
+    { status: "in_progress" },
+    { $set: { status: "failed" } },
+  );
+  return res.modifiedCount ?? 0;
+}
+
 export async function getTranscript(id: string): Promise<TranscriptTurn[]> {
   const doc = await RequestModel.findById(id, { transcript: 1 }).lean();
   return (doc?.transcript as TranscriptTurn[] | undefined) ?? [];

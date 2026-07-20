@@ -4,6 +4,7 @@
  */
 import { config } from "./config.js";
 import { connectMongo, disconnectMongo } from "./db/mongo.js";
+import { failOrphanedRequests } from "./db/repository.js";
 import { startAri } from "./ari/ariClient.js";
 import { audioSocketServer } from "./ari/audiosocketServer.js";
 import { registerAllTools } from "./tools/index.js";
@@ -33,6 +34,13 @@ async function main(): Promise<void> {
   }
 
   await connectMongo();
+
+  // Verwaiste Anrufe der Vor-Instanz schließen (Absturz/Redeploy mitten im Gespräch):
+  // beim Engine-Start KANN nichts mehr in_progress sein — Reste würden sonst dauerhaft
+  // in der Live-Ansicht als „laufend" erscheinen.
+  const orphaned = await failOrphanedRequests();
+  if (orphaned > 0) log.warn("Verwaiste in_progress-Requests als failed markiert", { count: orphaned });
+
   registerAllTools();
   if (config.audio.transport === "audiosocket") {
     await audioSocketServer.start();

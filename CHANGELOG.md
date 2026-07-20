@@ -6,6 +6,15 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.7] – 2026-07-20
+
+### Fixed
+- **Verwaiste „laufende" Anrufe nach Engine-Neustart.** Stürzt die Engine mitten im Gespräch ab
+  oder wird redeployt, blieb der Request dauerhaft auf `in_progress` — und erschien seit 0.6.3
+  für immer in der Live-Ansicht (auf dem Dev-Server standen so 3 Wochen alte Scanner-Anrufe als
+  „Läuft"). Beim Engine-Start werden solche Waisen jetzt als `failed` markiert (`endedAt` bleibt
+  leer — die echte Endezeit ist unbekannt, die UI zeigt „—").
+
 ## [0.6.6] – 2026-07-20
 
 ### Fixed
