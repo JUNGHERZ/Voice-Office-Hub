@@ -4,8 +4,10 @@
  * restliche Code (settings-Builder, callHandler) arbeitet nur damit.
  */
 import type { ThinkSource, CallMode } from "./db/models/Agent.js";
+import type { VoiceProvider } from "./voice/types.js";
 
 export type { ThinkSource, CallMode };
+export type { VoiceProvider };
 
 export interface ResolvedListen {
   model: string;
@@ -44,6 +46,8 @@ export interface ResolvedAgent {
   id?: string;
   name: string;
   mode: CallMode;
+  /** Welche Voice-Plattform den Anruf bedient (siehe voice/factory.ts). */
+  voiceProvider: VoiceProvider;
   passthroughTarget?: string;
   /** Eigene DDIs des Agenten (für die Absender-CLI bei externem Transfer/Outbound). */
   targetNumbers: string[];

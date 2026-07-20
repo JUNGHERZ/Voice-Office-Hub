@@ -1,6 +1,7 @@
 /**
  * Orchestriert einen einzelnen Anruf (Modus "agent"):
- *   answer → Bridge → externalMedia → Deepgram-Session → Audio-Bridging → Events → Teardown.
+ *   answer → Bridge → externalMedia → Voice-Session (Provider laut Agent) → Audio-Bridging →
+ *   Events → Teardown.
  *
  * Bei Modus "passthrough" wird an das passthrough-Modul delegiert.
  */
@@ -10,17 +11,17 @@ import { rm } from "node:fs/promises";
 import type { AriChannel, AriClient } from "ari-client";
 
 import { config } from "../config.js";
-import { buildSettings } from "../deepgram/settings.js";
-import { AgentSession } from "../deepgram/agentSession.js";
 import * as repo from "../db/repository.js";
 import { uploadRecording } from "../db/gridfs.js";
 import { runPostCallSummary } from "../llm/summarize.js";
 import { buildFunctionDefinitions, dispatchTool, type ToolContext } from "../tools/index.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
+import { createVoiceAgentSession } from "../voice/factory.js";
+import type { VoiceAgentSession } from "../voice/types.js";
 import { findAgent, defaultAgent } from "./agentResolver.js";
 import { MediaBridge } from "./media.js";
-import { audioSocketServer, type MediaSession } from "./audiosocketServer.js";
+import { audioSocketServer } from "./audiosocketServer.js";
 import { startBridgeRecording, wavDurationSec, type ActiveRecording } from "./recording.js";
 import { resolveOutboundTransfer, transferIntoBridge } from "./transfer.js";
 import { handlePassthrough } from "./passthrough.js";
@@ -33,10 +34,13 @@ import { handlePassthrough } from "./passthrough.js";
  */
 const recentCalls = new Map<string, number>();
 
-function isDuplicateCall(callerNumber: string | undefined, targetNumber: string | undefined): boolean {
+function isDuplicateCall(
+  callerNumber: string | undefined,
+  targetNumber: string | undefined,
+  now: number,
+): boolean {
   const window = config.callDedupWindowMs;
   if (window <= 0) return false;
-  const now = Date.now();
   // Abgelaufene Einträge aufräumen (klein halten).
   for (const [k, ts] of recentCalls) if (now - ts > window) recentCalls.delete(k);
   const key = `${callerNumber ?? "?"}->${targetNumber ?? "?"}`;
@@ -45,37 +49,88 @@ function isDuplicateCall(callerNumber: string | undefined, targetNumber: string 
   return prev !== undefined && now - prev <= window;
 }
 
+/** Nur für Tests: Dedup-Zustand zwischen Fällen zurücksetzen. */
+export function resetCallDedup(): void {
+  recentCalls.clear();
+}
+
+/** Der vom callHandler genutzte Ausschnitt der Repository-API (Fake-freundlich). */
+export type CallRepo = Pick<
+  typeof repo,
+  "createRequest" | "appendTranscript" | "appendFunctionCall" | "setTransfer" | "setRecording" | "finalizeRequest"
+>;
+
+/**
+ * Injizierbare Abhängigkeiten des Call-Pfads. Produktion nutzt `defaultDeps`;
+ * Tests reichen über den optionalen 4. Parameter von `handleStasisStart` Fakes ein.
+ */
+export interface CallHandlerDeps {
+  findAgent: typeof findAgent;
+  defaultAgent: typeof defaultAgent;
+  handlePassthrough: typeof handlePassthrough;
+  createMedia: (callId: string, uuid: string) => CallMedia;
+  createSession: typeof createVoiceAgentSession;
+  buildFunctionDefinitions: typeof buildFunctionDefinitions;
+  dispatchTool: typeof dispatchTool;
+  repo: CallRepo;
+  startBridgeRecording: typeof startBridgeRecording;
+  uploadRecording: typeof uploadRecording;
+  runPostCallSummary: typeof runPostCallSummary;
+  resolveOutboundTransfer: typeof resolveOutboundTransfer;
+  transferIntoBridge: typeof transferIntoBridge;
+  now: () => number;
+}
+
+export const defaultDeps: CallHandlerDeps = {
+  findAgent,
+  defaultAgent,
+  handlePassthrough,
+  createMedia,
+  createSession: createVoiceAgentSession,
+  buildFunctionDefinitions,
+  dispatchTool,
+  repo,
+  startBridgeRecording,
+  uploadRecording,
+  runPostCallSummary,
+  resolveOutboundTransfer,
+  transferIntoBridge,
+  now: () => Date.now(),
+};
+
 export async function handleStasisStart(
   client: AriClient,
   channel: AriChannel,
   args: string[],
+  depsOverride?: Partial<CallHandlerDeps>,
 ): Promise<void> {
+  const deps: CallHandlerDeps = depsOverride ? { ...defaultDeps, ...depsOverride } : defaultDeps;
   const targetNumber = args[0] || undefined;
   const callerNumber = args[1] || undefined;
   const log = logger.child({ mod: "call", channel: channel.id });
   log.info("StasisStart", { targetNumber, callerNumber, echoTest: config.echoTest });
 
   // Doppel-INVITE des Trunks verwerfen (siehe isDuplicateCall).
-  if (isDuplicateCall(callerNumber, targetNumber)) {
+  if (isDuplicateCall(callerNumber, targetNumber, deps.now())) {
     log.warn("Doppelter Anruf verworfen (Trunk-Duplikat)", { targetNumber, callerNumber });
     try { await channel.hangup(); } catch { /* ignore */ }
     return;
   }
 
-  // Spike/Diagnose: externalMedia-Pfad ohne Deepgram verifizieren.
+  // Spike/Diagnose: externalMedia-Pfad ohne Voice-Provider verifizieren.
   if (config.echoTest) {
     await runEchoTest(client, channel, log);
     return;
   }
 
-  let agent = await findAgent(targetNumber);
+  let agent = await deps.findAgent(targetNumber);
 
   // Keine DDI-Zuordnung → konfiguriertes Verhalten (Default: ablehnen). Verhindert, dass
   // Scanner-/Fehlanrufe eine kostenpflichtige Default-Agent-Session + Logeintrag auslösen.
   if (!agent) {
     if (config.unknownNumber.behavior === "agent") {
       log.info("Kein Agent für DDI — Default-Agent (Dev)", { targetNumber });
-      agent = defaultAgent();
+      agent = deps.defaultAgent();
     } else {
       await handleUnknownNumber(client, channel, { targetNumber, callerNumber, log });
       return;
@@ -83,11 +138,11 @@ export async function handleStasisStart(
   }
 
   if (agent.mode === "passthrough") {
-    await handlePassthrough(client, channel, agent, { targetNumber, callerNumber });
+    await deps.handlePassthrough(client, channel, agent, { targetNumber, callerNumber });
     return;
   }
 
-  await runAgentCall(client, channel, agent, { targetNumber, callerNumber, log });
+  await runAgentCall(client, channel, agent, { targetNumber, callerNumber, log }, deps);
 }
 
 /**
@@ -134,14 +189,28 @@ async function handleUnknownNumber(
   }
 }
 
-type Media = MediaBridge | MediaSession;
+/**
+ * Transportneutraler Media-Kontrakt — die Naht, an der Fakes (Tests) und künftige
+ * Ingress-Varianten (z. B. ein WebRTC-Media-Adapter) andocken. `MediaSession`
+ * (AudioSocket) und `MediaBridge` (RTP) erfüllen ihn strukturell.
+ */
+export interface CallMedia {
+  start(): Promise<void>;
+  on(event: "audio", listener: (pcm: Buffer) => void): unknown;
+  sendAudio(pcm: Buffer): void;
+  flush(): void;
+  close(): void;
+  enableRawEcho(): void;
+  /** Noch nicht ausgespielte Audiozeit in ms (nur AudioSocket-Transport vorhanden). */
+  pendingMs?(): number;
+}
 
 /**
  * Transport-abhängige Media-Anbindung erzeugen.
  *  - audiosocket: Session am geteilten Server registrieren (UUID-Zuordnung)
  *  - rtp: per-Anruf UDP-Bridge
  */
-function createMedia(callId: string, uuid: string): Media {
+function createMedia(callId: string, uuid: string): CallMedia {
   return config.audio.transport === "rtp"
     ? new MediaBridge(config.audio.externalMediaPort, callId)
     : audioSocketServer.register(uuid, callId);
@@ -173,7 +242,7 @@ async function runEchoTest(
 ): Promise<void> {
   let bridge: any;
   let externalChannel: any;
-  let media: Media | undefined;
+  let media: CallMedia | undefined;
   let cleaned = false;
 
   const onStasisEnd = (_ev: unknown, ch: AriChannel) => {
@@ -231,12 +300,13 @@ async function runAgentCall(
   channel: AriChannel,
   agent: ResolvedAgent,
   meta: CallMeta,
+  deps: CallHandlerDeps,
 ): Promise<void> {
   const { log } = meta;
   const startTime = Date.now();
   const elapsed = () => (Date.now() - startTime) / 1000;
 
-  const requestId = await repo.createRequest({
+  const requestId = await deps.repo.createRequest({
     channelId: channel.id,
     mode: "agent",
     callerNumber: meta.callerNumber,
@@ -246,8 +316,8 @@ async function runAgentCall(
 
   let bridge: any;
   let externalChannel: any;
-  let media: Media | undefined;
-  let session: AgentSession | undefined;
+  let media: CallMedia | undefined;
+  let session: VoiceAgentSession | undefined;
   let recording: ActiveRecording | null = null;
   let transferActive = false; // voller Mute (beide Richtungen) — nach erfolgreichem Connect
   let transferRinging = false; // während des Klingelns: Agent hört nicht zu, Ansage darf noch raus
@@ -290,20 +360,20 @@ async function runAgentCall(
     // Aufnahme in GridFS ablegen (best effort), danach die temporäre WAV löschen.
     if (recording) {
       try {
-        const gridFsId = await uploadRecording(recording.filePath, `${requestId}.wav`, { requestId });
+        const gridFsId = await deps.uploadRecording(recording.filePath, `${requestId}.wav`, { requestId });
         const durationSec = await wavDurationSec(recording.filePath).catch(() => 0);
-        await repo.setRecording(requestId, { gridFsId, filename: `${requestId}.wav`, durationSec });
+        await deps.repo.setRecording(requestId, { gridFsId, filename: `${requestId}.wav`, durationSec });
         await rm(recording.filePath, { force: true });
       } catch (err) {
         log.warn("GridFS-Upload fehlgeschlagen", { err: String(err) });
       }
     }
 
-    await repo.finalizeRequest(requestId, status);
+    await deps.repo.finalizeRequest(requestId, status);
 
     // Post-Call-Summary (asynchron, blockiert nicht).
     if (status === "completed" && agent.summary.enabled) {
-      void runPostCallSummary(requestId, agent, log);
+      void deps.runPostCallSummary(requestId, agent, log);
     }
   };
 
@@ -315,16 +385,16 @@ async function runAgentCall(
 
     // externalMedia-Kanal: Asterisk streamt Audio (AudioSocket/TCP oder RTP) an uns.
     const uuid = randomUUID();
-    media = createMedia(channel.id, uuid);
+    media = deps.createMedia(channel.id, uuid);
     await media.start();
 
     externalChannel = await createExternalMedia(client, uuid);
     await bridge.addChannel({ channel: externalChannel.id });
 
-    // Deepgram-Session aufbauen.
-    const functions = buildFunctionDefinitions(agent.tools);
-    const settings = buildSettings(agent, functions);
-    session = new AgentSession(settings, channel.id);
+    // Voice-Session aufbauen (Provider laut agent.voiceProvider; Settings baut der Adapter).
+    // Konstruktion ist inert — verbunden wird erst per session.start() nach der Verdrahtung.
+    const functions = deps.buildFunctionDefinitions(agent.tools);
+    session = deps.createSession(agent, { callId: channel.id, functions });
 
     const toolCtx: ToolContext = {
       callId: requestId,
@@ -335,11 +405,11 @@ async function runAgentCall(
         // Das Zieltelefon klingelt parallel.
         transferRinging = true;
         // Intern vs. extern (über den Trunk) auflösen + Absender-CLI bestimmen.
-        const dial = resolveOutboundTransfer(agent, target, meta.callerNumber);
+        const dial = deps.resolveOutboundTransfer(agent, target, meta.callerNumber);
         if (dial.callerId) log.info("Externer Transfer über Trunk", { target, callerId: dial.callerId });
-        await repo.setTransfer(requestId, { attempted: true, target });
-        const result = await transferIntoBridge(client, bridge, dial.target, { callerId: dial.callerId });
-        await repo.setTransfer(requestId, { attempted: true, target, connected: result.connected });
+        await deps.repo.setTransfer(requestId, { attempted: true, target });
+        const result = await deps.transferIntoBridge(client, bridge, dial.target, { callerId: dial.callerId });
+        await deps.repo.setTransfer(requestId, { attempted: true, target, connected: result.connected });
         transferRinging = false;
         if (result.connected) {
           // Mensch hat übernommen → Agent voll stumm, hört NICHT mit. Anruf läuft Anrufer ↔ Mitarbeiter.
@@ -364,7 +434,7 @@ async function runAgentCall(
         drainInterval = setInterval(() => {
           if (cleaned) { if (drainInterval) clearInterval(drainInterval); return; }
           const now = Date.now();
-          const pending = media && "pendingMs" in media ? media.pendingMs() : 0;
+          const pending = media?.pendingMs?.() ?? 0;
           const idleAudio = now - lastAudioAt;
           if (pending >= 120 || idleAudio <= 800) return; // spielt noch / Audio kam gerade
           // Puffer leer und seit >800 ms kein Audio mehr:
@@ -383,7 +453,7 @@ async function runAgentCall(
 
     // ── Audio-Bridging ──────────────────────────────────────────────────────
     media.on("audio", (pcm) => {
-      // Anrufer-Audio NICHT an Deepgram während Transfer (voll) oder Klingelphase (Agent hört nicht zu).
+      // Anrufer-Audio NICHT an die Session während Transfer (voll) oder Klingelphase (Agent hört nicht zu).
       if (!transferActive && !transferRinging) session?.sendAudio(pcm);
     });
     session.on("audio", (chunk) => {
@@ -393,27 +463,27 @@ async function runAgentCall(
       media?.sendAudio(chunk);
     });
 
-    // ── Deepgram-Events ──────────────────────────────────────────────────────
-    session.on("welcome", (rid) => log.info("Deepgram Welcome", { rid }));
+    // ── Session-Events ───────────────────────────────────────────────────────
+    session.on("welcome", (rid) => log.info("Voice-Session Welcome", { rid }));
     session.on("userStartedSpeaking", () => media?.flush()); // Barge-in
     session.on("conversationText", (ev) => {
       const speaker = ev.role === "assistant" ? "agent" : "caller";
-      void repo.appendTranscript(requestId, { t: elapsed(), speaker, text: ev.content });
+      void deps.repo.appendTranscript(requestId, { t: elapsed(), speaker, text: ev.content });
     });
-    session.on("agentStartedSpeaking", (lat) => log.debug("AgentStartedSpeaking", lat));
+    session.on("agentStartedSpeaking", (lat) => log.debug("AgentStartedSpeaking", { ...lat }));
     session.on("functionCallRequest", async (ev) => {
       for (const fn of ev.functions) {
-        if (!fn.client_side) continue;
-        log.info("FunctionCall", { name: fn.name, args: fn.arguments });
+        if (!fn.clientSide) continue;
+        log.info("FunctionCall", { name: fn.name, args: fn.argumentsJson });
         const requestedAt = new Date();
-        const result = await dispatchTool(fn.name, fn.arguments, toolCtx);
+        const result = await deps.dispatchTool(fn.name, fn.argumentsJson, toolCtx);
         // Bei end_call (setzt endRequested) KEINE FunctionCallResponse senden — sonst startet
-        // Deepgram eine zweite Abschiedsrunde (doppeltes "Auf Wiederhören"). Der Abschied ist
+        // der Provider eine zweite Abschiedsrunde (doppeltes "Auf Wiederhören"). Der Abschied ist
         // bereits vor dem Tool-Aufruf gesprochen worden; danach wird aufgelegt.
         if (!endRequested) session?.sendFunctionResponse(fn.id, fn.name, result);
-        void repo.appendFunctionCall(requestId, {
+        void deps.repo.appendFunctionCall(requestId, {
           name: fn.name,
-          arguments: safeParse(fn.arguments),
+          arguments: safeParse(fn.argumentsJson),
           result,
           status: "ok",
           requestedAt,
@@ -421,14 +491,19 @@ async function runAgentCall(
         });
       }
     });
-    session.on("error", (desc) => log.error("Deepgram-Fehler", { desc }));
+    session.on("error", (desc) => log.error("Voice-Session-Fehler", { desc }));
 
     // Aufnahme starten (best effort).
-    recording = await startBridgeRecording(bridge, requestId);
+    recording = await deps.startBridgeRecording(bridge, requestId);
 
     // ── Hangup-Handling ──────────────────────────────────────────────────────
     client.on("StasisEnd", onEnd);
     channel.on("ChannelDestroyed", () => void cleanup("completed"));
+
+    // Verbindung zum Voice-Provider erst NACH kompletter Verdrahtung aufbauen — so gehen keine
+    // frühen Events verloren, und ein Connect-Fehler läuft in den catch → cleanup("failed")
+    // (vorher blieb der Anruf bei WS-Connect-Fehlern stumm hängen).
+    await session.start();
   } catch (err) {
     log.error("Fehler im Anrufaufbau", { err: String(err) });
     await cleanup("failed");

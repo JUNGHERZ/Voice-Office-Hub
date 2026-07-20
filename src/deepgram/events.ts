@@ -29,12 +29,9 @@ export interface SettingsMessage {
   flags?: { history?: boolean };
 }
 
-export interface FunctionDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  endpoint?: { url: string; method?: string; headers?: Record<string, string> };
-}
+// Provider-neutral (nach src/voice/types.ts umgezogen); Re-Export für die Wire-Typen unten.
+export type { FunctionDefinition } from "../voice/types.js";
+import type { FunctionDefinition } from "../voice/types.js";
 
 export interface FunctionCallResponseMessage {
   type: "FunctionCallResponse";

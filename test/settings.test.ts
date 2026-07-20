@@ -9,6 +9,9 @@ function agent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent {
   return {
     name: "test",
     mode: "agent",
+    voiceProvider: "deepgram",
+    targetNumbers: [],
+    useTransferCallerId: false,
     language: "multi",
     greeting: "Hallo",
     prompt: "Du bist ein Assistent.",
@@ -52,6 +55,24 @@ test("buildSettings: language_hints nur bei Flux-Modellen", () => {
   );
   const p = s.agent.listen.provider as Record<string, unknown>;
   assert.deepEqual(p.language_hints, ["de", "en"]);
+});
+
+test("buildSettings: eot_* nur bei Flux-Modellen (nova-3 lehnt die Felder ab)", () => {
+  const nova = buildSettings(
+    agent({ listen: { model: "nova-3", language_hints: [], keyterms: [], smart_format: true, eot_threshold: 0.7, eot_timeout_ms: 3000 } }),
+    [],
+  );
+  const pNova = nova.agent.listen.provider as Record<string, unknown>;
+  assert.equal(pNova.eot_threshold, undefined);
+  assert.equal(pNova.eot_timeout_ms, undefined);
+
+  const flux = buildSettings(
+    agent({ listen: { model: "flux-general-multi", language_hints: [], keyterms: [], smart_format: true, eot_threshold: 0.7, eot_timeout_ms: 3000 } }),
+    [],
+  );
+  const pFlux = flux.agent.listen.provider as Record<string, unknown>;
+  assert.equal(pFlux.eot_threshold, 0.7);
+  assert.equal(pFlux.eot_timeout_ms, 3000);
 });
 
 test("buildSettings: think=requesty → open_ai + Requesty-Endpoint", () => {

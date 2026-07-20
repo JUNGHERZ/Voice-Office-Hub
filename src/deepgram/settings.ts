@@ -23,8 +23,11 @@ export function buildSettings(agent: ResolvedAgent, functions: FunctionDefinitio
     listenProvider.language_hints = agent.listen.language_hints;
   if (agent.listen.keyterms.length) listenProvider.keyterms = agent.listen.keyterms;
   if (agent.listen.smart_format) listenProvider.smart_format = true;
-  if (agent.listen.eot_threshold !== undefined) listenProvider.eot_threshold = agent.listen.eot_threshold;
-  if (agent.listen.eot_timeout_ms !== undefined) listenProvider.eot_timeout_ms = agent.listen.eot_timeout_ms;
+  // eot_* sind Flux-Parameter (modellintegrierte End-of-Turn-Erkennung); nova-3 lehnt sie ab.
+  if (agent.listen.model.startsWith("flux")) {
+    if (agent.listen.eot_threshold !== undefined) listenProvider.eot_threshold = agent.listen.eot_threshold;
+    if (agent.listen.eot_timeout_ms !== undefined) listenProvider.eot_timeout_ms = agent.listen.eot_timeout_ms;
+  }
 
   const think = buildThink(agent, functions);
   const speakProvider = buildSpeakProvider(agent);

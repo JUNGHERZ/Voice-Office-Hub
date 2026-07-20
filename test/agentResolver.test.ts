@@ -9,6 +9,7 @@ test("resolveAgent: ohne DDI → Default-Agent aus Config", async () => {
   const a = await resolveAgent(undefined);
   assert.equal(a.name, "default");
   assert.equal(a.mode, "agent");
+  assert.equal(a.voiceProvider, "deepgram");
   assert.equal(a.prompt, config.defaultAgent.prompt);
   assert.equal(a.greeting, config.defaultAgent.greeting);
   assert.equal(a.listen.model, config.defaultAgent.listenModel);

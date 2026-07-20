@@ -7,7 +7,7 @@
  */
 import { config } from "../config.js";
 import { Agent } from "../db/models/Agent.js";
-import type { ResolvedAgent, ThinkSource } from "../types.js";
+import type { ResolvedAgent, ThinkSource, VoiceProvider } from "../types.js";
 import { logger } from "../util/logger.js";
 import { normalizePhone } from "../util/phone.js";
 
@@ -61,6 +61,7 @@ export function defaultAgent(): ResolvedAgent {
   return {
     name: "default",
     mode: (config.defaultAgent.mode === "passthrough" ? "passthrough" : "agent"),
+    voiceProvider: "deepgram",
     passthroughTarget: config.transfer.passthroughTarget || undefined,
     targetNumbers: [],
     useTransferCallerId: false,
@@ -99,6 +100,7 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
     id: String(doc._id),
     name: doc.name,
     mode: doc.mode ?? "agent",
+    voiceProvider: (doc.voiceProvider as VoiceProvider) ?? "deepgram",
     passthroughTarget: doc.passthroughTarget ?? config.transfer.passthroughTarget ?? undefined,
     targetNumbers: doc.targetNumbers ?? [],
     useTransferCallerId: doc.useTransferCallerId ?? false,

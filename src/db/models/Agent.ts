@@ -8,6 +8,8 @@
  */
 import { Schema, model, type InferSchemaType } from "mongoose";
 
+import { IMPLEMENTED_VOICE_PROVIDERS } from "../../voice/types.js";
+
 export type CallMode = "agent" | "passthrough";
 export type ThinkSource = "requesty" | "deepgram";
 
@@ -63,6 +65,10 @@ const AgentSchema = new Schema(
     targetNumbers: { type: [String], default: [], index: true },
     mode: { type: String, enum: ["agent", "passthrough"], default: "agent" },
     passthroughTarget: { type: String },
+
+    // Welche Voice-Plattform den Anruf bedient (Auswahl in voice/factory.ts). Enum enthält
+    // bewusst nur implementierte Provider — Nichtlauffähiges wird schon beim Speichern abgewiesen.
+    voiceProvider: { type: String, enum: [...IMPLEMENTED_VOICE_PROVIDERS], default: "deepgram" },
 
     // Bei externem Transfer/Outbound über den Trunk die ORIGINAL-Anrufernummer als Absender
     // präsentieren (transparente Weiterleitung). Wirkt nur, wenn der Trunk CLIP no screening

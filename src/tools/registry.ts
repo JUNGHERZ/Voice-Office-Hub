@@ -5,7 +5,7 @@
  * (client_side-Ausführung in unserem Server). Der callHandler liefert den ToolContext
  * mit Anruf-Bezug und Hooks (z.B. requestTransfer über ARI).
  */
-import type { FunctionDefinition } from "../deepgram/events.js";
+import type { FunctionDefinition } from "../voice/types.js";
 
 export interface ToolContext {
   callId: string;

@@ -1,6 +1,7 @@
 /**
- * Wrapper um eine Deepgram-Voice-Agent-WebSocket-Session (eine pro Anruf).
- * Verantwortlich für: Verbindungsaufbau, Settings senden, Event-Loop, KeepAlive.
+ * Deepgram-Adapter der provider-neutralen `VoiceAgentSession` (eine pro Anruf).
+ * Verantwortlich für: Verbindungsaufbau (in `start()`), Settings senden, Event-Loop,
+ * KeepAlive, Mapping der Deepgram-Wire-Events auf die neutralen Session-Events.
  *
  * Audio-Bridging: Anrufer-Audio rein via `sendAudio()`, TTS-Audio raus via "audio"-Event.
  */
@@ -11,6 +12,11 @@ import WebSocket from "ws";
 import { config } from "../config.js";
 import { logger } from "../util/logger.js";
 import type {
+  VoiceAgentSession,
+  VoiceAgentSessionEvents,
+  VoiceConversationText,
+} from "../voice/types.js";
+import type {
   ConversationTextEvent,
   FunctionCallRequestEvent,
   SettingsMessage,
@@ -18,49 +24,61 @@ import type {
 
 const KEEPALIVE_INTERVAL_MS = 8_000;
 
-export interface AgentSessionEvents {
-  open: () => void;
-  welcome: (requestId: string) => void;
-  settingsApplied: () => void;
-  audio: (chunk: Buffer) => void;
-  conversationText: (ev: ConversationTextEvent) => void;
-  functionCallRequest: (ev: FunctionCallRequestEvent) => void;
-  userStartedSpeaking: () => void;
-  agentStartedSpeaking: (latency: { total?: number; tts?: number; ttt?: number }) => void;
-  agentAudioDone: () => void;
-  error: (description: string) => void;
-  close: (code: number) => void;
-}
-
 export declare interface AgentSession {
-  on<E extends keyof AgentSessionEvents>(event: E, listener: AgentSessionEvents[E]): this;
-  emit<E extends keyof AgentSessionEvents>(event: E, ...args: Parameters<AgentSessionEvents[E]>): boolean;
+  on<E extends keyof VoiceAgentSessionEvents>(event: E, listener: VoiceAgentSessionEvents[E]): this;
+  emit<E extends keyof VoiceAgentSessionEvents>(event: E, ...args: Parameters<VoiceAgentSessionEvents[E]>): boolean;
 }
 
-export class AgentSession extends EventEmitter {
-  private ws: WebSocket;
+export class AgentSession extends EventEmitter implements VoiceAgentSession {
+  private ws?: WebSocket;
   private keepAlive?: NodeJS.Timeout;
+  private closed = false;
   private readonly log;
 
   constructor(private readonly settings: SettingsMessage, callId: string) {
     super();
     this.log = logger.child({ mod: "dg", callId });
-    this.ws = new WebSocket(config.deepgram.agentUrl, {
-      headers: { Authorization: `Token ${config.deepgram.apiKey}` },
-    });
-    this.ws.binaryType = "nodebuffer";
-    this.wire();
   }
 
-  private wire(): void {
-    this.ws.on("open", () => {
+  /**
+   * Verbindet zur Deepgram Voice Agent API. Resolved nach dem WS-`open` (die Settings
+   * sind dann bereits gesendet); rejected, wenn die Verbindung vorher scheitert.
+   * Idempotent; nach `close()` ist ein erneuter Start bewusst ein No-op.
+   */
+  async start(): Promise<void> {
+    if (this.ws || this.closed) return;
+    const ws = new WebSocket(config.deepgram.agentUrl, {
+      headers: { Authorization: `Token ${config.deepgram.apiKey}` },
+    });
+    ws.binaryType = "nodebuffer";
+    this.ws = ws;
+    this.wire(ws);
+
+    await new Promise<void>((resolve, reject) => {
+      const onOpen = () => { unhook(); resolve(); };
+      const onError = (err: Error) => { unhook(); reject(err); };
+      const onClose = (code: number) => { unhook(); reject(new Error(`WS vor open geschlossen (code ${code})`)); };
+      const unhook = () => {
+        ws.off("open", onOpen);
+        ws.off("error", onError);
+        ws.off("close", onClose);
+      };
+      // wire() ist bereits registriert → Settings gehen im open-Handler raus, bevor resolved wird.
+      ws.on("open", onOpen);
+      ws.on("error", onError);
+      ws.on("close", onClose);
+    });
+  }
+
+  private wire(ws: WebSocket): void {
+    ws.on("open", () => {
       this.log.info("Deepgram-WS offen → Settings senden");
-      this.ws.send(JSON.stringify(this.settings));
+      ws.send(JSON.stringify(this.settings));
       this.keepAlive = setInterval(() => this.sendKeepAlive(), KEEPALIVE_INTERVAL_MS);
       this.emit("open");
     });
 
-    this.ws.on("message", (data: WebSocket.RawData, isBinary: boolean) => {
+    ws.on("message", (data: WebSocket.RawData, isBinary: boolean) => {
       if (isBinary) {
         this.emit("audio", data as Buffer);
         return;
@@ -68,12 +86,12 @@ export class AgentSession extends EventEmitter {
       this.handleControl(data.toString());
     });
 
-    this.ws.on("error", (err) => {
+    ws.on("error", (err) => {
       this.log.error("Deepgram-WS-Fehler", { err: String(err) });
       this.emit("error", String(err));
     });
 
-    this.ws.on("close", (code) => {
+    ws.on("close", (code) => {
       if (this.keepAlive) clearInterval(this.keepAlive);
       this.log.info("Deepgram-WS geschlossen", { code });
       this.emit("close", code);
@@ -95,12 +113,24 @@ export class AgentSession extends EventEmitter {
       case "SettingsApplied":
         this.emit("settingsApplied");
         break;
-      case "ConversationText":
-        this.emit("conversationText", msg as unknown as ConversationTextEvent);
+      case "ConversationText": {
+        const ev = msg as unknown as ConversationTextEvent;
+        const neutral: VoiceConversationText = { role: ev.role, content: ev.content };
+        this.emit("conversationText", neutral);
         break;
-      case "FunctionCallRequest":
-        this.emit("functionCallRequest", msg as unknown as FunctionCallRequestEvent);
+      }
+      case "FunctionCallRequest": {
+        const ev = msg as unknown as FunctionCallRequestEvent;
+        this.emit("functionCallRequest", {
+          functions: (ev.functions ?? []).map((f) => ({
+            id: f.id,
+            name: f.name,
+            argumentsJson: f.arguments,
+            clientSide: f.client_side,
+          })),
+        });
         break;
+      }
       case "UserStartedSpeaking":
         this.emit("userStartedSpeaking");
         break;
@@ -124,12 +154,12 @@ export class AgentSession extends EventEmitter {
 
   /** Anrufer-Audio (raw PCM) an Deepgram weiterreichen. */
   sendAudio(chunk: Buffer): void {
-    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(chunk);
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(chunk);
   }
 
   /** Antwort auf einen client_side FunctionCallRequest. */
-  sendFunctionResponse(id: string, name: string, content: unknown): void {
-    this.send({ type: "FunctionCallResponse", id, name, content: JSON.stringify(content) });
+  sendFunctionResponse(id: string, name: string, result: unknown): void {
+    this.send({ type: "FunctionCallResponse", id, name, content: JSON.stringify(result) });
   }
 
   /** Agent eine vorgegebene Nachricht sprechen lassen (z.B. Transfer-Fehlschlag). */
@@ -142,11 +172,13 @@ export class AgentSession extends EventEmitter {
   }
 
   private send(obj: unknown): void {
-    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
   }
 
   close(): void {
+    this.closed = true;
     if (this.keepAlive) clearInterval(this.keepAlive);
+    if (!this.ws) return;
     if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
       this.ws.close();
     }
