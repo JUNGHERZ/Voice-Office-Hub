@@ -19,6 +19,7 @@ function agent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent {
     think: { source: "requesty", model: "openai/gpt-4o", temperature: 0.5 },
     speak: { provider: "deepgram", model: "aura-2-thalia-en" },
     tools: [],
+    customTools: [],
     summary: { enabled: false, prompt: "", model: "openai/gpt-4.1-mini" },
     tags: ["support"],
     mip_opt_out: false,

@@ -14,7 +14,7 @@ import { config } from "../config.js";
 import * as repo from "../db/repository.js";
 import { uploadRecording } from "../db/gridfs.js";
 import { runPostCallSummary } from "../llm/summarize.js";
-import { buildFunctionDefinitions, dispatchTool, type ToolContext } from "../tools/index.js";
+import { buildCallToolset, type CallToolset, type ToolContext } from "../tools/index.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
 import { createVoiceAgentSession } from "../voice/factory.js";
@@ -70,8 +70,7 @@ export interface CallHandlerDeps {
   handlePassthrough: typeof handlePassthrough;
   createMedia: (callId: string, uuid: string) => CallMedia;
   createSession: typeof createVoiceAgentSession;
-  buildFunctionDefinitions: typeof buildFunctionDefinitions;
-  dispatchTool: typeof dispatchTool;
+  buildCallToolset: typeof buildCallToolset;
   repo: CallRepo;
   startBridgeRecording: typeof startBridgeRecording;
   uploadRecording: typeof uploadRecording;
@@ -87,8 +86,7 @@ export const defaultDeps: CallHandlerDeps = {
   handlePassthrough,
   createMedia,
   createSession: createVoiceAgentSession,
-  buildFunctionDefinitions,
-  dispatchTool,
+  buildCallToolset,
   repo,
   startBridgeRecording,
   uploadRecording,
@@ -318,6 +316,7 @@ async function runAgentCall(
   let externalChannel: any;
   let media: CallMedia | undefined;
   let session: VoiceAgentSession | undefined;
+  let toolset: CallToolset | undefined;
   let recording: ActiveRecording | null = null;
   let transferActive = false; // voller Mute (beide Richtungen) — nach erfolgreichem Connect
   let transferRinging = false; // während des Klingelns: Agent hört nicht zu, Ansage darf noch raus
@@ -351,6 +350,7 @@ async function runAgentCall(
     } catch { /* ignore */ }
     session?.close();
     media?.close();
+    try { await toolset?.close(); } catch { /* ignore */ }
     // Beide Beine + Medienkanal beenden (durchgeschaltete Beendigung).
     try { await calleeChannel?.hangup(); } catch { /* ignore */ }
     try { await externalChannel?.hangup(); } catch { /* ignore */ }
@@ -391,14 +391,19 @@ async function runAgentCall(
     externalChannel = await createExternalMedia(client, uuid);
     await bridge.addChannel({ channel: externalChannel.id });
 
+    // Toolset für diesen Anruf: eingebaute Tools (agent.tools) + Custom-HTTP-Tools des Agenten.
+    toolset = await deps.buildCallToolset(agent);
+    const callToolset = toolset; // non-optionale Bindung für die Event-Handler unten
+
     // Voice-Session aufbauen (Provider laut agent.voiceProvider; Settings baut der Adapter).
     // Konstruktion ist inert — verbunden wird erst per session.start() nach der Verdrahtung.
-    const functions = deps.buildFunctionDefinitions(agent.tools);
-    session = deps.createSession(agent, { callId: channel.id, functions });
+    session = deps.createSession(agent, { callId: channel.id, functions: callToolset.definitions });
 
     const toolCtx: ToolContext = {
       callId: requestId,
       ...(meta.callerNumber ? { callerNumber: meta.callerNumber } : {}),
+      ...(agent.id ? { agentId: agent.id } : {}),
+      ...(meta.targetNumber ? { targetNumber: meta.targetNumber } : {}),
       requestTransfer: async (target: string) => {
         // Klingel-Phase: Agent hört nicht mehr auf den Anrufer (reagiert nicht), ABER die bereits
         // begonnene Ansage ("Einen Moment bitte…") darf noch ausgespielt werden (kein flush, Output offen).
@@ -476,7 +481,7 @@ async function runAgentCall(
         if (!fn.clientSide) continue;
         log.info("FunctionCall", { name: fn.name, args: fn.argumentsJson });
         const requestedAt = new Date();
-        const result = await deps.dispatchTool(fn.name, fn.argumentsJson, toolCtx);
+        const { ok, result } = await callToolset.dispatch(fn.name, fn.argumentsJson, toolCtx);
         // Bei end_call (setzt endRequested) KEINE FunctionCallResponse senden — sonst startet
         // der Provider eine zweite Abschiedsrunde (doppeltes "Auf Wiederhören"). Der Abschied ist
         // bereits vor dem Tool-Aufruf gesprochen worden; danach wird aufgelegt.
@@ -485,7 +490,7 @@ async function runAgentCall(
           name: fn.name,
           arguments: safeParse(fn.argumentsJson),
           result,
-          status: "ok",
+          status: ok ? "ok" : "error",
           requestedAt,
           completedAt: new Date(),
         });

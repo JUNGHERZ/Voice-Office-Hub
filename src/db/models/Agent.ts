@@ -8,6 +8,7 @@
  */
 import { Schema, model, type InferSchemaType } from "mongoose";
 
+import { BUILTIN_TOOL_NAMES } from "../../tools/names.js";
 import { IMPLEMENTED_VOICE_PROVIDERS } from "../../voice/types.js";
 
 export type CallMode = "agent" | "passthrough";
@@ -44,6 +45,45 @@ const SpeakSchema = new Schema(
     language: { type: String },
     speed: { type: Number },
     volume: { type: Number },
+  },
+  { _id: false },
+);
+
+const CustomToolEndpointSchema = new Schema(
+  {
+    url: {
+      type: String,
+      required: true,
+      validate: {
+        validator: (v: string) => /^https?:\/\//i.test(v),
+        message: "endpoint.url muss mit http:// oder https:// beginnen",
+      },
+    },
+    method: { type: String, enum: ["GET", "POST"], default: "POST" },
+    // Header-Werte dürfen `${ENV:NAME}`-Platzhalter enthalten (Auflösung zur Laufzeit,
+    // Secrets bleiben außerhalb der DB — siehe util/http.ts).
+    headers: { type: Map, of: String, default: () => ({}) },
+    timeoutMs: { type: Number, default: 8000, min: 500, max: 30000 },
+  },
+  { _id: false },
+);
+
+const CustomToolSchema = new Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      match: [/^[a-z][a-z0-9_]{0,63}$/, "Tool-Name: kleinbuchstaben_mit_unterstrichen, max. 64 Zeichen"],
+      validate: {
+        validator: (v: string) => !(BUILTIN_TOOL_NAMES as readonly string[]).includes(v),
+        message: "Tool-Name kollidiert mit einem eingebauten Tool",
+      },
+    },
+    description: { type: String, required: true },
+    // JSON-Schema der Argumente (wird 1:1 als function.parameters an den Voice-Provider gereicht).
+    parameters: { type: Schema.Types.Mixed, default: () => ({ type: "object", properties: {} }) },
+    endpoint: { type: CustomToolEndpointSchema, required: true },
+    enabled: { type: Boolean, default: true },
   },
   { _id: false },
 );
@@ -86,6 +126,16 @@ const AgentSchema = new Schema(
     speak: { type: SpeakSchema, default: () => ({}) },
 
     tools: { type: [String], default: [] },
+    // Am Agent hinterlegte HTTP-Tools (Engine dispatcht selbst; siehe tools/toolset.ts).
+    customTools: {
+      type: [CustomToolSchema],
+      default: [],
+      validate: {
+        validator: (tools: Array<{ name?: string }>) =>
+          new Set(tools.map((t) => t.name)).size === tools.length,
+        message: "customTools: Tool-Namen müssen eindeutig sein",
+      },
+    },
     summary: { type: SummarySchema, default: () => ({}) },
     tags: { type: [String], default: [] },
     mip_opt_out: { type: Boolean, default: false },

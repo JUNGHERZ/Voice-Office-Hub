@@ -118,10 +118,14 @@ test("FunctionCall: Dispatch mit korrelierter Response; server-side wird übersp
   const dispatched: Array<{ name: string; rawArgs: string; callId: string }> = [];
   const s = makeCall({
     deps: {
-      dispatchTool: async (name, rawArgs, ctx) => {
-        dispatched.push({ name, rawArgs, callId: ctx.callId });
-        return { ok: true };
-      },
+      buildCallToolset: async () => ({
+        definitions: [],
+        dispatch: async (name, rawArgs, ctx) => {
+          dispatched.push({ name, rawArgs, callId: ctx.callId });
+          return { ok: true, result: { ok: true } };
+        },
+        close: async () => {},
+      }),
     },
   });
   await s.start();
@@ -141,7 +145,7 @@ test("FunctionCall: Dispatch mit korrelierter Response; server-side wird übersp
   assert.deepEqual(s.repo.functionCalls[0]?.arguments, { a: 1 });
 });
 
-// 7 ─ Unbekanntes Tool (realer Dispatch): Fehlertext als Response, Call lebt weiter.
+// 7 ─ Unbekanntes Tool (realer Dispatch): Fehlertext als Response + status "error", Call lebt weiter.
 test("FunctionCall: unbekanntes Tool → error-Result mit korrelierter id", async () => {
   const s = makeCall();
   await s.start();
@@ -150,6 +154,7 @@ test("FunctionCall: unbekanntes Tool → error-Result mit korrelierter id", asyn
   assert.equal(s.session.functionResponses[0]?.id, "f9");
   const result = s.session.functionResponses[0]?.result as { error?: string };
   assert.match(String(result.error), /Unbekanntes Tool/);
+  assert.equal(s.repo.functionCalls[0]?.status, "error", "Fehlschlag wird als error protokolliert");
   assert.equal(s.repo.finalized.length, 0, "Call läuft weiter");
 });
 
@@ -288,4 +293,22 @@ test("start()-Fehler: cleanup('failed') + Hangup", async () => {
   await s.start();
   assert.deepEqual(s.repo.finalized, [{ id: "req-1", status: "failed" }]);
   assert.ok(s.channel.hangups.length >= 1, "Anrufer wird aufgelegt");
+});
+
+// 15 ─ Toolset-Lebenszyklus: close() läuft im Teardown (Hook für MCP-Verbindungen).
+test("Toolset: close() wird im Teardown aufgerufen", async () => {
+  let closed = 0;
+  const s = makeCall({
+    deps: {
+      buildCallToolset: async () => ({
+        definitions: [],
+        dispatch: async () => ({ ok: true, result: {} }),
+        close: async () => { closed++; },
+      }),
+    },
+  });
+  await s.start();
+  s.client.emitStasisEnd(s.channel);
+  await waitFor(() => s.repo.finalized.length === 1);
+  assert.equal(closed, 1);
 });

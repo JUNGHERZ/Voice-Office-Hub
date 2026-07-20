@@ -84,6 +84,7 @@ export function defaultAgent(): ResolvedAgent {
       model: d.speakModel,
     },
     tools: ["transfer_call", "end_call"],
+    customTools: [],
     summary: {
       enabled: config.summary.enabled,
       prompt: config.summary.prompt,
@@ -92,6 +93,13 @@ export function defaultAgent(): ResolvedAgent {
     tags: [],
     mip_opt_out: false,
   };
+}
+
+/** Mongoose-Map | Plain-Object → Plain-Object (lean() liefert je nach Pfad beides). */
+function toPlainStringRecord(value: unknown): Record<string, string> {
+  if (!value) return {};
+  if (value instanceof Map) return Object.fromEntries(value) as Record<string, string>;
+  return { ...(value as Record<string, string>) };
 }
 
 // `doc` ist ein lean()-Ergebnis des Agent-Schemas.
@@ -133,6 +141,18 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
     // Leere/fehlende Tools → sinnvolle Defaults (sonst kennt das LLM weder transfer_call noch
     // end_call; ein über die UI ohne Tools angelegter Agent würde nie weiterleiten/auflegen).
     tools: Array.isArray(doc.tools) && doc.tools.length ? doc.tools : ["transfer_call", "end_call"],
+    customTools: (doc.customTools ?? []).map((t: Record<string, any>) => ({
+      name: String(t.name ?? ""),
+      description: String(t.description ?? ""),
+      parameters: t.parameters ?? { type: "object", properties: {} },
+      endpoint: {
+        url: String(t.endpoint?.url ?? ""),
+        method: (t.endpoint?.method === "GET" ? "GET" : "POST") as "GET" | "POST",
+        headers: toPlainStringRecord(t.endpoint?.headers),
+        timeoutMs: t.endpoint?.timeoutMs ?? 8000,
+      },
+      enabled: t.enabled ?? true,
+    })),
     summary: {
       enabled: doc.summary?.enabled ?? config.summary.enabled,
       prompt: doc.summary?.prompt || config.summary.prompt,

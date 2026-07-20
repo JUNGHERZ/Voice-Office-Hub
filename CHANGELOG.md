@@ -6,6 +6,39 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.1] – 2026-07-20
+
+Per-Agent-HTTP-Tool-Endpoints: fachliche Tools (CRM-Lookup, Terminbuchung, …) laufen als
+externe HTTP-Endpoints und werden pro Agent in der DB hinterlegt — die Engine bleibt
+Kern-Telefonie. Vollständiger Kontrakt in `docs/tools.md`.
+
+### Added
+- **`agent.customTools[]`** (Mongoose-Subschema mit Validierung): `name` (klein_mit_unterstrichen,
+  eindeutig, Built-in-Kollisionen abgewiesen), `description`, `parameters` (JSON-Schema),
+  `endpoint` (`url` http(s), `method` GET/POST, `headers`, `timeoutMs` 500–30000), `enabled`.
+- **Per-Call-Toolset** (`src/tools/toolset.ts`): führt eingebaute Tools (`agent.tools`) und
+  Custom-HTTP-Tools zusammen; `dispatch()` wirft nie (Fehler → sprechbares `{error}`-Ergebnis,
+  Ergebnis-Kappung ~4 kB), `close()`-Hook für call-gebundene Ressourcen (MCP-Vorbereitung).
+- **HTTP-Executor**: POST-Envelope `{arguments, call:{callId, callerNumber?, agentId?,
+  targetNumber?}}` bzw. GET-Query; `${ENV:NAME}`-Platzhalter in URL/Headern (Secrets bleiben
+  in der Umgebung, nicht in der DB); hartes Timeout via `AbortSignal.timeout`
+  (`src/util/http.ts`).
+- **`ToolContext`** um `agentId`/`targetNumber` erweitert (transportneutral, keine ARI-Objekte).
+- **Tests** (`test/toolset.test.ts`, 10 Fälle gegen lokalen HTTP-Server): Envelope, GET-Query,
+  `${ENV:}`-Auflösung, Text-Antwort, 5xx, Timeout, Ergebnis-Kappung, Merge/Kollision/disabled,
+  werfender Handler, unbekanntes Tool/kaputtes JSON. Plus Lifecycle-Test: `toolset.close()`
+  läuft im Teardown.
+- `docs/tools.md`: Endpoint-Kontrakt, Secrets, Dead-Air-Hinweis, Beispiel-Endpoint.
+
+### Changed
+- **callHandler** nutzt das per-Call-Toolset statt der globalen Registry-Dispatch-Funktionen
+  (`buildFunctionDefinitions`/`dispatchTool` entfallen); Registry enthält nur noch die
+  Built-ins (`registerTool`/`getTool`/`listTools`).
+
+### Fixed
+- **Function-Call-Status**: fehlgeschlagene Tool-Aufrufe werden jetzt mit `status: "error"`
+  protokolliert (vorher immer `"ok"`); das Anruf-Detail im Admin-UI zeigt Fehler damit korrekt an.
+
 ## [0.6.0] – 2026-07-20
 
 Voice-Provider-Abstraktion als Fundament für weitere Agent-Plattformen (ElevenLabs, OpenAI

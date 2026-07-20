@@ -35,6 +35,24 @@ export interface ResolvedSpeak {
   volume?: number;
 }
 
+export interface ResolvedCustomToolEndpoint {
+  url: string;
+  method: "GET" | "POST";
+  /** Werte dürfen `${ENV:NAME}`-Platzhalter enthalten (Auflösung erst beim Aufruf). */
+  headers: Record<string, string>;
+  timeoutMs: number;
+}
+
+/** Am Agent hinterlegtes HTTP-Tool (Engine ruft den Endpoint selbst auf). */
+export interface ResolvedCustomTool {
+  name: string;
+  description: string;
+  /** JSON-Schema der Argumente (geht 1:1 als function.parameters an den Voice-Provider). */
+  parameters: Record<string, unknown>;
+  endpoint: ResolvedCustomToolEndpoint;
+  enabled: boolean;
+}
+
 export interface ResolvedSummary {
   enabled: boolean;
   prompt: string;
@@ -61,6 +79,7 @@ export interface ResolvedAgent {
   think: ResolvedThink;
   speak: ResolvedSpeak;
   tools: string[];
+  customTools: ResolvedCustomTool[];
   summary: ResolvedSummary;
   tags: string[];
   mip_opt_out: boolean;

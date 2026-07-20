@@ -14,3 +14,5 @@ export function registerAllTools(): void {
 }
 
 export * from "./registry.js";
+export * from "./toolset.js";
+export * from "./names.js";

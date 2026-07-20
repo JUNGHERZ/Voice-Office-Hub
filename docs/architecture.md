@@ -97,15 +97,17 @@ Siehe [src/ari/callHandler.ts](../src/ari/callHandler.ts):
   Metadaten, `transcript[]` (`{t,end,speaker,text}`), `recording.gridFsId`, `functionCalls[]`,
   `transfer`, `summary`.
 - **`agents`** ([models/Agent.ts](../src/db/models/Agent.ts)) — pro DDI ein Agent; bündelt die
-  vollen Deepgram-Parameter (listen/think/speak/tools/summary inkl. eigenem Modell/tags/mip_opt_out).
+  vollen Deepgram-Parameter (listen/think/speak/tools/summary inkl. eigenem Modell/tags/mip_opt_out)
+  plus `customTools[]` (eigene HTTP-Tool-Endpoints, siehe [tools.md](tools.md)).
 
 Audio-Blobs liegen in **GridFS** ([db/gridfs.ts](../src/db/gridfs.ts)); das Request-Dokument
 referenziert nur die `gridFsId`.
 
 > **Engine-Abgrenzung:** Die Engine kümmert sich um **Kern-Telefonie** (Annahme, Routing,
-> Transfer, Aufnahme, Transkript/Persistenz). **Fachliche** Tools kommen pro Agent dazu und gehen
-> i.d.R. **nach außen** (server-side Function-Endpoints per URL). Das frühere Demo-Tool
-> `lookup_customer` samt `customers`-Collection wurde daher entfernt.
+> Transfer, Aufnahme, Transkript/Persistenz). **Fachliche** Tools kommen pro Agent dazu und leben
+> **nach außen**: `agent.customTools[]` beschreibt HTTP-Endpoints, die die Engine pro Function-Call
+> selbst aufruft (per-Call-Toolset, [tools.md](tools.md)) — Fachlogik bleibt außerhalb der Appliance.
+> Das frühere Demo-Tool `lookup_customer` samt `customers`-Collection wurde daher entfernt.
 
 ## Admin-UI & Management-API
 
@@ -134,7 +136,7 @@ src/
   ari/                ARI-Anbindung (Client, callHandler, media, transfer, recording, passthrough, agentResolver)
   voice/              Provider-neutrale Session-Schnittstelle (types) + Factory (voiceProvider-Switch)
   deepgram/           Deepgram-Adapter der VoiceAgentSession (agentSession, settings, events) + Batch-Transkription
-  tools/              Function-Calling (registry, handlers)
+  tools/              Function-Calling (registry + handlers der Built-ins, per-Call-Toolset mit HTTP-Tools)
   llm/                Post-Call-Summary via Requesty
   db/                 Mongoose-Connection, Models, GridFS, Repository
   admin/              Admin-UI/API: Fastify-Server, Auth, Routen (agents, requests)
