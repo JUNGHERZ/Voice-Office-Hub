@@ -21,7 +21,11 @@ export interface SettingsMessage {
       functions?: FunctionDefinition[];
       context_length?: number | "max";
     };
-    speak: { provider: Record<string, unknown> };
+    speak: {
+      provider: Record<string, unknown>;
+      /** Dritt-TTS (z. B. eleven_labs): Provider-Endpoint inkl. Auth-Header. */
+      endpoint?: { url: string; headers?: Record<string, string> };
+    };
     greeting?: string;
   };
   tags?: string[];

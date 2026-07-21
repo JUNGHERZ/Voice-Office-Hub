@@ -22,6 +22,7 @@ function agent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent {
     customTools: [],
     mcpServers: [],
     summary: { enabled: false, prompt: "", model: "openai/gpt-4.1-mini" },
+    ambience: { enabled: false, preset: "office", volume: 0.25 },
     tags: ["support"],
     mip_opt_out: false,
     ...overrides,
@@ -140,4 +141,51 @@ test("buildSettings: speak-Provider (deepgram) nutzt model", () => {
   const p = s.agent.speak.provider as Record<string, unknown>;
   assert.equal(p.type, "deepgram");
   assert.equal(p.model, "aura-2-thalia-en");
+  assert.equal(s.agent.speak.endpoint, undefined, "Deepgram-TTS braucht keinen Endpoint");
+});
+
+test("buildSettings: eleven_labs → Dritt-TTS mit Voice-URL und xi-api-key", () => {
+  const prevKey = config.elevenlabs.apiKey;
+  config.elevenlabs.apiKey = "xi-test-key";
+  try {
+    const s = buildSettings(
+      agent({ speak: { provider: "eleven_labs", model: "eleven_flash_v2_5", voice: "21m00Tcm4TlvDq8ikWAM" } }),
+      [],
+    );
+    const p = s.agent.speak.provider as Record<string, unknown>;
+    assert.equal(p.type, "eleven_labs");
+    assert.equal(p.model_id, "eleven_flash_v2_5");
+    assert.equal(
+      s.agent.speak.endpoint?.url,
+      "wss://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM/multi-stream-input",
+    );
+    assert.equal(s.agent.speak.endpoint?.headers?.["xi-api-key"], "xi-test-key");
+
+    // Ein (Default-)Aura-Modell wäre für ElevenLabs falsch → dokumentiertes Default-Modell.
+    const s2 = buildSettings(
+      agent({ speak: { provider: "eleven_labs", model: "aura-2-thalia-en", voice: "v1" } }),
+      [],
+    );
+    assert.equal((s2.agent.speak.provider as Record<string, unknown>).model_id, "eleven_turbo_v2_5");
+  } finally {
+    config.elevenlabs.apiKey = prevKey;
+  }
+});
+
+test("buildSettings: eleven_labs ohne Key/Voice-ID → Fallback auf Deepgram-Stimme", () => {
+  const prevKey = config.elevenlabs.apiKey;
+  config.elevenlabs.apiKey = "";
+  try {
+    const s = buildSettings(agent({ speak: { provider: "eleven_labs", model: "eleven_flash_v2_5", voice: "v1" } }), []);
+    const p = s.agent.speak.provider as Record<string, unknown>;
+    assert.equal(p.type, "deepgram", "ohne Env-Key → Deepgram-Fallback");
+    assert.equal(p.model, config.defaultAgent.speakModel);
+    assert.equal(s.agent.speak.endpoint, undefined);
+
+    config.elevenlabs.apiKey = "xi-test-key";
+    const s2 = buildSettings(agent({ speak: { provider: "eleven_labs", model: "eleven_flash_v2_5" } }), []);
+    assert.equal((s2.agent.speak.provider as Record<string, unknown>).type, "deepgram", "ohne Voice-ID → Fallback");
+  } finally {
+    config.elevenlabs.apiKey = prevKey;
+  }
 });

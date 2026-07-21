@@ -9,7 +9,10 @@
  */
 import { config } from "../config.js";
 import type { ResolvedAgent } from "../types.js";
+import { logger } from "../util/logger.js";
 import type { FunctionDefinition, SettingsMessage } from "./events.js";
+
+const log = logger.child({ mod: "settings" });
 
 export function buildSettings(agent: ResolvedAgent, functions: FunctionDefinition[]): SettingsMessage {
   const isFlux = agent.listen.model.startsWith("flux");
@@ -35,7 +38,7 @@ export function buildSettings(agent: ResolvedAgent, functions: FunctionDefinitio
   if (agent.listen.keyterms.length) listenProvider.keyterms = agent.listen.keyterms;
 
   const think = buildThink(agent, functions);
-  const speakProvider = buildSpeakProvider(agent);
+  const speak = buildSpeak(agent);
 
   return {
     type: "Settings",
@@ -46,7 +49,7 @@ export function buildSettings(agent: ResolvedAgent, functions: FunctionDefinitio
     agent: {
       listen: { provider: listenProvider },
       think,
-      speak: { provider: speakProvider },
+      speak,
       ...(agent.greeting ? { greeting: agent.greeting } : {}),
     },
     ...(agent.tags.length ? { tags: agent.tags } : {}),
@@ -103,14 +106,44 @@ function inferManagedProviderType(model: string): string {
   return "open_ai";
 }
 
-function buildSpeakProvider(agent: ResolvedAgent): Record<string, unknown> {
-  const p: Record<string, unknown> = { type: agent.speak.provider };
-  // Deepgram/OpenAI nutzen "model", Eleven Labs/Cartesia "model_id" + "voice".
-  if (agent.speak.provider === "eleven_labs" || agent.speak.provider === "cartesia") {
-    if (agent.speak.model) p.model_id = agent.speak.model;
-  } else if (agent.speak.model) {
-    p.model = agent.speak.model;
+/**
+ * speak-Block der Settings. ElevenLabs läuft über die Dritt-TTS-Durchreiche der
+ * Voice-Agent-API: provider {type:"eleven_labs", model_id} + endpoint mit der
+ * Voice-ID in der URL und dem API-Key als xi-api-key-Header (Key nur aus dem
+ * Server-Env — nie in der DB). Unvollständige Konfiguration fällt auf die
+ * Deepgram-Stimme zurück; ein Anruf scheitert nie an der TTS-Auswahl.
+ */
+function buildSpeak(agent: ResolvedAgent): SettingsMessage["agent"]["speak"] {
+  if (agent.speak.provider === "eleven_labs") {
+    const apiKey = config.elevenlabs.apiKey;
+    const voiceId = agent.speak.voice?.trim();
+    if (!apiKey || !voiceId) {
+      log.warn("ElevenLabs-TTS unvollständig (ELEVENLABS_API_KEY oder Voice-ID fehlt) — Fallback auf Deepgram-Stimme", {
+        agent: agent.name,
+        hasKey: Boolean(apiKey),
+        hasVoice: Boolean(voiceId),
+      });
+      return { provider: buildDeepgramSpeakProvider(agent, config.defaultAgent.speakModel) };
+    }
+    // speak.model trägt hier die ElevenLabs-Modell-ID; ein (Default-)Aura-Wert wäre falsch.
+    const modelId =
+      agent.speak.model && !agent.speak.model.startsWith("aura") ? agent.speak.model : "eleven_turbo_v2_5";
+    const provider: Record<string, unknown> = { type: "eleven_labs", model_id: modelId };
+    if (agent.speak.language) provider.language_code = agent.speak.language;
+    return {
+      provider,
+      endpoint: {
+        url: `wss://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/multi-stream-input`,
+        headers: { "xi-api-key": apiKey },
+      },
+    };
   }
+  return { provider: buildDeepgramSpeakProvider(agent, agent.speak.model) };
+}
+
+function buildDeepgramSpeakProvider(agent: ResolvedAgent, model: string): Record<string, unknown> {
+  const p: Record<string, unknown> = { type: "deepgram" };
+  if (model) p.model = model;
   if (agent.speak.voice) p.voice = agent.speak.voice;
   if (agent.speak.language) p.language = agent.speak.language;
   if (agent.speak.speed !== undefined) p.speed = agent.speak.speed;
