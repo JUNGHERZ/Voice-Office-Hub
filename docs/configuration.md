@@ -35,6 +35,8 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `OUTBOUND_CALLER_ID` | — | Eigene Default-Absendernummer (DID, E.164) als Fallback (Default-Agent / Agent ohne echte `targetNumbers`). Muss dir auf dem Trunk gehören. |
 | `MEDIA_TRANSPORT` | `audiosocket` | `audiosocket` (TCP, Default) oder `rtp` (UDP). |
 | `AUDIO_ENCODING` / `AUDIO_SAMPLE_RATE` | `linear16` / `8000` | Audioformat Richtung Deepgram (kein Transcoding). |
+| `AMBIENCE_DIR` *(0.6.8)* | *(leer)* | Optionales Verzeichnis mit eigenen Ambience-Loops (`<preset>.raw`, slin 16-bit LE mono in `AUDIO_SAMPLE_RATE`, nahtlos loopbar) — übersteuert die eingebauten prozeduralen Presets. Konvertierung z. B.: `sox in.wav -r 8000 -c 1 -b 16 -e signed-integer out.raw` (CC0-Quellen: Lizenz beachten/dokumentieren). |
+| `ELEVENLABS_API_KEY` *(0.6.8)* | *(leer)* | API-Key für `speak.provider: "eleven_labs"` (Dritt-TTS über die Voice-Agent-API). Bleibt im Server-Env — Agents referenzieren nur die Voice-ID. |
 | `EXTERNAL_MEDIA_FORMAT` | `slin` | Asterisk-Format des externalMedia-Kanals (`slin`=8 kHz signed linear). |
 | `EXTERNAL_MEDIA_HOST` / `EXTERNAL_MEDIA_PORT` | `127.0.0.1` / `8090` | Adresse, zu der sich Asterisks AudioSocket verbindet (extern: erreichbare Host-Adresse). |
 | `UNKNOWN_NUMBER_BEHAVIOR` | `reject` | Verhalten bei Anruf an eine DDI **ohne** zugeordneten Agent: `reject` (vor Answer mit 404 ablehnen → Netz-Standardansage, 0 Kosten, kein Logeintrag), `announce` (Ansage abspielen + auflegen, kein LLM) oder `agent` (Default-Agent beantwortet — nur Dev). Siehe [Unbekannte Rufnummer](#unbekannte-rufnummer-kein-agent). |
@@ -129,7 +131,8 @@ Mongoose (Fehler → HTTP 400). Die wichtigsten Felder:
 | `listen.model` *(0.6.0)* | `nova-3` (Default) oder **Flux** (`flux-general-multi` / `flux-general-en`) mit modellintegrierter Turn-Detection. Bei Flux blendet die UI `listen.eot_threshold` / `listen.eot_timeout_ms` ein (End-of-Turn-Feintuning; leer = Deepgram-Default). |
 | `listen.language_hints[]` / `keyterms[]` / `smart_format` | STT-Feintuning. `language_hints` gelten nur für `flux-general-multi`, `smart_format` nur für nova-3 — der Settings-Builder sendet je Modell nur Gültiges. |
 | `think.source` / `model` / `temperature` | Konversations-LLM: `requesty` (BYO-Router) oder `deepgram` (managed). |
-| `speak.provider` / `model` / `voice` … | TTS (z. B. `aura-2-viktoria-de`). |
+| `speak.provider` / `model` / `voice` … *(erweitert 0.6.8)* | TTS. `deepgram` (Default, Modell z. B. `aura-2-viktoria-de`) oder `eleven_labs`: dann trägt `voice` die **ElevenLabs-Voice-ID** und `model` optional die Modell-ID (Default `eleven_turbo_v2_5`); der API-Key kommt aus `ELEVENLABS_API_KEY` (Server-Env, nie in der DB). Fehlt Key/Voice-ID → Warn-Log + Deepgram-Fallback. |
+| `ambience.enabled` / `preset` / `volume` *(0.6.8)* | **Hintergrundatmosphäre**: leise Dauerschleife im Anruf (auch in Sprechpausen). Presets eingebaut & lizenzfrei (prozedural): `office` / `room` / `rain`; `volume` 0..1 (UI: 0–100 %). Nur `MEDIA_TRANSPORT=audiosocket`; landet mit in der Aufnahme; pausiert bei Übergabe an einen Menschen. Eigene Loops: `AMBIENCE_DIR`. |
 | `tools[]` | Aktivierte **eingebaute** Tools (UI: Toggle-Liste, Quelle `GET /api/tools`). |
 | `customTools[]` *(0.6.1)* | **Eigene HTTP-Tools** (Name, Beschreibung, JSON-Schema, Endpoint mit Methode/Headern/Timeout, `${ENV:}`-Secrets) — Kontrakt in [docs/tools.md](tools.md). |
 | `mcpServers[]` *(0.6.5)* | **MCP-Server** als Tool-Quellen (Streamable HTTP; Tools präfixiert `<server>_<tool>`, optional `toolFilter`) — siehe [docs/tools.md](tools.md). |

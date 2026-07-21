@@ -153,7 +153,10 @@ docker/               Dockerfile-Assets (supervisord, entrypoint, Asterisk-Beisp
 Verifiziert über echte Anrufe (Softphone → Container-Asterisk):
 
 - **A — Audio-Pfad:** AudioSocket-Transport; getakteter Playout (driftfreier Takt, 80 ms Jitter-
-  Puffer, ~240 ms Greeting-Lead-in gegen abgeschnittene erste Worte).
+  Puffer, ~240 ms Greeting-Lead-in gegen abgeschnittene erste Worte). Seit 0.6.8 mischt der Takt
+  optional eine per-Agent-**Ambience** (leise Dauerschleife) in jedes Frame — er läuft dann für die
+  gesamte Call-Dauer statt in Sprechpausen zu stoppen; `pendingMs()` zählt weiterhin nur TTS
+  (end_call-Drain/Barge-in unverändert), bei Mensch-Übernahme wird pausiert.
 - **B — Konversation (DE):** STT `nova-3` (multilingual; `language` im listen-Provider, nicht im
   deprecateten `agent.language`), TTS `aura-2-…-de`. **Think via Requesty** (`LLM_MODEL`,
   aktuell `vertex/gemini-3.1-flash-lite@eu`); umschaltbar auf Deepgram-managed

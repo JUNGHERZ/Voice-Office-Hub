@@ -5,15 +5,13 @@ Gesammelte Ideen/Erkenntnisse aus den Testgesprächen. Reihenfolge = grobe Prior
 ## Audio / Conversation Experience
 
 ### 1. Hintergrundgeräusche (Ambience) optional pro Agent
-**Idee:** Leises Büro-/Tippgeräusch als Dauerschleife in den Ausgabe-Mix legen, optional pro Agent
-schaltbar. Überbrückt die Stille — besonders während die KI „nachdenkt" (kurze LLM-Latenz) —
-und wirkt natürlicher.
-- **Umsetzung (machbar, moderat):** Ambience-WAV (8 kHz slin, loopbar) beim Anruf laden und in der
-  `MediaSession` dem ausgehenden Audio beimischen (PCM-Addition mit niedrigem Pegel, Clipping
-  vermeiden). Lautstärke + Datei pro Agent konfigurierbar (`agents.ambience = { enabled, file, gain }`).
-  Während der Sprechpausen (Underrun) statt reiner Stille die Ambience senden.
-- **Quelle:** Es gibt Seiten mit frei herunterladbaren Office-/Keyboard-Loops (Nutzer hat eine im Blick).
-- **Aufwand:** ~0,5–1 Tag. Kein externer Dienst nötig.
+**✅ Umgesetzt in 0.6.8.** `agent.ambience { enabled, preset, volume }`; der AudioSocket-Playout-Takt
+läuft bei aktiver Ambience durchgehend und mischt einen Loop in jedes Frame (Sprechpausen = reine
+Atmosphäre statt Stille; `pendingMs()`/Barge-in-Semantik unverändert). Presets `office`/`room`/`rain`
+werden **prozedural generiert** (lizenzfrei per Konstruktion, keine Binär-Assets, sampleRate-neutral);
+eigene Loops via `AMBIENCE_DIR` (`<preset>.raw`). Pausiert bei Mensch-Übernahme; nur
+AudioSocket-Transport; Teil der Aufnahme. **Ausbaustufe:** eigene Uploads pro Agent (GridFS) + weitere
+kuratierte Presets.
 
 ### 2. Background Speech Denoising (Umgebungsgeräusche aus dem Anrufer-Audio filtern)
 **Frage des Nutzers:** VAPI bietet das (siehe
