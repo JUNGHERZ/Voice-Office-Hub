@@ -147,6 +147,12 @@ if [[ "${EMBED_ASTERISK:-true}" == "true" && "${DEV_SOFTPHONE_ENABLED:-false}" =
   echo "         NIEMALS auf einem öffentlich erreichbaren Host aktivieren (5060/udp wird gescannt)!"
   cat > "$LOCAL_FILE" <<EOF
 ; AUTO-GENERIERT vom entrypoint (DEV_SOFTPHONE_ENABLED=true). NUR für lokale Tests.
+; Kurze Registrierungs-Gültigkeit (AOR *_expiration unten): Ein Container-Neustart wirft
+; alle Registrierungen weg; bis das Softphone von sich aus neu registriert, scheitert
+; AUSGEHENDE Wahl an es ("invalid URI … Is endpoint registered?"), z. B. transfer_call → 101.
+; Eingehend fällt das nie auf (INVITE + Digest-Auth braucht keine Registrierung) — deshalb
+; klemmt nach einem Rebuild scheinbar "nur der Transfer". Mit expiry ≤ 60 s registrieren
+; Clients im Minutentakt neu → das Fenster ist praktisch weg.
 [softphone]
 type = endpoint
 context = inbound
@@ -165,6 +171,9 @@ password = ${SP_PASS}
 [softphone]
 type = aor
 max_contacts = 1
+minimum_expiration = 30
+default_expiration = 60
+maximum_expiration = 90
 
 ; Zweites Softphone als Transfer-Ziel: registriert sich als User "101".
 [101]
@@ -185,6 +194,9 @@ password = ${SP101_PASS}
 [101]
 type = aor
 max_contacts = 1
+minimum_expiration = 30
+default_expiration = 60
+maximum_expiration = 90
 EOF
   echo "entrypoint: lokale Dev-Softphones aktiviert (softphone, 101)"
 else

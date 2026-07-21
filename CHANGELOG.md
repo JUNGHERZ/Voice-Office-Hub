@@ -6,6 +6,18 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.11] – 2026-07-22
+
+### Fixed
+- **Dev-Setup: `transfer_call` → 101 schlug direkt nach einem Container-Neustart fehl**
+  („Could not create dialog to invalid URI '101' … Is endpoint registered?"). Ursache war
+  KEIN Code-/NAT-Problem, sondern ein Registrierungs-Zeitfenster: Ein Neustart verwirft
+  alle SIP-Registrierungen; bis das Softphone von sich aus neu registriert (Minuten),
+  fehlt der 101-Contact — eingehende Anrufe funktionieren derweil normal (Digest-Auth
+  ohne Registrierung), weshalb scheinbar „nur der Transfer" klemmte. Die Dev-AORs
+  begrenzen die Registrierungs-Gültigkeit jetzt auf ≤ 90 s (Clients registrieren im
+  Minutentakt neu) → das Fenster ist praktisch weg. Prod/Trunk war nie betroffen.
+
 ## [0.6.10] – 2026-07-21
 
 **NativeSession**: eigene STT→LLM→TTS-Kaskade als dritter Voice-Provider
