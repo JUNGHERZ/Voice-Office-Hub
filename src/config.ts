@@ -76,6 +76,8 @@ export interface Config {
     sttUrl: string;
     /** Aura-Streaming-TTS (Speak-WS). */
     ttsUrl: string;
+    /** ElevenLabs-Streaming-TTS (Basis bis /v1; Key kommt aus elevenlabs.apiKey). */
+    elevenUrl: string;
     /** Mindestlänge (Zeichen), bevor der Satz-Chunker einen Satz an die TTS gibt. */
     minSentenceChars: number;
     /** Spekulativer LLM-Start auf EagerEndOfTurn — v1 nur geloggt, nicht aktiv. */
@@ -209,6 +211,7 @@ export const config: Config = {
   native: {
     sttUrl: opt("NATIVE_STT_URL", "wss://api.deepgram.com/v2/listen"),
     ttsUrl: opt("NATIVE_TTS_URL", "wss://api.deepgram.com/v1/speak"),
+    elevenUrl: opt("NATIVE_TTS_ELEVEN_URL", "wss://api.elevenlabs.io/v1"),
     minSentenceChars: int("NATIVE_MIN_SENTENCE_CHARS", 12),
     eagerEot: bool("NATIVE_EAGER_EOT", false),
     contextChars: int("NATIVE_CONTEXT_CHARS", 16000),
