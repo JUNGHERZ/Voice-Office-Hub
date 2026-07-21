@@ -14,10 +14,12 @@ import { settle, testAgent, waitFor } from "./helpers/fakes.js";
 
 class FakeStt extends EventEmitter {
   started = false;
+  starts = 0;
   closed = false;
   audio: Buffer[] = [];
   async start(): Promise<void> {
     this.started = true;
+    this.starts += 1;
   }
   sendAudio(chunk: Buffer): void {
     this.audio.push(chunk);
@@ -325,6 +327,23 @@ test("NativeSession: end_call ohne Response blockiert nichts", async () => {
   s.session.close(); // weckt die wartende Runde — Test endet ohne Leak/Hänger
   assert.equal(s.stt.closed, true);
   assert.equal(s.tts.closed, true);
+});
+
+// 9 ─ STT-Drop: genau EIN automatischer Reconnect; erst der zweite Drop wird zum Fehler.
+test("NativeSession: STT-Reconnect genau einmal", async () => {
+  const s = makeSession([]);
+  await s.session.start();
+  assert.equal(s.stt.starts, 1);
+
+  s.stt.emit("close", 4006);
+  await waitFor(() => s.stt.starts === 2, 1000);
+  assert.ok(!s.events.some(([e]) => e === "error"), "erster Drop wird still überbrückt");
+
+  s.stt.emit("close", 4006);
+  await settle();
+  assert.match(String(s.events.find(([e]) => e === "error")?.[1] ?? ""), /STT-Verbindung verloren/);
+  assert.equal(s.stt.starts, 2, "kein zweiter Reconnect-Versuch");
+  s.session.close();
 });
 
 // 8 ─ LLM-Fehler ist nicht fatal: error-Event, Session lebt, nächster Turn klappt.

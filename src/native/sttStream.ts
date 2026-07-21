@@ -145,6 +145,9 @@ export class FluxSttStream extends EventEmitter {
       if (this.opened && !this.closed) this.emit("error", String(err));
     });
     ws.on("close", (code) => {
+      // ws freigeben, damit ein erneutes start() (Reconnect durch den Orchestrator)
+      // eine frische Verbindung aufbauen kann.
+      if (this.ws === ws) this.ws = undefined;
       if (this.opened && !this.closed) this.emit("close", code);
     });
   }

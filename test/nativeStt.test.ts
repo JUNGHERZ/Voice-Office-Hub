@@ -29,13 +29,15 @@ function makeOpts(overrides: Partial<ConstructorParameters<typeof FluxSttStream>
 function startServer() {
   const wss = new WebSocketServer({ port: PORT });
   const state: {
+    connections: number;
     url?: string;
     auth?: string;
     socket?: ServerSocket;
     binary: Buffer[];
     texts: string[];
-  } = { binary: [], texts: [] };
+  } = { connections: 0, binary: [], texts: [] };
   wss.on("connection", (socket, req) => {
+    state.connections += 1;
     state.url = req.url ?? "";
     state.auth = req.headers.authorization;
     state.socket = socket;
@@ -115,8 +117,9 @@ test("FluxSttStream: EagerEndOfTurn/TurnResumed-Mapping", async () => {
   await srv.close();
 });
 
-// 4 ─ Fehlerpfade: Server-Close → close-Event; toter Port → start() wirft.
-test("FluxSttStream: Server-Close und Connect-Fehler", async () => {
+// 4 ─ Fehlerpfade: Server-Close → close-Event + erneutes start() verbindet frisch;
+//     toter Port → start() wirft.
+test("FluxSttStream: Server-Close, Reconnect-Fähigkeit und Connect-Fehler", async () => {
   const srv = startServer();
   const stt = new FluxSttStream(makeOpts(), "call-4");
   let closeCode = 0;
@@ -124,6 +127,10 @@ test("FluxSttStream: Server-Close und Connect-Fehler", async () => {
   await stt.start();
   srv.state.socket!.close(4001);
   await waitFor(() => closeCode === 4001);
+
+  // Grundlage des Orchestrator-Reconnects: nach einem Drop ist start() erneut möglich.
+  await stt.start();
+  assert.equal(srv.state.connections, 2, "zweites start() baut eine frische Verbindung");
   stt.close();
   await srv.close();
 

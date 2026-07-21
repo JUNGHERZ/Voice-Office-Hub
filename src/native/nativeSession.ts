@@ -267,9 +267,22 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       if (!this.closed) this.emit("error", `STT: ${description}`);
     });
     this.stt.on("close", (code: number) => {
-      if (!this.closed) this.emit("error", `STT-Verbindung verloren (Code ${code})`);
+      if (this.closed) return;
+      // Genau EIN Reconnect-Versuch (Netz-Hickser überbrücken, Schleifen vermeiden).
+      // Der Anrufer verliert währenddessen nur die eigene Sprache; die Session lebt.
+      if (!this.sttReconnected) {
+        this.sttReconnected = true;
+        this.log.warn("STT-Verbindung verloren — versuche einmaligen Reconnect", { code });
+        void this.stt.start().catch((err) => {
+          if (!this.closed) this.emit("error", `STT-Reconnect fehlgeschlagen: ${String(err)}`);
+        });
+        return;
+      }
+      this.emit("error", `STT-Verbindung verloren (Code ${code})`);
     });
   }
+
+  private sttReconnected = false;
 
   // ── TTS-Verdrahtung ─────────────────────────────────────────────────────────
 

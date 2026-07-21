@@ -6,6 +6,41 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.10] – 2026-07-21
+
+**NativeSession**: eigene STT→LLM→TTS-Kaskade als dritter Voice-Provider
+(`voiceProvider: "native"`) — die Engine orchestriert das Gespräch selbst, callHandler/
+MediaSession/Toolset bleiben unverändert hinter der `VoiceAgentSession`-Naht. Erster
+Live-Test: spürbar schnellere Turns als der gebündelte Agent, sauberes Barge-in;
+Medienkosten grob ⅓ des Voice-Agent-Preises (Flux $0.0078/min + Aura $0.03/1k Zeichen
+vs. $0.059/min BYO-LLM — Listenpreise 2026-07).
+
+### Added
+- **`src/native/` — die Kaskade:** `FluxSttStream` (v2-Listen-WS, 8 kHz verifiziert;
+  Turn-Events StartOfTurn/EndOfTurn/Eager/Resumed; einmaliger Auto-Reconnect bei Drop),
+  `streamChatCompletion` (Requesty-SSE mit index-basierter Tool-Call-Akkumulation,
+  AbortError-Normalisierung für Barge-in; Wire-Format live verifiziert), `AuraTtsStream`
+  (Speak-WS @ 8 kHz, `Clear`/`Cleared`-Quarantäne live verifiziert, Lazy-Reconnect gegen
+  Idle-Drops), Satz-Chunker (Abkürzungs-/Zahlen-Heuristik) und `ConversationHistory`
+  (Zeichenbudget-Trimming, hält tool_calls-Gruppen zusammen).
+- **`NativeSession`-Orchestrator:** Turn-Loop mit **Satz-Overlap** (Sprechen beginnt,
+  während das LLM streamt), Tool-Runden inkl. paralleler Calls und end_call-Sonderfall,
+  `injectMessage` (Transfer-Fehlschlag) mit Stale-Response-Schutz, **zweischichtige
+  Barge-in-Quarantäne** (Server-Clear + Turn-Generationszähler) und per-Turn-Latenzlog
+  (`total`/`ttt`/`tts`) für A/B-Vergleiche.
+- **TTS-Provider-Matrix in native:** `speak.provider` wählt Aura-2 **oder ElevenLabs**
+  (`stream-input`-WS, `pcm_8000`, Voice-ID am Agent, Key aus `ELEVENLABS_API_KEY`;
+  Barge-in dort per hartem Disconnect + Lazy-Reconnect, da das Protokoll kein Clear kennt).
+  Unvollständige Konfiguration fällt mit Warnung auf Aura zurück.
+- **Freischaltung:** `voiceProvider`-Enum + Factory-Case + Formular-Option
+  „Native (STT→LLM→TTS-Kaskade)"; `config.native`-Block (`NATIVE_*`-ENV).
+
+### Notes
+- Flux erfordert den native-Modus mit `flux-*`-listen-Modell (nova-3 → Warnung + Fallback
+  flux-general-multi). Größter Latenz-Hebel laut Messung ist das think-Modell
+  (LLM-First-Token ≈ 2,2–2,4 s mit dem Prod-Default); EagerEndOfTurn-Spekulation ist als
+  Ausbaustufe vorbereitet (`NATIVE_EAGER_EOT`, v1 nur Beobachtung).
+
 ## [0.6.9] – 2026-07-21
 
 WebRTC-Web-Widget: ein **einbettbares Browser-Softphone** — Website-Besucher rufen den
