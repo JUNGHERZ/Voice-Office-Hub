@@ -10,6 +10,7 @@ import {
   KIND_AUDIO,
   AudioSocketServer,
 } from "../src/ari/audiosocketServer.js";
+import { AmbienceMixer } from "../src/audio/ambience.js";
 
 function frame(kind: number, payload: Buffer): Buffer {
   const h = Buffer.alloc(3);
@@ -94,6 +95,115 @@ test("AudioSocketServer: Loopback-Echo über TCP (ohne Asterisk)", async () => {
   });
 
   assert.deepEqual([...echoed], [...audioPayload]);
+  session.close();
+  await server.stop();
+});
+
+// ── Ambience im Playout-Takt ──────────────────────────────────────────────────
+
+/** Int16-Loop mit konstantem Sample-Wert (macht Misch-Ergebnisse exakt prüfbar). */
+function constLoop(value: number, samples = 1600): Buffer {
+  const buf = Buffer.alloc(samples * 2);
+  for (let i = 0; i < samples; i++) buf.writeInt16LE(value, i * 2);
+  return buf;
+}
+
+/** Verbindet sich als Asterisk-Ersatz, sendet die UUID und sammelt Audio-Frames. */
+async function connectCollector(port: number, uuid: string): Promise<{ frames: Buffer[]; close: () => void }> {
+  const frames: Buffer[] = [];
+  const client: net.Socket = await new Promise((resolve, reject) => {
+    const c = net.connect(port, "127.0.0.1", () => {
+      c.write(frame(KIND_UUID, Buffer.from(uuid.replace(/-/g, ""), "hex")));
+      resolve(c);
+    });
+    c.on("error", reject);
+  });
+  let acc = Buffer.alloc(0);
+  client.on("data", (d) => {
+    acc = Buffer.concat([acc, d]);
+    const { frames: parsed, rest } = parseFrames(acc);
+    acc = rest;
+    for (const f of parsed) if (f.kind === KIND_AUDIO) frames.push(Buffer.from(f.payload));
+  });
+  return { frames, close: () => client.destroy() };
+}
+
+async function until(cond: () => boolean, timeoutMs = 3000): Promise<void> {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > timeoutMs) throw new Error("until: Timeout");
+    await new Promise<void>((r) => setTimeout(r, 20));
+  }
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+test("Ambience: kontinuierliche Frames ohne TTS, pendingMs bleibt 0", async () => {
+  const server = new AudioSocketServer();
+  const port = 18101;
+  await server.start(port);
+  const uuid = randomUUID();
+  const session = server.register(uuid, "amb-1", new AmbienceMixer(constLoop(1000), 1));
+  const collector = await connectCollector(port, uuid);
+
+  await until(() => collector.frames.length >= 10);
+  assert.ok(collector.frames.every((f) => f.length === 320), "volle 20-ms-Frames");
+  assert.equal(collector.frames[0]!.readInt16LE(0), 1000, "reine Ambience statt Stille");
+  assert.equal(session.pendingMs(), 0, "Ambience zählt nie als TTS-Backlog");
+
+  collector.close();
+  session.close();
+  await server.stop();
+});
+
+test("Ambience: TTS wird gemischt, flush() stoppt die Ambience nicht", async () => {
+  const server = new AudioSocketServer();
+  const port = 18102;
+  await server.start(port);
+  const uuid = randomUUID();
+  const session = server.register(uuid, "amb-2", new AmbienceMixer(constLoop(1000), 1));
+  const collector = await connectCollector(port, uuid);
+
+  await until(() => collector.frames.length >= 3);
+  const tts = Buffer.alloc(320);
+  for (let i = 0; i < 160; i++) tts.writeInt16LE(500, i * 2);
+  session.sendAudio(tts);
+  // Gemischtes Frame = TTS (500) + Ambience (1000).
+  await until(() => collector.frames.some((f) => f.readInt16LE(0) === 1500));
+
+  const before = collector.frames.length;
+  session.flush(); // Barge-in: TTS weg, Takt läuft weiter
+  await until(() => collector.frames.length > before + 3);
+  assert.equal(session.pendingMs(), 0);
+  assert.equal(collector.frames[collector.frames.length - 1]!.readInt16LE(0), 1000, "nach flush wieder reine Ambience");
+
+  collector.close();
+  session.close();
+  await server.stop();
+});
+
+test("Ambience: Pause → Stille → Takt-Stopp; Resume startet den Takt neu", async () => {
+  const server = new AudioSocketServer();
+  const port = 18103;
+  await server.start(port);
+  const uuid = randomUUID();
+  const session = server.register(uuid, "amb-3", new AmbienceMixer(constLoop(1000), 1));
+  const collector = await connectCollector(port, uuid);
+
+  await until(() => collector.frames.length >= 3);
+  session.setAmbiencePaused(true);
+  // Legacy-Verhalten greift: erst Stille-Frames, nach ~1 s (50 Underruns) stoppt der Takt.
+  await until(() => collector.frames.some((f) => f.readInt16LE(0) === 0));
+  await sleep(1400);
+  const stopped = collector.frames.length;
+  await sleep(350);
+  assert.equal(collector.frames.length, stopped, "Takt steht nach der Underrun-Grenze");
+
+  session.setAmbiencePaused(false);
+  await until(() => collector.frames.length > stopped + 3);
+  assert.equal(collector.frames[collector.frames.length - 1]!.readInt16LE(0), 1000, "Ambience läuft wieder");
+
+  collector.close();
   session.close();
   await server.stop();
 });

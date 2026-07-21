@@ -57,6 +57,15 @@ export interface Config {
     transport: string;
     externalMediaHost: string;
     externalMediaPort: number;
+    /**
+     * Optionales Verzeichnis mit eigenen Ambience-Loops (<preset>.raw, slin 16-bit LE
+     * mono in AUDIO_SAMPLE_RATE); leer = eingebaute prozedurale Presets.
+     */
+    ambienceDir: string;
+  };
+  /** ElevenLabs-TTS (optional): Key liegt nur im Server-Env, nie in der DB. */
+  elevenlabs: {
+    apiKey: string;
   };
   defaultAgent: {
     /** Betriebsmodus des Default-Agenten: "agent" (KI) oder "passthrough" (Durchleitung+Aufnahme). */
@@ -158,6 +167,10 @@ export const config: Config = {
     transport: opt("MEDIA_TRANSPORT", "audiosocket"),
     externalMediaHost: opt("EXTERNAL_MEDIA_HOST", "127.0.0.1"),
     externalMediaPort: int("EXTERNAL_MEDIA_PORT", 8090),
+    ambienceDir: opt("AMBIENCE_DIR", ""),
+  },
+  elevenlabs: {
+    apiKey: opt("ELEVENLABS_API_KEY"),
   },
   defaultAgent: {
     // "agent" (KI beantwortet) oder "passthrough" (Anruf an PASSTHROUGH_TARGET durchleiten + aufnehmen).

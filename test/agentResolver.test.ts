@@ -20,4 +20,5 @@ test("resolveAgent: ohne DDI → Default-Agent aus Config", async () => {
   assert.equal(a.summary.enabled, config.summary.enabled);
   assert.equal(a.summary.prompt, config.summary.prompt);
   assert.equal(a.summary.model, config.summary.model);
+  assert.deepEqual(a.ambience, { enabled: false, preset: "office", volume: 0.25 });
 });

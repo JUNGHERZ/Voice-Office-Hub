@@ -98,6 +98,8 @@ export class FakeMedia extends EventEmitter {
   sentAudio: Buffer[] = [];
   /** Steuerbarer Rückgabewert von pendingMs() (Playout-Puffer in ms). */
   pending = 0;
+  /** Aufgezeichnete setAmbiencePaused-Aufrufe (Transfer an Mensch → [true]). */
+  ambiencePauses: boolean[] = [];
 
   async start(): Promise<void> {
     this.started = true;
@@ -114,6 +116,9 @@ export class FakeMedia extends EventEmitter {
   enableRawEcho(): void {}
   pendingMs(): number {
     return this.pending;
+  }
+  setAmbiencePaused(paused: boolean): void {
+    this.ambiencePauses.push(paused);
   }
   /** Anrufer-Audio simulieren (Asterisk → Engine). */
   pushCallerAudio(buf: Buffer = Buffer.alloc(320)): void {
@@ -230,6 +235,7 @@ export function testAgent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent
     customTools: [],
     mcpServers: [],
     summary: { enabled: false, prompt: "", model: "openai/gpt-4.1-mini" },
+    ambience: { enabled: false, preset: "office", volume: 0.25 },
     tags: [],
     mip_opt_out: false,
     ...overrides,

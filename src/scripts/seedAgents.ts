@@ -32,6 +32,8 @@ const DEMO_AGENTS = [
     speak: { provider: "deepgram", model: "aura-2-viktoria-de" },
     tools: ["transfer_call", "end_call"],
     summary: { enabled: true, prompt: "Fasse das Vertriebsgespraech in 3-5 Saetzen sachlich zusammen." },
+    // Demo für 0.6.8: dezente Büro-Atmosphäre im Hintergrund (Telefon-Smoke auf 120).
+    ambience: { enabled: true, preset: "office", volume: 0.25 },
     tags: ["demo", "vertrieb", "de"],
   },
   {

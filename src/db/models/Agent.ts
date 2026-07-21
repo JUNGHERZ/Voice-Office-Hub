@@ -8,6 +8,7 @@
  */
 import { Schema, model, type InferSchemaType } from "mongoose";
 
+import { AMBIENCE_PRESET_IDS } from "../../audio/ambiencePresets.js";
 import { BUILTIN_TOOL_NAMES } from "../../tools/names.js";
 import { IMPLEMENTED_VOICE_PROVIDERS } from "../../voice/types.js";
 
@@ -39,7 +40,9 @@ const ThinkSchema = new Schema(
 
 const SpeakSchema = new Schema(
   {
-    provider: { type: String, default: "deepgram" },
+    // "eleven_labs" nutzt die Dritt-TTS-Durchreiche der Voice-Agent-API; der API-Key
+    // kommt aus dem Server-Env (ELEVENLABS_API_KEY), die Voice-ID steht in `voice`.
+    provider: { type: String, enum: ["deepgram", "eleven_labs"], default: "deepgram" },
     model: { type: String, default: "aura-2-thalia-en" },
     voice: { type: String },
     language: { type: String },
@@ -124,6 +127,17 @@ const SummarySchema = new Schema(
   { _id: false },
 );
 
+/** Hintergrundatmosphäre im Anruf (leise Dauerschleife unter/zwischen der Agent-Sprache). */
+const AmbienceSchema = new Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    preset: { type: String, enum: AMBIENCE_PRESET_IDS, default: "office" },
+    // Linearer Pegel 0..1 (0.25 = dezent hörbar).
+    volume: { type: Number, default: 0.25, min: 0, max: 1 },
+  },
+  { _id: false },
+);
+
 const AgentSchema = new Schema(
   {
     name: { type: String, required: true },
@@ -173,6 +187,7 @@ const AgentSchema = new Schema(
       },
     },
     summary: { type: SummarySchema, default: () => ({}) },
+    ambience: { type: AmbienceSchema, default: () => ({}) },
     tags: { type: [String], default: [] },
     mip_opt_out: { type: Boolean, default: false },
   },

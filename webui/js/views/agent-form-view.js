@@ -39,6 +39,13 @@ const FALLBACK_BUILTINS = [
   { name: "get_weather", description: "" },
 ];
 
+// Fallback, falls /api/ambience nicht erreichbar ist (Labels wie im Server-Manifest).
+const FALLBACK_AMBIENCE = [
+  { id: "office", label: "Büroatmosphäre (Raumklang + Tippen)" },
+  { id: "room", label: "Neutraler Raumklang" },
+  { id: "rain", label: "Regen" },
+];
+
 // Leeres Formularmodell (Defaults wie im Mongoose-Schema).
 function emptyForm() {
   return {
@@ -53,7 +60,14 @@ function emptyForm() {
     eotTimeoutMs: "",
     greeting: "",
     prompt: "",
+    speakProvider: "deepgram",
     speakModel: "",
+    // Getrenntes Modellfeld je Provider: beim Umschalten geht kein Wert verloren.
+    speakModelEleven: "",
+    speakVoice: "",
+    ambienceEnabled: false,
+    ambiencePreset: "office",
+    ambienceVolume: "25",
     tools: ["transfer_call", "end_call"],
     customTools: [],
     mcpServers: [],
@@ -63,12 +77,14 @@ function emptyForm() {
     // Carry-along: komplette Subdokumente des geladenen Agents (siehe Kopfkommentar).
     _listen: {},
     _speak: {},
+    _ambience: {},
   };
 }
 
 // API-Agent → Formularmodell.
 function toForm(a) {
   const listen = a.listen || {};
+  const ambience = a.ambience || {};
   return {
     name: a.name || "",
     targetNumbers: (a.targetNumbers || []).join(", "),
@@ -82,7 +98,21 @@ function toForm(a) {
     eotTimeoutMs: listen.eot_timeout_ms != null ? String(listen.eot_timeout_ms) : "",
     greeting: a.greeting || "",
     prompt: a.prompt || "",
-    speakModel: (a.speak && a.speak.model) || "",
+    speakProvider: (a.speak && a.speak.provider) || "deepgram",
+    // Gespeichertes Modell dem passenden Provider-Feld zuordnen (Aura-Werte gehören
+    // nie ins ElevenLabs-Feld — dort gilt sonst der Server-Default eleven_turbo_v2_5).
+    speakModel:
+      (a.speak && a.speak.provider) === "eleven_labs" ? "" : (a.speak && a.speak.model) || "",
+    speakModelEleven:
+      (a.speak && a.speak.provider) === "eleven_labs" &&
+      a.speak.model &&
+      a.speak.model.indexOf("aura") !== 0
+        ? a.speak.model
+        : "",
+    speakVoice: (a.speak && a.speak.voice) || "",
+    ambienceEnabled: !!ambience.enabled,
+    ambiencePreset: ambience.preset || "office",
+    ambienceVolume: String(Math.round((ambience.volume != null ? ambience.volume : 0.25) * 100)),
     tools: a.tools && a.tools.length ? [...a.tools] : ["transfer_call", "end_call"],
     customTools: (a.customTools || []).map((t) => ({ ...t, endpoint: { ...(t.endpoint || {}) } })),
     mcpServers: (a.mcpServers || []).map((s) => ({ ...s })),
@@ -91,6 +121,7 @@ function toForm(a) {
     enabled: a.enabled !== false,
     _listen: { ...listen },
     _speak: { ...(a.speak || {}) },
+    _ambience: { ...ambience },
   };
 }
 
@@ -123,12 +154,25 @@ function toBody(f) {
       eot_threshold: isFlux ? num(f.eotThreshold) : undefined,
       eot_timeout_ms: isFlux ? num(f.eotTimeoutMs) : undefined,
     },
-    speak: { ...f._speak, model: f.speakModel.trim() || undefined },
+    speak: {
+      ...f._speak,
+      provider: f.speakProvider,
+      model:
+        (f.speakProvider === "eleven_labs" ? f.speakModelEleven.trim() : f.speakModel.trim()) ||
+        undefined,
+      voice: f.speakVoice.trim() || undefined,
+    },
     tools: f.tools,
     customTools: f.customTools,
     mcpServers: f.mcpServers,
     useTransferCallerId: f.useTransferCallerId,
     summary: { enabled: f.summaryEnabled },
+    ambience: {
+      ...f._ambience,
+      enabled: f.ambienceEnabled,
+      preset: f.ambiencePreset,
+      volume: Math.max(0, Math.min(1, Number(f.ambienceVolume) / 100 || 0)),
+    },
     enabled: f.enabled,
   };
 }
@@ -141,6 +185,12 @@ async function load(host) {
     host.builtins = (res && res.builtin) || FALLBACK_BUILTINS;
   } catch (e) {
     host.builtins = FALLBACK_BUILTINS;
+  }
+  try {
+    const res = await api.listAmbiencePresets();
+    host.ambiencePresets = (res && res.presets) || FALLBACK_AMBIENCE;
+  } catch (e) {
+    host.ambiencePresets = FALLBACK_AMBIENCE;
   }
   if (!host.agentId) {
     host.form = emptyForm();
@@ -444,6 +494,7 @@ export default define({
   confirmOpen: false,
   form: undefined,
   builtins: undefined,
+  ambiencePresets: undefined,
   toolModalOpen: false,
   toolEditIndex: -1,
   toolDraft: undefined,
@@ -453,7 +504,7 @@ export default define({
   mcpDraft: undefined,
   mcpError: "",
   render: {
-    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, toolModalOpen, toolEditIndex, toolDraft, toolError, mcpModalOpen, mcpEditIndex, mcpDraft, mcpError }) => {
+    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, ambiencePresets, toolModalOpen, toolEditIndex, toolDraft, toolError, mcpModalOpen, mcpEditIndex, mcpDraft, mcpError }) => {
       const f = form || emptyForm();
       const title = agentId ? f.name || "Agent" : "Neuer Agent";
       return html`
@@ -561,12 +612,71 @@ export default define({
                   onglk-input="${(host, e) => setField(host, "prompt", e.detail.value)}"
                 ></glk-textarea>
 
-                <glk-input
-                  label="TTS-Modell (speak.model)"
-                  value="${f.speakModel}"
-                  placeholder="z. B. aura-2-thalia-en"
-                  onglk-input="${(host, e) => setField(host, "speakModel", e.detail.value)}"
-                ></glk-input>
+                <glk-select
+                  id="speakProviderSelect"
+                  label="TTS-Provider (speak.provider)"
+                  onglk-change="${(host, e) => setField(host, "speakProvider", e.detail.value)}"
+                >
+                  <option value="deepgram">Deepgram (Aura)</option>
+                  <option value="eleven_labs">ElevenLabs</option>
+                </glk-select>
+
+                ${f.speakProvider === "eleven_labs"
+                  ? html`
+                      <glk-input
+                        label="ElevenLabs Voice-ID"
+                        value="${f.speakVoice}"
+                        placeholder="z. B. 21m00Tcm4TlvDq8ikWAM"
+                        hint="API-Key kommt aus dem Server-Env (ELEVENLABS_API_KEY) — ohne Key/Voice-ID fällt der Anruf auf die Deepgram-Stimme zurück"
+                        onglk-input="${(host, e) => setField(host, "speakVoice", e.detail.value)}"
+                      ></glk-input>
+                      <glk-input
+                        label="ElevenLabs-Modell (optional)"
+                        value="${f.speakModelEleven}"
+                        placeholder="leer = eleven_turbo_v2_5"
+                        onglk-input="${(host, e) => setField(host, "speakModelEleven", e.detail.value)}"
+                      ></glk-input>
+                    `
+                  : html`
+                      <glk-input
+                        label="TTS-Modell (speak.model)"
+                        value="${f.speakModel}"
+                        placeholder="z. B. aura-2-thalia-en"
+                        onglk-input="${(host, e) => setField(host, "speakModel", e.detail.value)}"
+                      ></glk-input>
+                    `}
+
+                <glk-divider></glk-divider>
+
+                <glk-toggle
+                  label="Hintergrundatmosphäre (Ambience)"
+                  checked="${f.ambienceEnabled}"
+                  onglk-change="${(host, e) => setField(host, "ambienceEnabled", e.detail.checked)}"
+                ></glk-toggle>
+                ${f.ambienceEnabled &&
+                html`
+                  <glk-select
+                    id="ambiencePresetSelect"
+                    label="Preset"
+                    onglk-change="${(host, e) => setField(host, "ambiencePreset", e.detail.value)}"
+                  >
+                    ${(ambiencePresets || FALLBACK_AMBIENCE).map(
+                      (p) => html`<option value="${p.id}">${p.label}</option>`,
+                    )}
+                  </glk-select>
+                  <glk-range
+                    label="Lautstärke (%)"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value="${f.ambienceVolume}"
+                    onglk-input="${(host, e) => setField(host, "ambienceVolume", e.detail.value)}"
+                  ></glk-range>
+                  <div class="empty-hint">
+                    Leise Dauerschleife, die der Anrufer das ganze Gespräch über hört (auch in
+                    Sprechpausen). Landet mit in der Aufnahme; pausiert bei Übergabe an einen Menschen.
+                  </div>
+                `}
 
                 <glk-divider></glk-divider>
 
@@ -915,6 +1025,8 @@ export default define({
         ["modeSelect", host.form.mode],
         ["voiceProviderSelect", host.form.voiceProvider],
         ["listenModelSelect", host.form.listenModel],
+        ["speakProviderSelect", host.form.speakProvider],
+        ["ambiencePresetSelect", host.form.ambiencePreset],
         ["toolMethodSelect", host.toolDraft && host.toolDraft.method],
       ];
       for (const [id, value] of selects) {

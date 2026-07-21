@@ -16,6 +16,7 @@ import { appVersion } from "../util/banner.js";
 import { logger } from "../util/logger.js";
 import { clearSession, passwordValid, requireAuth, setSession } from "./auth.js";
 import { agentRoutes } from "./routes/agents.js";
+import { ambienceRoutes } from "./routes/ambience.js";
 import { requestRoutes } from "./routes/requests.js";
 import { toolRoutes } from "./routes/tools.js";
 
@@ -42,6 +43,7 @@ export async function buildAdminServer(): Promise<FastifyInstance> {
         { name: "agents", description: "Agent-Verwaltung (CRUD)" },
         { name: "requests", description: "Anrufe / Requests (read-only) + Aufnahme" },
         { name: "tools", description: "Verfügbare eingebaute Tools (read-only)" },
+        { name: "ambience", description: "Hintergrundatmosphäre — Presets (read-only)" },
       ],
     },
   });
@@ -87,6 +89,7 @@ export async function buildAdminServer(): Promise<FastifyInstance> {
   await app.register(agentRoutes, { prefix: "/api/agents" });
   await app.register(requestRoutes, { prefix: "/api/requests" });
   await app.register(toolRoutes, { prefix: "/api/tools" });
+  await app.register(ambienceRoutes, { prefix: "/api/ambience" });
 
   // OpenAPI-Spec (JSON) + interaktive Doku (wie FastAPI /docs)
   await app.register(swaggerUi, { routePrefix: "/docs" });

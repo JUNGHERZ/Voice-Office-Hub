@@ -334,3 +334,33 @@ test("Toolset: close() wird im Teardown aufgerufen", async () => {
   await waitFor(() => s.repo.finalized.length === 1);
   assert.equal(closed, 1);
 });
+
+// 17 ─ Ambience: Agent-Konfiguration wird transportneutral an createMedia durchgereicht.
+test("Ambience: Konfiguration erreicht createMedia", async () => {
+  let captured: unknown;
+  const media = new FakeMedia();
+  const s = makeCall({
+    agent: testAgent({ ambience: { enabled: true, preset: "office", volume: 0.3 } }),
+    deps: {
+      createMedia: (_callId, _uuid, ambience) => {
+        captured = ambience;
+        return media;
+      },
+    },
+  });
+  await s.start();
+  assert.deepEqual(captured, { enabled: true, preset: "office", volume: 0.3 });
+});
+
+// 18 ─ Ambience: Bei erfolgreichem Transfer an einen Menschen wird sie pausiert.
+test("Ambience: Transfer connected pausiert die Ambience", async () => {
+  const callee = new FakeChannel("callee-1");
+  const s = makeCall({
+    deps: { transferIntoBridge: async () => ({ connected: true, channel: callee.asAri() }) },
+  });
+  await s.start();
+  await s.session.emitFunctionCall([
+    { id: "t1", name: "transfer_call", argumentsJson: JSON.stringify({ target: "101" }) },
+  ]);
+  assert.deepEqual(s.media.ambiencePauses, [true], "genau eine Pause, kein Resume");
+});

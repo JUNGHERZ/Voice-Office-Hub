@@ -73,6 +73,15 @@ export interface ResolvedSummary {
   model: string;
 }
 
+/** Hintergrundatmosphäre im Anruf (leise Dauerschleife unter/zwischen der Agent-Sprache). */
+export interface ResolvedAmbience {
+  enabled: boolean;
+  /** Preset-Id aus audio/ambiencePresets.ts (Manifest). */
+  preset: string;
+  /** Linearer Pegel 0..1 (0.25 = dezent hörbar). */
+  volume: number;
+}
+
 export interface ResolvedAgent {
   id?: string;
   name: string;
@@ -95,6 +104,7 @@ export interface ResolvedAgent {
   customTools: ResolvedCustomTool[];
   mcpServers: ResolvedMcpServer[];
   summary: ResolvedSummary;
+  ambience: ResolvedAmbience;
   tags: string[];
   mip_opt_out: boolean;
 }

@@ -91,6 +91,7 @@ export function defaultAgent(): ResolvedAgent {
       prompt: config.summary.prompt,
       model: config.summary.model,
     },
+    ambience: { enabled: false, preset: "office", volume: 0.25 },
     tags: [],
     mip_opt_out: false,
   };
@@ -166,6 +167,11 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
       enabled: doc.summary?.enabled ?? config.summary.enabled,
       prompt: doc.summary?.prompt || config.summary.prompt,
       model: doc.summary?.model || config.summary.model,
+    },
+    ambience: {
+      enabled: doc.ambience?.enabled ?? false,
+      preset: doc.ambience?.preset ?? "office",
+      volume: doc.ambience?.volume ?? 0.25,
     },
     tags: doc.tags ?? [],
     mip_opt_out: doc.mip_opt_out ?? false,

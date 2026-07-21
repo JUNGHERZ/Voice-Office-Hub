@@ -6,6 +6,34 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.8] – 2026-07-20
+
+Hintergrundatmosphäre im Anruf + ElevenLabs als optionale Ausgabestimme.
+
+### Added
+- **Ambience pro Agent** (`agent.ambience { enabled, preset, volume }`): eine leise Dauerschleife
+  (z. B. Büroatmosphäre), die der Anrufer das ganze Gespräch über hört — auch in Sprechpausen
+  und während das LLM denkt. Der AudioSocket-Playout-Takt läuft dazu bei aktiver Ambience
+  durchgehend (statt nach ~1 s Stille zu pausieren) und mischt den Loop in jedes 20-ms-Frame
+  (int16-Clamp; `pendingMs()` zählt weiterhin nur TTS → `end_call`-Drain und Barge-in-Metrik
+  unverändert). Barge-in (`flush()`) verwirft nur TTS — die Atmosphäre läuft nahtlos weiter.
+- **Eingebaute, lizenzfreie Presets** `office` / `room` / `rain` — prozedural generiert
+  (deterministisches Seed-Rauschen + Filter, 16-s-Loop mit Crossfade, ≈ −27 dBFS), keine
+  Binär-Assets im Repo/Image, unabhängig von `AUDIO_SAMPLE_RATE`. Eigene Loops via
+  `AMBIENCE_DIR` (`<preset>.raw`, slin 16-bit LE mono) übersteuern den Generator.
+- **`GET /api/ambience`**: Preset-Manifest für die UI; Agent-Formular mit Toggle, Preset-Select
+  und Lautstärke-Regler (0–100 %); Seed-Agent „Vertrieb Demo" (DDI 120) mit aktiver Ambience.
+- **ElevenLabs-TTS optional** (`speak.provider: "eleven_labs"`, Voice-ID in `speak.voice`):
+  Durchreiche über die Dritt-TTS-Unterstützung der Deepgram Voice Agent API (`model_id` +
+  Endpoint mit `xi-api-key`-Header). Der API-Key kommt ausschließlich aus dem Server-Env
+  (`ELEVENLABS_API_KEY`) — nie in der DB. Fehlt Key oder Voice-ID, fällt der Anruf mit
+  Warn-Log auf die Deepgram-Stimme zurück (ein Anruf scheitert nie an der TTS-Auswahl).
+
+### Notes
+- Ambience wird nur beim AudioSocket-Transport unterstützt (`MEDIA_TRANSPORT=rtp` → einmalige
+  Warnung, Anruf ohne Atmosphäre); sie landet mit in der Aufnahme (Bridge-Mix) und pausiert,
+  sobald ein Mensch den Anruf übernimmt (Transfer connected). Passthrough-Modus: ohne Ambience.
+
 ## [0.6.7] – 2026-07-20
 
 ### Fixed

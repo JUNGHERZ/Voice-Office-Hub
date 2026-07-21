@@ -10,12 +10,13 @@ import { rm } from "node:fs/promises";
 
 import type { AriChannel, AriClient } from "ari-client";
 
+import { createAmbienceMixer } from "../audio/ambience.js";
 import { config } from "../config.js";
 import * as repo from "../db/repository.js";
 import { uploadRecording } from "../db/gridfs.js";
 import { runPostCallSummary } from "../llm/summarize.js";
 import { buildCallToolset, type CallToolset, type ToolContext } from "../tools/index.js";
-import type { ResolvedAgent } from "../types.js";
+import type { ResolvedAgent, ResolvedAmbience } from "../types.js";
 import { logger } from "../util/logger.js";
 import { createVoiceAgentSession } from "../voice/factory.js";
 import type { VoiceAgentSession } from "../voice/types.js";
@@ -68,7 +69,7 @@ export interface CallHandlerDeps {
   findAgent: typeof findAgent;
   defaultAgent: typeof defaultAgent;
   handlePassthrough: typeof handlePassthrough;
-  createMedia: (callId: string, uuid: string) => CallMedia;
+  createMedia: (callId: string, uuid: string, ambience?: ResolvedAmbience) => CallMedia;
   createSession: typeof createVoiceAgentSession;
   buildCallToolset: typeof buildCallToolset;
   repo: CallRepo;
@@ -201,17 +202,27 @@ export interface CallMedia {
   enableRawEcho(): void;
   /** Noch nicht ausgespielte Audiozeit in ms (nur AudioSocket-Transport vorhanden). */
   pendingMs?(): number;
+  /** Ambience pausieren/fortsetzen (nur AudioSocket-Transport vorhanden). */
+  setAmbiencePaused?(paused: boolean): void;
 }
 
 /**
  * Transport-abhängige Media-Anbindung erzeugen.
  *  - audiosocket: Session am geteilten Server registrieren (UUID-Zuordnung)
- *  - rtp: per-Anruf UDP-Bridge
+ *  - rtp: per-Anruf UDP-Bridge (ohne Playout-Takt → keine Ambience-Unterstützung)
  */
-function createMedia(callId: string, uuid: string): CallMedia {
-  return config.audio.transport === "rtp"
-    ? new MediaBridge(config.audio.externalMediaPort, callId)
-    : audioSocketServer.register(uuid, callId);
+let rtpAmbienceWarned = false; // Hinweis nur einmal pro Prozess
+function createMedia(callId: string, uuid: string, ambience?: ResolvedAmbience): CallMedia {
+  if (config.audio.transport === "rtp") {
+    if (ambience?.enabled && !rtpAmbienceWarned) {
+      rtpAmbienceWarned = true;
+      logger.child({ mod: "call" }).warn(
+        "Ambience wird nur beim AudioSocket-Transport unterstützt — übersprungen (MEDIA_TRANSPORT=rtp)",
+      );
+    }
+    return new MediaBridge(config.audio.externalMediaPort, callId);
+  }
+  return audioSocketServer.register(uuid, callId, createAmbienceMixer(ambience, callId));
 }
 
 /** externalMedia-Kanal passend zum Transport anlegen (UUID = AudioSocket-Connection-ID). */
@@ -393,7 +404,7 @@ async function runAgentCall(
 
     // externalMedia-Kanal: Asterisk streamt Audio (AudioSocket/TCP oder RTP) an uns.
     const uuid = randomUUID();
-    media = deps.createMedia(channel.id, uuid);
+    media = deps.createMedia(channel.id, uuid, agent.ambience);
     await media.start();
 
     externalChannel = await createExternalMedia(client, uuid);
@@ -427,6 +438,7 @@ async function runAgentCall(
         if (result.connected) {
           // Mensch hat übernommen → Agent voll stumm, hört NICHT mit. Anruf läuft Anrufer ↔ Mitarbeiter.
           transferActive = true;
+          media?.setAmbiencePaused?.(true); // Ambience gehört nicht ins durchgestellte Gespräch
           calleeChannel = result.channel;
           // Legt der Mitarbeiter auf, endet der ganze Anruf (Caller-Hangup deckt cleanup ohnehin ab).
           client.on("ChannelDestroyed", onCalleeGone);

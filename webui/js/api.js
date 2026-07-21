@@ -76,6 +76,9 @@ export const api = {
   // Tools (eingebaute, read-only)
   listTools: () => request("GET", "/api/tools"),
 
+  // Ambience-Presets (read-only)
+  listAmbiencePresets: () => request("GET", "/api/ambience"),
+
   // Requests (Anrufe)
   listRequests: (params = {}) => {
     const qs = new URLSearchParams();

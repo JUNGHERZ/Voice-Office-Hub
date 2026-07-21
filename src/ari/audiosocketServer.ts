@@ -12,6 +12,7 @@
 import { EventEmitter } from "node:events";
 import net from "node:net";
 
+import type { AmbienceMixer } from "../audio/ambience.js";
 import { config } from "../config.js";
 import { logger } from "../util/logger.js";
 
@@ -81,12 +82,14 @@ export class MediaSession extends EventEmitter {
   private leadIn = true; // erster Ton der Session bekommt eine Stille-Anlaufzeit
   private rawEcho = false;
   private closed = false;
+  private ambiencePaused = false;
   private readonly log;
 
   constructor(
     readonly uuid: string,
     callId: string,
     private readonly onClose: (uuid: string) => void,
+    private readonly ambience?: AmbienceMixer,
   ) {
     super();
     this.log = logger.child({ mod: "audiosocket", callId, uuid });
@@ -104,7 +107,8 @@ export class MediaSession extends EventEmitter {
     this.socket = socket;
     this.log.info("AudioSocket-Verbindung zugeordnet");
     // Greeting-Race: Audio, das vor dem Verbindungsaufbau kam, wartet in der Queue → jetzt abspielen.
-    if (this.playQueue.length) this.ensurePlayout();
+    // Mit Ambience läuft der Takt ab jetzt durchgehend (Atmosphäre auch vor dem Greeting).
+    if (this.playQueue.length || this.ambience) this.ensurePlayout();
   }
 
   /** Vom Server pro empfangenem Audio-Frame aufgerufen. */
@@ -156,13 +160,18 @@ export class MediaSession extends EventEmitter {
   /**
    * Ein Tick = genau ein 20-ms-Frame. Bei kurzer Sprechlücke wird Stille gesendet (Takt bleibt
    * erhalten → keine Mini-Aussetzer); nach ~1 s Stille wird pausiert (Ende der Äußerung).
+   * Mit aktiver Ambience läuft der Takt dauerhaft: In Sprechpausen wird die Atmosphäre
+   * statt Stille gesendet (kein Underrun-Stopp), TTS-Frames bekommen sie untergemischt.
    */
   private tick(): void {
     if (this.closed || !this.playing) return;
     const frame = this.playQueue.shift();
+    const ambience = this.ambiencePaused ? undefined : this.ambience;
     if (frame) {
-      this.writeAudio(frame);
+      this.writeAudio(ambience ? ambience.mix(frame) : frame);
       this.underruns = 0;
+    } else if (ambience) {
+      this.writeAudio(ambience.mix(null));
     } else {
       if (++this.underruns > MAX_UNDERRUN_FRAMES) {
         this.playing = false;
@@ -184,11 +193,20 @@ export class MediaSession extends EventEmitter {
   flush(): void {
     this.sendBuffer = Buffer.alloc(0);
     this.playQueue.length = 0;
+    // Barge-in verwirft nur TTS — die Ambience (und ihr Takt) läuft nahtlos weiter.
+    if (this.ambience && !this.ambiencePaused && this.playing) return;
     this.playing = false;
     if (this.playTimer) {
       clearTimeout(this.playTimer);
       this.playTimer = undefined;
     }
+  }
+
+  /** Ambience stummschalten/fortsetzen (Transfer an einen Menschen: volle Stille im Gespräch). */
+  setAmbiencePaused(paused: boolean): void {
+    this.ambiencePaused = paused;
+    // Nach einer Pause kann der Takt per Underrun-Logik gestoppt sein → neu anwerfen.
+    if (!paused && this.ambience) this.ensurePlayout();
   }
 
   private writeAudio(payload: Buffer): void {
@@ -234,8 +252,8 @@ export class AudioSocketServer {
   }
 
   /** Anruf registrieren; liefert die MediaSession, an die die UUID-Verbindung gebunden wird. */
-  register(uuid: string, callId: string): MediaSession {
-    const session = new MediaSession(uuid, callId, (u) => this.sessions.delete(u));
+  register(uuid: string, callId: string, ambience?: AmbienceMixer): MediaSession {
+    const session = new MediaSession(uuid, callId, (u) => this.sessions.delete(u), ambience);
     this.sessions.set(uuid, session);
     return session;
   }
