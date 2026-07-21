@@ -7,6 +7,7 @@
  */
 import { AgentSession } from "../deepgram/agentSession.js";
 import { buildSettings } from "../deepgram/settings.js";
+import { NativeSession } from "../native/nativeSession.js";
 import type { ResolvedAgent } from "../types.js";
 import type { FunctionDefinition, VoiceAgentSession } from "./types.js";
 
@@ -24,11 +25,14 @@ export function createVoiceAgentSession(
   switch (agent.voiceProvider) {
     case "deepgram":
       return new AgentSession(buildSettings(agent, opts.functions), opts.callId);
+    case "native":
+      // Eigene STT→LLM→TTS-Kaskade: Flux + Requesty + TTS-Matrix (Aura oder ElevenLabs
+      // je nach agent.speak.provider — Auswahl/Fallback in native/nativeSession.ts).
+      return new NativeSession(agent, opts.functions, opts.callId);
     // Geplante Adapter — Enum im Agent-Schema erst bei Implementierung freischalten:
     case "elevenlabs":
     case "openai-realtime":
     case "grok":
-    case "native":
       throw new Error(`voiceProvider "${agent.voiceProvider}" ist noch nicht implementiert`);
     default:
       throw new Error(`Unbekannter voiceProvider: ${String(agent.voiceProvider)}`);

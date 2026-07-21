@@ -14,7 +14,7 @@ export const VOICE_PROVIDERS = ["deepgram", "elevenlabs", "openai-realtime", "gr
 export type VoiceProvider = (typeof VOICE_PROVIDERS)[number];
 
 /** Nur diese Werte sind im Agent-Schema zugelassen (DB weist Nichtlauffähiges beim Speichern ab). */
-export const IMPLEMENTED_VOICE_PROVIDERS: readonly VoiceProvider[] = ["deepgram"];
+export const IMPLEMENTED_VOICE_PROVIDERS: readonly VoiceProvider[] = ["deepgram", "native"];
 
 /**
  * Tool-/Function-Definition für den Think-Schritt (JSON-Schema-Parameter).

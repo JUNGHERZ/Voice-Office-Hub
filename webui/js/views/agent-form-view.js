@@ -597,7 +597,8 @@ export default define({
                   label="Voice-Provider"
                   onglk-change="${(host, e) => setField(host, "voiceProvider", e.detail.value)}"
                 >
-                  <option value="deepgram">Deepgram (weitere Provider folgen)</option>
+                  <option value="deepgram">Deepgram Voice Agent</option>
+                  <option value="native">Native (STT→LLM→TTS-Kaskade, Flux + Aura)</option>
                 </glk-select>
 
                 <glk-input
