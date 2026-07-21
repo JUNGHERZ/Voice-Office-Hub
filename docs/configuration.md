@@ -38,6 +38,8 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `AMBIENCE_DIR` *(0.6.8)* | *(leer)* | Optionales Verzeichnis mit eigenen Ambience-Loops (`<preset>.raw`, slin 16-bit LE mono in `AUDIO_SAMPLE_RATE`, nahtlos loopbar) — übersteuert die eingebauten prozeduralen Presets. Konvertierung z. B.: `sox in.wav -r 8000 -c 1 -b 16 -e signed-integer out.raw` (CC0-Quellen: Lizenz beachten/dokumentieren). |
 | `ELEVENLABS_API_KEY` *(0.6.8)* | *(leer)* | API-Key für `speak.provider: "eleven_labs"` (Dritt-TTS über die Voice-Agent-API). Bleibt im Server-Env — Agents referenzieren nur die Voice-ID. |
 | `WEBRTC_ENABLED` *(0.6.9)* | `false` | **Web-Widget**-Kill-Switch: erzeugt SIP-over-WS-Transport + Widget-Endpoint in Asterisk und schaltet die öffentlichen Widget-Endpoints frei. Alle weiteren `WIDGET_*`-/`WEBRTC_CODECS`-Variablen: siehe [docs/webrtc.md](webrtc.md). |
+| `NATIVE_STT_URL` / `NATIVE_TTS_URL` / `NATIVE_TTS_ELEVEN_URL` *(0.6.10)* | Deepgram/ElevenLabs-Produktiv-URLs | Endpoints der **NativeSession**-Bausteine (Flux-v2-Listen, Aura-Speak-WS, ElevenLabs-`stream-input`-Basis). Keys kommen aus `DEEPGRAM_API_KEY` bzw. `ELEVENLABS_API_KEY`. |
+| `NATIVE_MIN_SENTENCE_CHARS` / `NATIVE_CONTEXT_CHARS` / `NATIVE_EAGER_EOT` *(0.6.10)* | `12` / `16000` / `false` | Satz-Chunker-Mindestlänge (LLM→TTS-Overlap), Zeichenbudget der Konversationshistorie, EagerEndOfTurn-Beobachtung (spekulativer LLM-Start = dokumentierte Ausbaustufe). |
 | `EXTERNAL_MEDIA_FORMAT` | `slin` | Asterisk-Format des externalMedia-Kanals (`slin`=8 kHz signed linear). |
 | `EXTERNAL_MEDIA_HOST` / `EXTERNAL_MEDIA_PORT` | `127.0.0.1` / `8090` | Adresse, zu der sich Asterisks AudioSocket verbindet (extern: erreichbare Host-Adresse). |
 | `UNKNOWN_NUMBER_BEHAVIOR` | `reject` | Verhalten bei Anruf an eine DDI **ohne** zugeordneten Agent: `reject` (vor Answer mit 404 ablehnen → Netz-Standardansage, 0 Kosten, kein Logeintrag), `announce` (Ansage abspielen + auflegen, kein LLM) oder `agent` (Default-Agent beantwortet — nur Dev). Siehe [Unbekannte Rufnummer](#unbekannte-rufnummer-kein-agent). |
@@ -126,7 +128,7 @@ Mongoose (Fehler → HTTP 400). Die wichtigsten Felder:
 | `name` / `enabled` | Anzeigename; `enabled:false` nimmt den Agent aus dem DDI-Routing. |
 | `targetNumbers[]` | Rufnummern (DDIs) des Agenten — der Routing-Schlüssel (E.164 empfohlen). |
 | `mode` | `agent` (KI) oder `passthrough` (+ `passthroughTarget`). |
-| `voiceProvider` *(0.6.0)* | Voice-Plattform des Anrufs. Enum enthält nur Implementiertes — heute `deepgram`; weitere Provider (elevenlabs, openai-realtime, grok, native) docken über die Factory ([voice/factory.ts](../src/voice/factory.ts)) an. |
+| `voiceProvider` *(0.6.0, erweitert 0.6.10)* | Voice-Plattform des Anrufs: `deepgram` (Voice-Agent-API, Default) oder `native` (eigene STT→LLM→TTS-Kaskade, s. u.). Weitere S2S-Provider (elevenlabs, openai-realtime, grok) docken über die Factory ([voice/factory.ts](../src/voice/factory.ts)) an. |
 | `language` | STT-Sprache (`multi`, `de`, `en` …; wirkt bei nova-3). |
 | `greeting` / `prompt` | Begrüßungssatz + System-Prompt. |
 | `listen.model` *(0.6.0)* | `nova-3` (Default) oder **Flux** (`flux-general-multi` / `flux-general-en`) mit modellintegrierter Turn-Detection. Bei Flux blendet die UI `listen.eot_threshold` / `listen.eot_timeout_ms` ein (End-of-Turn-Feintuning; leer = Deepgram-Default). |
@@ -141,6 +143,22 @@ Mongoose (Fehler → HTTP 400). Die wichtigsten Felder:
 | `useTransferCallerId` | Original-Anrufernummer als Absender bei externem Transfer (setzt `TRUNK_CLIP_NO_SCREENING=true` voraus). |
 | `summary.enabled` / `prompt` / `model` | Post-Call-Summary pro Agent (Override der `SUMMARY_*`-ENV). |
 | `tags[]` / `mip_opt_out` | Deepgram-Request-Tags / Model-Improvement-Opt-out. |
+
+#### NativeSession (`voiceProvider: "native"`, 0.6.10)
+
+Die eigene Kaskade **Flux-STT → Requesty-LLM → Streaming-TTS** nutzt dieselben Agent-Felder,
+teils mit eigener Semantik:
+
+| Feld | Wirkung im native-Modus |
+| --- | --- |
+| `listen.model` | Muss ein `flux-*`-Modell sein (modellintegriertes Turn-Taking); steht `nova-3`, fällt die Engine mit Warnung auf `flux-general-multi` zurück. `eot_threshold`/`eot_timeout_ms`/`language_hints`/`keyterms` gehen 1:1 an Flux; `smart_format` ist wirkungslos. |
+| `think.model` / `temperature` / `context_length` | Requesty-Modell (SSE-Streaming mit Tool-Calling), Temperatur (GPT-5/o1/o3-Guard), Zeichenbudget der Historie (`"max"`/leer = `NATIVE_CONTEXT_CHARS`). `think.source` wird ignoriert — native ist immer BYO-Requesty. |
+| `speak.provider` / `model` / `voice` | TTS-Matrix: `deepgram` → Aura-2-Streaming (`Clear` für Barge-in); `eleven_labs` → ElevenLabs-`stream-input` (`pcm_8000`, Voice-ID in `voice`, Modell-Default `eleven_flash_v2_5`; Barge-in trennt die Verbindung hart, der nächste Satz verbindet lazy neu). Unvollständige ElevenLabs-Konfiguration → Warnung + Aura-Fallback. |
+| `tools` / `customTools` / `mcpServers` / `summary` / `ambience` | Unverändert — Toolset-Dispatch, Transkript, Summary, Metriken und Ambience laufen identisch (der callHandler sieht keinen Unterschied). |
+
+Latenz-Transparenz: Jeder Assistant-Turn loggt `Turn-Latenz` (`total` = Sprechende→erstes
+Audio, `ttt` = LLM-First-Token, `tts` = TTS-Anlauf) — der größte Hebel ist ein schnelles
+`think.model`.
 
 ### Unbekannte Rufnummer (kein Agent)
 

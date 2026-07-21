@@ -2,13 +2,13 @@
 
 **🇬🇧 English** · [🇩🇪 Deutsch](README.de.md)
 
-[![Version](https://img.shields.io/badge/version-0.6.9-f5a623)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.10-f5a623)](CHANGELOG.md)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-success)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
-[![Changelog](https://img.shields.io/badge/changelog-0.6.9-blue)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-0.6.10-blue)](CHANGELOG.md)
 
 > **VOH-Appliance** — Voice-Office-Hub. Part of the **"*-Office-Hub"** product family
 > (sister project: Message-Office-Hub for chat/email/WhatsApp/SMS).
@@ -20,8 +20,12 @@ data center**, in a **single** Docker container.
 ## ✨ Features
 
 - 📞 **Telephony AI agent** — call answering & natural voice dialogue (Deepgram Voice Agent)
-- 🔌 **Provider-neutral engine** — voice platforms dock behind one interface: Deepgram today;
-  ElevenLabs, OpenAI Realtime, xAI Grok, and an own STT→LLM→TTS pipeline are prepared seams
+- 🔌 **Provider-neutral engine** — voice platforms dock behind one interface: Deepgram Voice
+  Agent or the **built-in native pipeline** per agent; ElevenLabs S2S, OpenAI Realtime and
+  xAI Grok are prepared seams
+- ⚡ **Native cascade (own orchestration)** — Flux STT → streaming LLM → streaming TTS with
+  sentence overlap and two-layer barge-in cancellation; noticeably snappier turns and roughly
+  a third of the bundled agent's media cost
 - 🇩🇪 **Multilingual** — German-language conversation out of the box (nova-3/Flux + Aura-2,
   STT model selectable per agent)
 - 🗣️ **TTS voices** — Deepgram Aura-2 or optionally **ElevenLabs** per agent (voice ID on the
@@ -179,11 +183,13 @@ real DDI through; demo agents via `npm run seed`), **admin UI + management API**
 Hybrids/GlassKit, JSON API + OpenAPI, login, agents CRUD, call list/detail with audio player),
 **voice-provider abstraction** (neutral `VoiceAgentSession` + factory; nova-3/Flux selectable per
 agent), **per-agent tools** (HTTP endpoints + **MCP servers** with admin-UI editors), **live call
-view** (running calls, auto-refreshing detail) and **per-call metrics** (time-to-first-audio,
-barge-ins, tool counts) — backed by 56 unit/integration tests (call lifecycle against fakes,
-toolset against a local HTTP server, MCP against an SDK loopback server).
-Next stages: further voice providers (ElevenLabs, OpenAI Realtime, Grok), own STT→LLM→TTS
-pipeline (NativeSession), WebRTC web widget.
+view** (running calls, auto-refreshing detail), **per-call metrics** (time-to-first-audio,
+barge-ins, tool counts), **background ambience**, the **embeddable WebRTC web widget** and the
+**native STT→LLM→TTS cascade** (`voiceProvider: "native"`: Flux + streaming LLM + Aura-2/
+ElevenLabs TTS) — backed by 112 unit/integration tests (call lifecycle, toolset, MCP, widget
+endpoints and all three native streaming clients against loopback servers).
+Next stages: S2S voice providers (ElevenLabs, OpenAI Realtime, Grok), fully local pipeline
+(Whisper/Ollama/Piper) for an on-prem tier, TURN support and widget theming.
 
 ## License
 

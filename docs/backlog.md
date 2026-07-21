@@ -112,9 +112,14 @@ TTS-Stimme innerhalb der Deepgram-Pipeline, heute schon möglich).
 - **Aufwand:** ~2–4 Tage inkl. Telefontests.
 
 ### 10. Kaskaden-Modus „NativeSession": STT + LLM + TTS direkt, ohne Voice-Agent-Layer (Voraussetzung 4 ✅)
-**Namensentscheidung (Nutzer, 2026-07-20):** heißt bei uns `NativeSession` —
-Modulplatz `src/native/`, `voiceProvider: "native"` (Enum wird erst bei Implementierung
-freigeschaltet).
+**✅ Umgesetzt in 0.6.10** — exakt entlang des unten skizzierten Mittelwegs: Flux-Standalone-STT
+(EndOfTurn/EagerEndOfTurn), Requesty-SSE-LLM mit Tool-Calling, Streaming-TTS-Matrix (Aura-2 oder
+ElevenLabs), Satz-Overlap, Generationszähler-Quarantäne („late work is quarantined"), einmaliger
+STT-Reconnect. Erster Live-Test 2026-07-21: gefühlt schneller als der Deepgram-Agent, Barge-in
+sauber; gemessene Turn-Latenz ~2,5–2,8 s (davon ~2,2–2,4 s LLM-First-Token → Tuning-Hebel:
+schnelleres think-Modell, später EagerEndOfTurn-Spekulation — Flag `NATIVE_EAGER_EOT` existiert).
+**Ausbaustufen:** voll-lokale Bausteine (Whisper/Ollama/Piper) für das On-Prem-Tier, Filler-Sätze,
+16-kHz-Pfad (→ 6).
 **Frage des Nutzers (2026-07-19):** Geht es auch ganz ohne externe Agentschicht — nur STT, LLM,
 TTS — wie [AVA](https://github.com/hkjarral/AVA-AI-Voice-Agent-for-Asterisk) und
 [Agent Voice Response](https://github.com/agentvoiceresponse)?

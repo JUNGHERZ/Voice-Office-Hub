@@ -43,8 +43,12 @@ Unterschied steckt allein in der `.env`. (Python wurde entfernt — die Admin-UI
    ([src/voice/types.ts](../src/voice/types.ts)); die Factory
    ([src/voice/factory.ts](../src/voice/factory.ts)) wählt die Implementierung anhand von
    `agent.voiceProvider`. Aktuell implementiert: **Deepgram**
-   ([src/deepgram/agentSession.ts](../src/deepgram/agentSession.ts)); geplant: ElevenLabs,
-   OpenAI Realtime, xAI Grok sowie `NativeSession` (eigene STT→LLM→TTS-Kaskade, `src/native/`).
+   ([src/deepgram/agentSession.ts](../src/deepgram/agentSession.ts)) und **`native` (0.6.10)** —
+   die eigene STT→LLM→TTS-Kaskade ([src/native/nativeSession.ts](../src/native/nativeSession.ts)):
+   Flux-Streaming-STT (modellintegriertes Turn-Taking) → Requesty-LLM (SSE, Tool-Calling) →
+   Aura-2- **oder** ElevenLabs-Streaming-TTS, mit Satz-Overlap (Sprechen beginnt, während das
+   LLM noch schreibt) und zweischichtiger Barge-in-Quarantäne (Server-Clear + Turn-
+   Generationszähler). Geplant: ElevenLabs-S2S, OpenAI Realtime, xAI Grok.
 
 ## Zwei Nähte (Erweiterungspunkte)
 
