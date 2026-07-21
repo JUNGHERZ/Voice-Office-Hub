@@ -106,6 +106,8 @@ export async function handleStasisStart(
   const deps: CallHandlerDeps = depsOverride ? { ...defaultDeps, ...depsOverride } : defaultDeps;
   const targetNumber = args[0] || undefined;
   const callerNumber = args[1] || undefined;
+  // Drittes Stasis-Arg: Widget-Token aus dem [webrtc-inbound]-Dialplan (leer bei Telefonie).
+  const widgetToken = args[2] || undefined;
   const log = logger.child({ mod: "call", channel: channel.id });
   log.info("StasisStart", { targetNumber, callerNumber, echoTest: config.echoTest });
 
@@ -141,7 +143,7 @@ export async function handleStasisStart(
     return;
   }
 
-  await runAgentCall(client, channel, agent, { targetNumber, callerNumber, log }, deps);
+  await runAgentCall(client, channel, agent, { targetNumber, callerNumber, widgetToken, log }, deps);
 }
 
 /**
@@ -301,6 +303,8 @@ async function runEchoTest(
 interface CallMeta {
   targetNumber?: string;
   callerNumber?: string;
+  /** Vom Web-Widget pro Anruf generiertes Token (SIP-Header → Dialplan → Stasis-Arg 3). */
+  widgetToken?: string;
   log: ReturnType<typeof logger.child>;
 }
 
@@ -320,6 +324,7 @@ async function runAgentCall(
     mode: "agent",
     callerNumber: meta.callerNumber,
     targetNumber: meta.targetNumber,
+    ...(meta.widgetToken ? { widgetToken: meta.widgetToken } : {}),
     ...(agent.id ? { agentId: agent.id as unknown as never } : {}),
   });
 

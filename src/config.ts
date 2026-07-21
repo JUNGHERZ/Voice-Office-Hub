@@ -67,6 +67,24 @@ export interface Config {
   elevenlabs: {
     apiKey: string;
   };
+  /** WebRTC-Web-Widget (0.6.9): Browser-Softphone über Asterisk chan_pjsip/WS. */
+  widget: {
+    /** Kill-Switch: ohne WEBRTC_ENABLED=true liefert der Session-Endpoint 404. */
+    enabled: boolean;
+    /** SIP-Benutzer des Widget-Endpoints (pjsip_webrtc.conf). */
+    sipUser: string;
+    /** Deployment-SIP-Passwort; ohne ENV generiert es der entrypoint pro Container-Start. */
+    sipPassword: string;
+    /** Escape-Hatch: feste WS-URL (z. B. Sonder-Proxy); leer = aus Request-Host abgeleitet. */
+    wsUrlOverride: string;
+    /** STUN-Server für ICE im Browser. */
+    stunServer: string;
+    /** Max. gleichzeitige Web-Anrufe (Session-Endpoint lehnt darüber ab). */
+    maxConcurrent: number;
+    /** Rate-Limits für den Session-Endpoint (Anfragen pro Minute). */
+    sessionRatePerMinIp: number;
+    sessionRatePerMinKey: number;
+  };
   defaultAgent: {
     /** Betriebsmodus des Default-Agenten: "agent" (KI) oder "passthrough" (Durchleitung+Aufnahme). */
     mode: string;
@@ -171,6 +189,16 @@ export const config: Config = {
   },
   elevenlabs: {
     apiKey: opt("ELEVENLABS_API_KEY"),
+  },
+  widget: {
+    enabled: bool("WEBRTC_ENABLED", false),
+    sipUser: opt("WIDGET_SIP_USER", "webwidget"),
+    sipPassword: opt("WIDGET_SIP_PASSWORD"),
+    wsUrlOverride: opt("WIDGET_WS_URL"),
+    stunServer: opt("WIDGET_STUN_SERVER", "stun:stun.l.google.com:19302"),
+    maxConcurrent: int("WIDGET_MAX_CONCURRENT", 5),
+    sessionRatePerMinIp: int("WIDGET_SESSION_RATE_IP", 10),
+    sessionRatePerMinKey: int("WIDGET_SESSION_RATE_KEY", 30),
   },
   defaultAgent: {
     // "agent" (KI beantwortet) oder "passthrough" (Anruf an PASSTHROUGH_TARGET durchleiten + aufnehmen).

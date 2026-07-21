@@ -12,6 +12,8 @@ export interface NewRequestInput {
   mode: "agent" | "passthrough";
   callerNumber?: string;
   targetNumber?: string;
+  /** Web-Widget: Token für das öffentliche Live-Transkript des Anrufs. */
+  widgetToken?: string;
   agentId?: Types.ObjectId;
 }
 
@@ -37,6 +39,7 @@ export async function createRequest(input: NewRequestInput): Promise<string> {
     mode: input.mode,
     callerNumber: input.callerNumber,
     targetNumber: input.targetNumber,
+    widgetToken: input.widgetToken,
     agentId: input.agentId,
     startedAt: new Date(),
     status: "in_progress",

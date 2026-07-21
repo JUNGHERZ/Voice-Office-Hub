@@ -68,6 +68,10 @@ function emptyForm() {
     ambienceEnabled: false,
     ambiencePreset: "office",
     ambienceVolume: "25",
+    widgetEnabled: false,
+    widgetExten: "",
+    widgetOrigins: "",
+    widgetShowTranscript: true,
     tools: ["transfer_call", "end_call"],
     customTools: [],
     mcpServers: [],
@@ -78,6 +82,7 @@ function emptyForm() {
     _listen: {},
     _speak: {},
     _ambience: {},
+    _widget: {},
   };
 }
 
@@ -85,6 +90,7 @@ function emptyForm() {
 function toForm(a) {
   const listen = a.listen || {};
   const ambience = a.ambience || {};
+  const widget = a.widget || {};
   return {
     name: a.name || "",
     targetNumbers: (a.targetNumbers || []).join(", "),
@@ -113,6 +119,10 @@ function toForm(a) {
     ambienceEnabled: !!ambience.enabled,
     ambiencePreset: ambience.preset || "office",
     ambienceVolume: String(Math.round((ambience.volume != null ? ambience.volume : 0.25) * 100)),
+    widgetEnabled: !!widget.enabled,
+    widgetExten: widget.exten || "",
+    widgetOrigins: (widget.allowedOrigins || []).join("\n"),
+    widgetShowTranscript: widget.showTranscript !== false,
     tools: a.tools && a.tools.length ? [...a.tools] : ["transfer_call", "end_call"],
     customTools: (a.customTools || []).map((t) => ({ ...t, endpoint: { ...(t.endpoint || {}) } })),
     mcpServers: (a.mcpServers || []).map((s) => ({ ...s })),
@@ -122,6 +132,7 @@ function toForm(a) {
     _listen: { ...listen },
     _speak: { ...(a.speak || {}) },
     _ambience: { ...ambience },
+    _widget: { ...widget },
   };
 }
 
@@ -172,6 +183,17 @@ function toBody(f) {
       enabled: f.ambienceEnabled,
       preset: f.ambiencePreset,
       volume: Math.max(0, Math.min(1, Number(f.ambienceVolume) / 100 || 0)),
+    },
+    // widget.key wird server-seitig verwaltet (Client-Werte zählen nie).
+    widget: {
+      ...f._widget,
+      enabled: f.widgetEnabled,
+      exten: f.widgetExten.trim() || undefined,
+      allowedOrigins: f.widgetOrigins
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      showTranscript: f.widgetShowTranscript,
     },
     enabled: f.enabled,
   };
@@ -471,6 +493,23 @@ async function save(host) {
   }
 }
 
+async function rotateWidgetKey(host) {
+  if (!host.agentId) return;
+  try {
+    const res = await api.rotateWidgetKey(host.agentId);
+    host.form = { ...host.form, _widget: { ...host.form._widget, key: res.key } };
+  } catch (e) {
+    host.error = "Key-Rotation fehlgeschlagen.";
+  }
+}
+
+function copyWidgetSnippet(host) {
+  const key = host.form._widget && host.form._widget.key;
+  if (!key) return;
+  const snippet = `<script src="${location.origin}/widget.js" data-widget-key="${key}" async></script>`;
+  navigator.clipboard && navigator.clipboard.writeText(snippet);
+}
+
 async function confirmDelete(host) {
   host.confirmOpen = false;
   if (!host.agentId) return;
@@ -676,6 +715,63 @@ export default define({
                     Leise Dauerschleife, die der Anrufer das ganze Gespräch über hört (auch in
                     Sprechpausen). Landet mit in der Aufnahme; pausiert bei Übergabe an einen Menschen.
                   </div>
+                `}
+
+                <glk-divider></glk-divider>
+
+                <glk-toggle
+                  label="Web-Widget (einbettbares Browser-Softphone)"
+                  checked="${f.widgetEnabled}"
+                  onglk-change="${(host, e) => setField(host, "widgetEnabled", e.detail.checked)}"
+                ></glk-toggle>
+                ${f.widgetEnabled &&
+                html`
+                  <glk-input
+                    label="Pseudo-Durchwahl (widget.exten)"
+                    value="${f.widgetExten}"
+                    placeholder="z. B. 120"
+                    hint="3-stellig; muss auch unter Zielrufnummern stehen (dorthin routet der Web-Anruf)"
+                    onglk-input="${(host, e) => setField(host, "widgetExten", e.detail.value)}"
+                  ></glk-input>
+                  <glk-textarea
+                    label="Erlaubte Websites (eine Origin pro Zeile)"
+                    rows="3"
+                    value="${f.widgetOrigins}"
+                    placeholder="https://kunde.de"
+                    onglk-input="${(host, e) => setField(host, "widgetOrigins", e.detail.value)}"
+                  ></glk-textarea>
+                  <div class="empty-hint">
+                    Nur diese Websites dürfen das Widget einbetten (CSP frame-ancestors). Die
+                    Appliance-Domain selbst ist immer erlaubt (Demo-Seite).
+                  </div>
+                  <glk-toggle
+                    label="Live-Transkript im Widget anzeigen"
+                    checked="${f.widgetShowTranscript}"
+                    onglk-change="${(host, e) => setField(host, "widgetShowTranscript", e.detail.checked)}"
+                  ></glk-toggle>
+                  ${f._widget && f._widget.key
+                    ? html`
+                        <glk-input label="Widget-Key (server-verwaltet)" value="${f._widget.key}" readonly></glk-input>
+                        <div class="group-head">
+                          <glk-button size="sm" variant="secondary" onclick="${copyWidgetSnippet}">
+                            Embed-Snippet kopieren
+                          </glk-button>
+                          <glk-button
+                            size="sm"
+                            variant="secondary"
+                            onclick="${(host) => window.open(`/widget-demo.html?key=${encodeURIComponent(host.form._widget.key)}`, "_blank")}"
+                          >
+                            Demo öffnen
+                          </glk-button>
+                          <glk-button size="sm" variant="tertiary" onclick="${rotateWidgetKey}">
+                            Schlüssel rotieren
+                          </glk-button>
+                        </div>
+                      `
+                    : html`<div class="empty-hint">
+                        Der Widget-Key wird beim Speichern erzeugt — danach erscheinen hier
+                        Embed-Snippet und Demo-Link.
+                      </div>`}
                 `}
 
                 <glk-divider></glk-divider>

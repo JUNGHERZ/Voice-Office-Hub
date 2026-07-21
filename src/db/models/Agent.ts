@@ -138,6 +138,36 @@ const AmbienceSchema = new Schema(
   { _id: false },
 );
 
+/**
+ * Web-Widget (einbettbares Browser-Softphone, 0.6.9). `key` wird server-seitig
+ * generiert (agents-Route) und nie vom Client übernommen; `exten` ist die 3-stellige
+ * Pseudo-Durchwahl, die der Browser wählt — sie muss zusätzlich in `targetNumbers`
+ * stehen, damit das normale DDI-Routing greift. `allowedOrigins` steuert per
+ * CSP frame-ancestors, welche Websites das Widget einbetten dürfen.
+ */
+const WidgetSchema = new Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    key: { type: String },
+    exten: {
+      type: String,
+      match: [/^\d{3}$/, "widget.exten: dreistellige Durchwahl (z. B. 120)"],
+    },
+    allowedOrigins: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: (origins: string[]) =>
+          origins.every((o) => /^https?:\/\/[^/\s]+$/i.test(o)),
+        message: "widget.allowedOrigins: Origins ohne Pfad, z. B. https://kunde.de",
+      },
+    },
+    // Live-Transkript im Widget anzeigen (öffentlicher, token-gebundener Endpoint).
+    showTranscript: { type: Boolean, default: true },
+  },
+  { _id: false },
+);
+
 const AgentSchema = new Schema(
   {
     name: { type: String, required: true },
@@ -188,11 +218,40 @@ const AgentSchema = new Schema(
     },
     summary: { type: SummarySchema, default: () => ({}) },
     ambience: { type: AmbienceSchema, default: () => ({}) },
+    widget: { type: WidgetSchema, default: () => ({}) },
     tags: { type: [String], default: [] },
     mip_opt_out: { type: Boolean, default: false },
   },
   { timestamps: true, collection: "agents" },
 );
+
+// Widget nur aktivierbar, wenn die Pseudo-Durchwahl gesetzt ist UND als DDI geroutet wird.
+// Läuft in ZWEI Kontexten: als Dokument-Validator (create/save → `this` = Dokument) und als
+// Update-Validator (findByIdAndUpdate + runValidators + context:"query" → `this` = Query;
+// targetNumbers dann aus dem Update lesen — die UI PATCHt immer den vollen Body).
+AgentSchema.path("widget").validate(function (this: unknown, w: {
+  enabled?: boolean;
+  exten?: string;
+}) {
+  if (!w?.enabled) return true;
+  if (!w.exten) return false;
+  const ctx = this as {
+    targetNumbers?: string[];
+    getUpdate?: () => Record<string, unknown> | null;
+  };
+  let numbers = ctx?.targetNumbers;
+  if (!numbers && typeof ctx?.getUpdate === "function") {
+    const update = ctx.getUpdate() ?? {};
+    const set = (update as { $set?: Record<string, unknown> }).$set ?? {};
+    numbers = ((update as Record<string, unknown>).targetNumbers ?? set.targetNumbers) as
+      | string[]
+      | undefined;
+  }
+  // Partielles API-Update ohne targetNumbers: nicht blockieren (exten-Pflicht ist geprüft;
+  // Routing-Konsistenz stellt der Voll-PATCH der UI bzw. das nächste Speichern sicher).
+  if (!Array.isArray(numbers)) return true;
+  return numbers.includes(w.exten);
+}, "Widget: exten muss gesetzt sein und in targetNumbers stehen");
 
 export type AgentDoc = InferSchemaType<typeof AgentSchema>;
 export const Agent = model("Agent", AgentSchema);

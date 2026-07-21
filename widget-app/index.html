@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sprach-Assistent</title>
+<!--
+  Widget-iframe-Seite (self-contained, kein Build). Wird AUSSCHLIESSLICH über
+  GET /widget/:key ausgeliefert (setzt frame-ancestors). Ablauf:
+    Anruf-Klick → POST /api/widget/session (same-origin) → sip.js: registerloses
+    INVITE über SIP-over-WebSocket an die Pseudo-DDI → Audio bidirektional.
+  Der Orb pulsiert ECHT pegelgesteuert (AnalyserNode am Agent-Audio); Zustände gehen
+  gedrosselt per postMessage an den Loader (nur Zustand, nie Audio/Inhalte).
+-->
+<style>
+  :root {
+    --bg: #f5f7f8; --card: #ffffff; --ink: #17232a; --muted: #5c6e77;
+    --accent: #0f766e; --accent-soft: rgba(15, 118, 110, 0.14);
+    --danger: #b42318; --line: #dbe3e6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101619; --card: #172025; --ink: #e6edf0; --muted: #93a6ad;
+      --accent: #2dd4bf; --accent-soft: rgba(45, 212, 191, 0.16);
+      --danger: #f97066; --line: #27343a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--ink); display: flex; flex-direction: column;
+    font-size: 15px; line-height: 1.45;
+  }
+  header {
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  }
+  header .name { font-weight: 650; font-size: 14px; }
+  header .status { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 18px 16px; gap: 14px; }
+
+  .orb-wrap { position: relative; width: 120px; height: 120px; display: grid; place-items: center; }
+  .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; }
+  .orb {
+    width: 84px; height: 84px; border-radius: 50%;
+    background: radial-gradient(circle at 32% 30%, var(--accent-soft), transparent 60%), var(--card);
+    border: 2px solid var(--accent);
+    display: grid; place-items: center; font-size: 30px;
+    transition: transform 60ms linear; will-change: transform;
+  }
+  .orb .mic-dot {
+    position: absolute; bottom: 6px; right: 8px; width: 10px; height: 10px; border-radius: 50%;
+    background: var(--muted); opacity: 0.35; transition: opacity 120ms, background 120ms;
+  }
+  .orb .mic-dot.active { background: var(--accent); opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .orb { transition: none !important; transform: none !important; }
+    .ring { display: none; }
+  }
+
+  .timer { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; min-height: 18px; }
+
+  button {
+    font: inherit; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); cursor: pointer; padding: 10px 18px;
+  }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn-call { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 650; padding: 12px 26px; }
+  .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .controls { display: flex; gap: 10px; }
+  .hint { color: var(--muted); font-size: 12.5px; text-align: center; max-width: 30ch; }
+  .error { color: var(--danger); font-size: 13px; text-align: center; max-width: 34ch; }
+
+  .transcript-toggle { font-size: 12.5px; padding: 6px 12px; color: var(--muted); }
+  .transcript {
+    width: 100%; max-height: 150px; overflow-y: auto; border-top: 1px solid var(--line);
+    padding: 10px 14px; display: none; flex-direction: column; gap: 6px; font-size: 13px;
+  }
+  .transcript.open { display: flex; }
+  .turn { max-width: 85%; padding: 6px 10px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); }
+  .turn.caller { align-self: flex-end; background: var(--accent-soft); border-color: transparent; }
+  .turn .who { font-size: 10.5px; color: var(--muted); margin-bottom: 1px; }
+  footer { padding: 6px 12px; text-align: center; font-size: 10.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <span class="name" id="agentName">Sprach-Assistent</span>
+  <span class="status" id="statusText">Bereit</span>
+</header>
+<main>
+  <div class="orb-wrap">
+    <div class="ring" id="ring1"></div>
+    <div class="ring" id="ring2"></div>
+    <div class="orb" id="orb"><span id="orbIcon">🎙️</span><span class="mic-dot" id="micDot"></span></div>
+  </div>
+  <div class="timer" id="timer"></div>
+  <div class="error" id="errorText" hidden></div>
+  <div class="controls" id="controls">
+    <button class="btn-call" id="callBtn">Anruf starten</button>
+  </div>
+  <div class="hint" id="hint">Kostenloser Anruf über Ihren Browser — Mikrofonzugriff erforderlich.</div>
+  <button class="transcript-toggle" id="transcriptToggle" hidden>Transkript anzeigen</button>
+</main>
+<div class="transcript" id="transcript" aria-live="polite"></div>
+<footer>Voice-Office-Hub</footer>
+<audio id="remoteAudio" autoplay hidden></audio>
+
+<script type="module">
+  import { UserAgent, Inviter, SessionState } from "/vendor/sipjs/index.js";
+
+  const $ = (id) => document.getElementById(id);
+  const widgetKey = decodeURIComponent(location.pathname.split("/").pop() || "");
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Pro Anruf ein frisches Token (32 Hex) — geht als SIP-Header mit und schaltet
+  // das token-gebundene Live-Transkript frei.
+  function newToken() {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  let state = "idle"; // idle | connecting | incall | ended | error
+  let ua = null;
+  let inviter = null;
+  let session = null; // Antwort von /api/widget/session
+  let token = "";
+  let callStartedAt = 0;
+  let timerInterval = 0;
+  let audioCtx = null;
+  let rafId = 0;
+  let lastPostedState = "";
+  let transcriptTimer = 0;
+  let transcriptAfterEnd = 0;
+  let muted = false;
+
+  // ── Zustands-/UI-Verwaltung ────────────────────────────────────────────────
+  function postState(s) {
+    if (s === lastPostedState) return;
+    lastPostedState = s;
+    try { parent.postMessage({ voh: "state", state: s }, "*"); } catch { /* egal */ }
+  }
+
+  function setStatus(text) { $("statusText").textContent = text; }
+  function showError(msg) {
+    $("errorText").textContent = msg;
+    $("errorText").hidden = !msg;
+  }
+
+  function render() {
+    const controls = $("controls");
+    controls.innerHTML = "";
+    showError("");
+    if (state === "idle" || state === "ended" || state === "error") {
+      const b = document.createElement("button");
+      b.className = "btn-call";
+      b.textContent = state === "idle" ? "Anruf starten" : "Erneut anrufen";
+      b.onclick = startCall;
+      controls.appendChild(b);
+      $("hint").hidden = state !== "idle";
+      setStatus(state === "ended" ? "Gespräch beendet" : "Bereit");
+      if (state !== "error") postState(state === "idle" ? "idle" : "ended");
+    } else if (state === "connecting") {
+      const b = document.createElement("button");
+      b.textContent = "Abbrechen";
+      b.onclick = hangup;
+      controls.appendChild(b);
+      $("hint").hidden = true;
+      setStatus("Verbinde …");
+      postState("connecting");
+    } else if (state === "incall") {
+      const mute = document.createElement("button");
+      mute.textContent = muted ? "Laut" : "Stumm";
+      mute.onclick = () => { muted = !muted; applyMute(); render(); };
+      const bye = document.createElement("button");
+      bye.className = "btn-danger";
+      bye.textContent = "Auflegen";
+      bye.onclick = hangup;
+      controls.append(mute, bye);
+      $("hint").hidden = true;
+      setStatus("Verbunden — Sie sprechen mit unserem Assistenten");
+      postState("in-call");
+    }
+  }
+
+  function startTimer() {
+    callStartedAt = Date.now();
+    timerInterval = setInterval(() => {
+      const s = Math.floor((Date.now() - callStartedAt) / 1000);
+      $("timer").textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    }, 500);
+  }
+  function stopTimer() { clearInterval(timerInterval); }
+
+  // ── Anruf-Lebenszyklus ─────────────────────────────────────────────────────
+  async function startCall() {
+    state = "connecting";
+    muted = false;
+    token = newToken();
+    render();
+    try {
+      const res = await fetch("/api/widget/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: widgetKey }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Der Dienst ist gerade nicht erreichbar.");
+      }
+      session = await res.json();
+      if (session.agentName) $("agentName").textContent = session.agentName;
+
+      ua = new UserAgent({
+        uri: UserAgent.makeURI(`sip:${session.authUser}@${session.domain}`),
+        transportOptions: { server: session.wsUrl, keepAliveInterval: 20 },
+        authorizationUsername: session.authUser,
+        authorizationPassword: session.authPassword,
+        sessionDescriptionHandlerFactoryOptions: {
+          peerConnectionConfiguration: { iceServers: session.iceServers || [] },
+        },
+        logLevel: "error",
+      });
+      await ua.start();
+
+      inviter = new Inviter(ua, UserAgent.makeURI(`sip:${session.exten}@${session.domain}`), {
+        extraHeaders: [`X-Widget-Token: ${token}`],
+        sessionDescriptionHandlerOptions: { constraints: { audio: true, video: false } },
+      });
+      inviter.stateChange.addListener(onSessionState);
+      await inviter.invite({
+        requestDelegate: {
+          onReject: () => fail("Der Assistent ist gerade nicht erreichbar. Bitte später erneut versuchen."),
+        },
+      });
+    } catch (err) {
+      const name = err && err.name;
+      if (name === "NotAllowedError" || name === "NotFoundError") {
+        fail("Mikrofonzugriff verweigert — bitte in den Browser-Einstellungen erlauben.");
+      } else {
+        fail(err && err.message ? err.message : "Verbindung fehlgeschlagen.");
+      }
+    }
+  }
+
+  function onSessionState(s) {
+    if (s === SessionState.Established) {
+      state = "incall";
+      render();
+      startTimer();
+      attachMedia();
+      startTranscript();
+    } else if (s === SessionState.Terminated) {
+      endCall(false);
+    }
+  }
+
+  function attachMedia() {
+    const pc = inviter && inviter.sessionDescriptionHandler && inviter.sessionDescriptionHandler.peerConnection;
+    if (!pc) return;
+    const remote = new MediaStream();
+    for (const r of pc.getReceivers()) if (r.track) remote.addTrack(r.track);
+    const audio = $("remoteAudio");
+    audio.srcObject = remote;
+    audio.play().catch(() => { /* autoplay-Attribut übernimmt */ });
+    startLevelMeter(pc, remote);
+  }
+
+  function applyMute() {
+    const pc = inviter && inviter.sessionDescriptionHandler && inviter.sessionDescriptionHandler.peerConnection;
+    if (!pc) return;
+    for (const s of pc.getSenders()) if (s.track) s.track.enabled = !muted;
+  }
+
+  function hangup() {
+    try {
+      if (inviter) {
+        if (inviter.state === SessionState.Established) inviter.bye();
+        else if (inviter.state === SessionState.Establishing) inviter.cancel();
+      }
+    } catch { /* egal */ }
+    endCall(true);
+  }
+
+  function fail(message) {
+    state = "error";
+    render();
+    setStatus("Fehler");
+    showError(message);
+    postState("ended");
+    cleanupCall();
+  }
+
+  function endCall(local) {
+    if (state === "ended") return;
+    if (state === "incall" || state === "connecting") {
+      state = "ended";
+      render();
+    }
+    cleanupCall();
+    // Transkript noch kurz weiterlaufen lassen (Summary-Turns trudeln nach).
+    transcriptAfterEnd = 2;
+  }
+
+  function cleanupCall() {
+    stopTimer();
+    stopLevelMeter();
+    try { ua && ua.stop(); } catch { /* egal */ }
+    ua = null;
+    inviter = null;
+  }
+
+  // ── Pegelgesteuerter Orb (echtes Agent-Audio, kein Fake) ──────────────────
+  let analyser = null;
+  let micAnalyser = null;
+  function startLevelMeter(pc, remoteStream) {
+    if (reducedMotion) { $("orb").style.boxShadow = `0 0 24px var(--accent-soft)`; return; }
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      audioCtx.createMediaStreamSource(remoteStream).connect(analyser);
+
+      const senderTrack = pc.getSenders().map((s) => s.track).find(Boolean);
+      if (senderTrack) {
+        micAnalyser = audioCtx.createAnalyser();
+        micAnalyser.fftSize = 256;
+        audioCtx.createMediaStreamSource(new MediaStream([senderTrack])).connect(micAnalyser);
+      }
+
+      const buf = new Uint8Array(analyser.fftSize);
+      const micBuf = micAnalyser ? new Uint8Array(micAnalyser.fftSize) : null;
+      let smoothing = 0;
+      const tick = () => {
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+        const level = Math.sqrt(sum / buf.length); // 0..~1
+        smoothing = smoothing * 0.8 + level * 0.2;
+        const scale = 1 + Math.min(smoothing * 2.2, 0.45);
+        $("orb").style.transform = `scale(${scale.toFixed(3)})`;
+        const speaking = smoothing > 0.02;
+        $("ring1").style.opacity = speaking ? String(Math.min(smoothing * 6, 0.55)) : "0";
+        $("ring1").style.transform = `scale(${(1 + smoothing * 3).toFixed(2)})`;
+        $("ring2").style.opacity = speaking ? String(Math.min(smoothing * 3, 0.3)) : "0";
+        $("ring2").style.transform = `scale(${(1 + smoothing * 5).toFixed(2)})`;
+        if (state === "incall") postState(speaking ? "agent-speaking" : "in-call");
+
+        if (micAnalyser && micBuf) {
+          micAnalyser.getByteTimeDomainData(micBuf);
+          let m = 0;
+          for (let i = 0; i < micBuf.length; i++) { const v = (micBuf[i] - 128) / 128; m += v * v; }
+          $("micDot").classList.toggle("active", Math.sqrt(m / micBuf.length) > 0.03);
+        }
+        rafId = requestAnimationFrame(tick);
+      };
+      rafId = requestAnimationFrame(tick);
+    } catch { /* Animation ist optional */ }
+  }
+  function stopLevelMeter() {
+    cancelAnimationFrame(rafId);
+    $("orb").style.transform = "";
+    $("ring1").style.opacity = "0";
+    $("ring2").style.opacity = "0";
+    $("micDot").classList.remove("active");
+    try { audioCtx && audioCtx.close(); } catch { /* egal */ }
+    audioCtx = null; analyser = null; micAnalyser = null;
+  }
+
+  // ── Live-Transkript (optional, token-gebunden) ────────────────────────────
+  function startTranscript() {
+    if (!session || session.showTranscript === false) return;
+    $("transcriptToggle").hidden = false;
+    if (transcriptTimer) return;
+    transcriptTimer = setInterval(pollTranscript, 2000);
+  }
+
+  async function pollTranscript() {
+    const panelOpen = $("transcript").classList.contains("open");
+    if (state !== "incall") {
+      if (transcriptAfterEnd <= 0) { clearInterval(transcriptTimer); transcriptTimer = 0; return; }
+      transcriptAfterEnd -= 1;
+    }
+    if (!panelOpen) return; // nicht offen → keine Requests
+    try {
+      const res = await fetch(`/api/widget/call/${token}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      renderTranscript(data.transcript || []);
+    } catch { /* nächster Tick */ }
+  }
+
+  function renderTranscript(turns) {
+    const box = $("transcript");
+    const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+    box.innerHTML = "";
+    for (const t of turns) {
+      const div = document.createElement("div");
+      div.className = `turn ${t.speaker === "caller" ? "caller" : "agent"}`;
+      const who = document.createElement("div");
+      who.className = "who";
+      who.textContent = t.speaker === "caller" ? "Sie" : "Assistent";
+      const text = document.createElement("div");
+      text.textContent = t.text;
+      div.append(who, text);
+      box.appendChild(div);
+    }
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }
+
+  $("transcriptToggle").onclick = () => {
+    const box = $("transcript");
+    const open = box.classList.toggle("open");
+    $("transcriptToggle").textContent = open ? "Transkript ausblenden" : "Transkript anzeigen";
+    if (open) pollTranscript();
+  };
+
+  $("callBtn").onclick = startCall;
+  render();
+</script>
+</body>
+</html>

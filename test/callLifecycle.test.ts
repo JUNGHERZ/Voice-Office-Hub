@@ -364,3 +364,14 @@ test("Ambience: Transfer connected pausiert die Ambience", async () => {
   ]);
   assert.deepEqual(s.media.ambiencePauses, [true], "genau eine Pause, kein Resume");
 });
+
+// 19 ─ Web-Widget: drittes Stasis-Arg (X-Widget-Token) landet als widgetToken am Request.
+test("Widget-Token: args[2] wird in createRequest durchgereicht", async () => {
+  const s = makeCall();
+  await s.start(["120", "web-1234", "a".repeat(32)]);
+  assert.equal(s.repo.requests[0]?.widgetToken, "a".repeat(32));
+
+  const s2 = makeCall();
+  await s2.start(); // Telefonie: kein drittes Arg
+  assert.equal(s2.repo.requests[0]?.widgetToken, undefined);
+});

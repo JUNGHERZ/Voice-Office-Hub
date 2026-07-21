@@ -6,6 +6,48 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.9] – 2026-07-21
+
+WebRTC-Web-Widget: ein **einbettbares Browser-Softphone** — Website-Besucher rufen den
+Agenten direkt im Browser an (SIP over WebSocket → Asterisk chan_pjsip). Der bestehende
+Telefonie-Pfad (Stasis → Engine → Voice-Session, Live-Ansicht/Transkript/Aufnahme/Summary/
+Metriken) läuft unverändert. Doku: `docs/webrtc.md`.
+
+### Added
+- **Asterisk (ENV-gesteuert, `WEBRTC_ENABLED`):** `transport-ws` + Endpoint `webwidget`
+  (`webrtc=yes`, DTLS-Auto-Cert, Codecs `opus,ulaw,alaw` — Opus-Modul im Ubuntu-Paket
+  verifiziert) und dedizierter Dialplan-Context `[webrtc-inbound]`: nur 3-stellige
+  Pseudo-DDIs wählbar, eindeutige Caller-ID `web-<uniqueid>` (kein Dedup-Konflikt,
+  „Web" in der Anrufliste). PUBLIC_IP-Auflösung im entrypoint vorgezogen (Trunk **und**
+  WebRTC), `icesupport` + `websocket_write_timeout` werden gesetzt.
+- **`agent.widget`** (Schema-validiert): `enabled`, `exten` (3-stellig, muss in
+  `targetNumbers` stehen), `allowedOrigins` (CSP frame-ancestors), `showTranscript`;
+  Embed-`key` server-verwaltet inkl. Rotations-Endpoint (`POST /api/agents/:id/widget/key`)
+  und Formular-Sektion (Snippet kopieren, Demo-Link).
+- **Öffentliche Widget-Endpoints** (key-/token-gebunden, ohne Login): `POST /api/widget/session`
+  (liefert WS-URL + SIP-Creds erst nach Kill-Switch-, Key-, Origin-, Rate-Limit- und
+  Concurrent-Prüfung), `GET /widget/:key` (iframe-Seite mit per-Agent-frame-ancestors),
+  `GET /api/widget/call/:token` (Live-Transkript, 120 s Nachlauf). Eigener
+  Sliding-Window-Limiter ohne neue Dependency; Fastify jetzt mit `trustProxy`.
+- **Widget-Frontend:** Loader `webui/widget.js` (ein `<script>`-Tag, Floating-Button +
+  iframe mit Mikrofon-Permission), iframe-Seite `widget-app/index.html` (sip.js 0.21 als
+  Vendor-ESM, registerloses INVITE, deutsche UI, Mute/Auflegen, **pegelgesteuerter Orb**
+  über AnalyserNode am Agent-Audio + Mikro-Indikator, optionales Live-Transkript-Panel
+  mit 2-s-Polling, Zustands-postMessage für den Button-Puls, prefers-reduced-motion),
+  Demo-/Testseite `webui/widget-demo.html`.
+- **Engine (minimal):** drittes Stasis-Argument (`X-Widget-Token` aus dem INVITE) wird als
+  `requests.widgetToken` gespeichert (sparse Index) — Grundlage des Widget-Transkripts.
+
+### Notes
+- **Single-Port-Design:** Der Admin-Server proxyt `/ws` loopback-intern an Asterisk
+  (`@fastify/http-proxy`, websocket) — EIN öffentlicher Port (8080) trägt UI, API, Widget
+  und SIP-WS. Jeder simple TLS-Proxy davor funktioniert ohne Pfad-Sonderrouten (EasyPanel-
+  Domain, OrbStack-`*.orb.local`); Asterisks HTTP-Server (trägt auch ARI) bleibt auf
+  127.0.0.1 gehärtet. Medien laufen über die bestehende host-mode RTP-Range; `PUBLIC_IP`
+  bleibt Pflicht (ICE). TURN ist eine dokumentierte Ausbaustufe (~5–10 % der Besucher
+  hinter symmetrischem NAT). Threat-Model in `docs/webrtc.md` (Worst Case bei geleaktem
+  SIP-Passwort = Gespräche mit dem Agenten; kein Trunk-Zugriff).
+
 ## [0.6.8] – 2026-07-20
 
 Hintergrundatmosphäre im Anruf + ElevenLabs als optionale Ausgabestimme.

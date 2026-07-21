@@ -83,7 +83,9 @@ export function fmtDateTime(iso) {
 
 /** "caller → target"-Kurzbeschriftung eines Anrufs. */
 export function callLabel(r) {
-  const from = r.callerNumber || "unbekannt";
+  // Web-Widget-Anrufe tragen eine synthetische Caller-ID (web-<uniqueid>) — als "Web" anzeigen.
+  const raw = r.callerNumber || "unbekannt";
+  const from = /^web-/.test(raw) ? "Web" : raw;
   const to = r.targetNumber || "—";
   return `${from} → ${to}`;
 }

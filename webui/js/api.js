@@ -79,6 +79,9 @@ export const api = {
   // Ambience-Presets (read-only)
   listAmbiencePresets: () => request("GET", "/api/ambience"),
 
+  // Web-Widget: Embed-Key rotieren (macht einen geleakten Key wertlos)
+  rotateWidgetKey: (id) => request("POST", `/api/agents/${id}/widget/key`),
+
   // Requests (Anrufe)
   listRequests: (params = {}) => {
     const qs = new URLSearchParams();

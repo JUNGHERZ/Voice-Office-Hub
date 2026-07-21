@@ -80,6 +80,9 @@ const RequestSchema = new Schema(
     mode: { type: String, enum: ["agent", "passthrough"], default: "agent" },
     callerNumber: { type: String, index: true },
     targetNumber: { type: String, index: true },
+    // Web-Widget: pro Anruf generiertes Zufalls-Token — Schlüssel für das öffentliche,
+    // token-gebundene Live-Transkript (GET /api/widget/call/:token). Sparse: Telefonie hat keins.
+    widgetToken: { type: String, index: { sparse: true } },
     forwardedTo: { type: String },
     language: { type: String },
     dgRequestId: { type: String },
