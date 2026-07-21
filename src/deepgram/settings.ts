@@ -8,6 +8,7 @@
  * audio.* und flags kommen systemweit aus der Config (Telefonie: linear16/8000).
  */
 import { config } from "../config.js";
+import { modelSupportsTemperature } from "../llm/models.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
 import type { FunctionDefinition, SettingsMessage } from "./events.js";
@@ -89,14 +90,6 @@ function buildThink(agent: ResolvedAgent, functions: FunctionDefinition[]): Sett
   }
 
   return base;
-}
-
-/**
- * GPT-5-Familie (und OpenAI-Reasoning-Modelle o1/o3) akzeptieren nur die Default-Temperatur;
- * ein abweichender Wert führt zu Upstream-400 → Deepgram meldet "Failed to think".
- */
-function modelSupportsTemperature(model: string): boolean {
-  return !/(^|\/)(gpt-5|o1|o3)/i.test(model);
 }
 
 /** Grobe Ableitung des Provider-Typs aus der Modell-ID für Deepgram-managed Modelle. */
