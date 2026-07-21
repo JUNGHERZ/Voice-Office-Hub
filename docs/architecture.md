@@ -58,7 +58,10 @@ Der `callHandler` orchestriert zwischen zwei bewusst schmal gehaltenen Schnittst
 - **Transport-Naht links — `CallMedia`** (`src/ari/callHandler.ts`): `start()`,
   `on("audio")`, `sendAudio()`, `flush()`, `pendingMs?()`, `close()` — rohes PCM in
   20-ms-Frames. Erfüllt von `MediaSession` (AudioSocket) und `MediaBridge` (RTP); ein
-  künftiger WebRTC-/Web-Ingress wäre eine dritte Implementierung dieser Schnittstelle.
+  nativer WebRTC-/Web-Ingress (ohne Asterisk) wäre eine dritte Implementierung dieser
+  Schnittstelle. Das **Web-Widget (0.6.9)** braucht sie nicht: Es geht als Browser-Softphone
+  über Asterisk selbst (SIP over WebSocket → `[webrtc-inbound]` → Stasis) — der komplette
+  Engine-Pfad bleibt identisch, siehe [docs/webrtc.md](webrtc.md).
 
 Beide Nähte werden von den Call-Lifecycle-Tests ([test/callLifecycle.test.ts](../test/callLifecycle.test.ts))
 mit Fakes belegt — der komplette Anruf-Pfad läuft dort ohne Asterisk, Cloud oder DB.

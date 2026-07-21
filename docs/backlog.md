@@ -144,14 +144,16 @@ TTS — wie [AVA](https://github.com/hkjarral/AVA-AI-Voice-Agent-for-Asterisk) u
 ## Produkt / Schnittstellen (Zukunft)
 
 ### Multi-Channel-Plattform: Telefonie + Web (WebRTC)
-Größeres Bild für das Gesamtprodukt:
-- **Deepgram Agent SDK** als Basis der Sprach-Pipeline.
-- **Telefonie-Anbindung** (das, was diese Engine aktuell umsetzt: Asterisk/ARI + AudioSocket).
-- **Web-Anbindung** voraussichtlich über **WebRTC** (Agent direkt auf einer Webseite).
-- Die **Engine** (dieser Docker-Container) stellt **gesonderte Schnittstellen** bereit, über die
-  sich „Agents" auch **auf Webseiten platzieren** lassen — mit **Animation** und **Steuerung**
-  (z. B. ein einbettbares Widget, das gegen die Engine spricht). Telefonie und Web teilen sich
-  Agent-Definitionen/Tools, aber unterschiedliche Transport-Frontends.
+**✅ V1 umgesetzt in 0.6.9** — einbettbares Web-Widget über Route (a): Browser-Softphone
+(sip.js) per SIP-over-WebSocket an Asterisk (`transport-ws`, Context `[webrtc-inbound]`,
+Pseudo-DDI), dahinter der unveränderte Stasis/Engine-Pfad. Pegelgesteuerte Sprech-Animation
+(AnalyserNode-Orb) + optionales Live-Transkript (token-gebunden). Telefonie und Web teilen
+sich Agent-Definitionen/Tools/Auswertung — genau wie hier skizziert. Doku: docs/webrtc.md.
+**Ausbaustufen:** TURN-Server (Besucher hinter symmetrischem NAT), ephemere SIP-Credentials,
+Engine-seitiges Admission-Control pro Agent; **Widget-Optik/Theming** (minimalistischere
+Varianten, Farben/Branding pro Agent — Nutzer-Wunsch vom ersten Test 2026-07-21); Route (b)
+(nativer Media-Ingress als dritte `CallMedia`-Implementierung, ohne Asterisk) bleibt als
+Latenz-Optimierung offen.
 
 ## Summary über den weitergeleiteten Gesprächsteil (Konzept)
 
