@@ -27,6 +27,7 @@ case "$cmd" in
       -p 5060:5060/udp \
       -p 10000-10100:10000-10100/udp \
       -p 8080:8080/tcp \
+      `# WebRTC/Widget braucht KEINEN Extra-Port: /ws proxyt der Admin-Server (8080) an Asterisk.` \
       `# Dev-Komfort: MongoDB nur lokal gebunden (GUI-Clients). Für Prod-Appliance entfernen.` \
       -p 127.0.0.1:27100:27017/tcp \
       -v "$(pwd)/data/db:/data/db" \

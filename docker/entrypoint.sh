@@ -36,6 +36,16 @@ else
   export SUPERVISOR_ADMIN=false
 fi
 
+# Öffentliche IP FRÜH auflösen — sie wird sowohl vom NAT-Rewrite (unten) als auch von der
+# WebRTC-Transport-Generierung gebraucht. Explizit setzen (PUBLIC_IP, empfohlen) oder bei
+# aktivem Trunk/WebRTC best-effort automatisch ermitteln.
+PUBLIC_IP="${PUBLIC_IP:-${EXTERNAL_IP:-}}"
+if [[ "${EMBED_ASTERISK:-true}" == "true" && -z "${PUBLIC_IP}" ]] \
+   && [[ "${TRUNK_ENABLED:-false}" == "true" || "${WEBRTC_ENABLED:-false}" == "true" ]]; then
+  PUBLIC_IP="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
+  [[ -n "${PUBLIC_IP}" ]] && echo "entrypoint: PUBLIC_IP automatisch ermittelt: ${PUBLIC_IP}"
+fi
+
 # SIP-Trunk (Appliance, ENV-gesteuert). Erzeugt /etc/asterisk/pjsip_trunk.conf, das pjsip.conf
 # per #include lädt. Leer, wenn TRUNK_ENABLED!=true. Mehrere Trunks / Admin-UI-Verwaltung später
 # (Datenmodell N-Trunk-fähig vorgesehen) — siehe docs/backlog.md.
@@ -181,17 +191,83 @@ else
   echo "; Keine lokalen Softphones (DEV_SOFTPHONE_ENABLED!=true)." > "$LOCAL_FILE"
 fi
 
+# WebRTC-Web-Widget (0.6.9): SIP-over-WebSocket-Transport + Endpoint für das Browser-
+# Softphone. Das SIP-Passwort ist ein Deployment-Secret: aus der ENV oder pro
+# Container-Start frisch generiert; der export macht es dem Admin-Prozess sichtbar,
+# der es NUR über den key-geschützten Session-Endpoint ausliefert.
+WEBRTC_FILE=/etc/asterisk/pjsip_webrtc.conf
+if [[ "${EMBED_ASTERISK:-true}" == "true" && "${WEBRTC_ENABLED:-false}" == "true" ]]; then
+  export WIDGET_SIP_PASSWORD="${WIDGET_SIP_PASSWORD:-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')}"
+  WEBRTC_CODECS="${WEBRTC_CODECS:-!all,opus,ulaw,alaw}"
+
+  {
+    echo "; AUTO-GENERIERT vom entrypoint (WEBRTC_ENABLED=true)."
+    echo "; Browser verbinden sich über wss://<domain>/ws (Traefik terminiert TLS) bzw."
+    echo "; lokal über ws://localhost:8088/ws — hier kommt der Hop als plain ws an."
+    echo "[transport-ws]"
+    echo "type = transport"
+    echo "protocol = ws"
+    echo "bind = 0.0.0.0"
+    if [[ -n "${PUBLIC_IP}" ]]; then
+      echo "external_media_address = ${PUBLIC_IP}"
+      echo "external_signaling_address = ${PUBLIC_IP}"
+      IFS=',' read -ra _wnets <<< "${LOCAL_NETS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+      for n in "${_wnets[@]}"; do echo "local_net = ${n}"; done
+    fi
+  } > "$WEBRTC_FILE"
+
+  cat >> "$WEBRTC_FILE" <<EOF
+
+; webrtc=yes impliziert: use_avpf, ice_support, media_encryption=dtls, rtcp_mux,
+; dtls_verify=fingerprint. Eigener Context begrenzt, was ein Web-Anrufer wählen kann.
+[webwidget]
+type = endpoint
+context = webrtc-inbound
+disallow = all
+allow = ${WEBRTC_CODECS}
+webrtc = yes
+dtls_auto_generate_cert = yes
+auth = webwidget-auth
+aors = webwidget
+direct_media = no
+rtp_symmetric = yes
+force_rport = yes
+rewrite_contact = yes
+callerid = Web-Widget <web>
+
+[webwidget-auth]
+type = auth
+auth_type = userpass
+username = ${WIDGET_SIP_USER:-webwidget}
+password = ${WIDGET_SIP_PASSWORD}
+
+[webwidget]
+type = aor
+max_contacts = 1
+EOF
+
+  # Asterisks HTTP-Server bleibt bewusst auf 127.0.0.1 (Härtung, trägt auch ARI):
+  # den /ws-Endpoint proxyt der Admin-Server (Port 8080) loopback-intern durch.
+  grep -q websocket_write_timeout /etc/asterisk/http.conf || \
+    echo "websocket_write_timeout = 10000" >> /etc/asterisk/http.conf
+  # ICE für WebRTC-Medien (Browser <-> Asterisk über die bestehende RTP-Range).
+  grep -q icesupport /etc/asterisk/rtp.conf || \
+    printf 'icesupport = yes\n' >> /etc/asterisk/rtp.conf
+  if [[ -z "${PUBLIC_IP}" ]]; then
+    echo "WARNUNG: WEBRTC_ENABLED=true ohne PUBLIC_IP — hinter NAT droht einseitiges Audio (lokal via OrbStack ok)."
+  fi
+  echo "entrypoint: WebRTC-Widget aktiviert (Endpoint webwidget; /ws kommt via Admin-Proxy :8080)"
+else
+  echo "; Kein WebRTC (WEBRTC_ENABLED!=true)." > "$WEBRTC_FILE"
+fi
+
 # NAT: Läuft Asterisk hinter Docker-/Host-NAT (z. B. Container mit öffentlichem Host),
 # muss es seine ÖFFENTLICHE IP in SDP/Contact annoncieren — sonst schickt die Gegenstelle
-# RTP an die interne Container-IP (einseitiges/stummes Audio). PUBLIC_IP explizit setzen
-# (empfohlen) oder bei aktivem Trunk best-effort automatisch ermitteln. local_net hält
-# interne Subnetze vom Rewrite aus. Bei externer PBX (EMBED_ASTERISK=false) irrelevant.
+# RTP an die interne Container-IP (einseitiges/stummes Audio). PUBLIC_IP wurde oben
+# aufgelöst; das sed unten ankert bewusst NUR den UDP-Transport in pjsip.conf (der
+# WebRTC-ws-Transport bekommt seine external-Adressen direkt bei der Generierung).
+# local_net hält interne Subnetze vom Rewrite aus. Bei externer PBX irrelevant.
 if [[ "${EMBED_ASTERISK:-true}" == "true" ]]; then
-  PUBLIC_IP="${PUBLIC_IP:-${EXTERNAL_IP:-}}"
-  if [[ -z "${PUBLIC_IP}" && "${TRUNK_ENABLED:-false}" == "true" ]]; then
-    PUBLIC_IP="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
-    [[ -n "${PUBLIC_IP}" ]] && echo "entrypoint: PUBLIC_IP automatisch ermittelt: ${PUBLIC_IP}"
-  fi
   if [[ -n "${PUBLIC_IP}" ]] && ! grep -q external_media_address /etc/asterisk/pjsip.conf; then
     LOCAL_NETS="${LOCAL_NETS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
     NAT_LINES="external_media_address = ${PUBLIC_IP}\nexternal_signaling_address = ${PUBLIC_IP}"

@@ -45,6 +45,10 @@ COPY package.json ./
 # Admin-UI/API-Frontend (statisch, kein Build): Hybrids + GlassKit werden aus node_modules serviert.
 COPY webui ./webui
 
+# Web-Widget-Seite (iframe-Inhalt): bewusst NICHT unter webui/ — sie wird ausschließlich über
+# die dynamische Route GET /widget/:key ausgeliefert (setzt den frame-ancestors-CSP-Header).
+COPY widget-app ./widget-app
+
 # Asterisk-Konfiguration: unsere Dateien überschreiben die Paket-Defaults
 # (ari.conf, http.conf, pjsip.conf, extensions.conf, rtp.conf, modules.conf).
 COPY docker/asterisk/ /etc/asterisk/
@@ -59,7 +63,8 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
     && mkdir -p /var/spool/asterisk/recording \
     && chown -R asterisk:asterisk /var/spool/asterisk/recording
 
-# Ports: SIP (UDP), RTP-Range, Admin-UI. ARI(8088)/Media bleiben intern.
+# Ports: SIP (UDP), RTP-Range, Admin-UI. ARI/WS(8088)/Media bleiben strikt intern —
+# den Widget-/ws-Pfad proxyt der Admin-Server (8080) loopback-intern an Asterisk durch.
 EXPOSE 5060/udp 10000-10100/udp 8080/tcp
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
