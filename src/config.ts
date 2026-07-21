@@ -67,6 +67,22 @@ export interface Config {
   elevenlabs: {
     apiKey: string;
   };
+  /**
+   * NativeSession (0.6.10): eigene STT→LLM→TTS-Kaskade als voiceProvider "native".
+   * Nutzt die vorhandenen Keys (deepgram.apiKey für STT+TTS, llm.* für das LLM).
+   */
+  native: {
+    /** Flux-Streaming-STT (v2-Listen-WS). */
+    sttUrl: string;
+    /** Aura-Streaming-TTS (Speak-WS). */
+    ttsUrl: string;
+    /** Mindestlänge (Zeichen), bevor der Satz-Chunker einen Satz an die TTS gibt. */
+    minSentenceChars: number;
+    /** Spekulativer LLM-Start auf EagerEndOfTurn — v1 nur geloggt, nicht aktiv. */
+    eagerEot: boolean;
+    /** Zeichenbudget der Konversationshistorie (Fallback, wenn agent.think.context_length fehlt). */
+    contextChars: number;
+  };
   /** WebRTC-Web-Widget (0.6.9): Browser-Softphone über Asterisk chan_pjsip/WS. */
   widget: {
     /** Kill-Switch: ohne WEBRTC_ENABLED=true liefert der Session-Endpoint 404. */
@@ -189,6 +205,13 @@ export const config: Config = {
   },
   elevenlabs: {
     apiKey: opt("ELEVENLABS_API_KEY"),
+  },
+  native: {
+    sttUrl: opt("NATIVE_STT_URL", "wss://api.deepgram.com/v2/listen"),
+    ttsUrl: opt("NATIVE_TTS_URL", "wss://api.deepgram.com/v1/speak"),
+    minSentenceChars: int("NATIVE_MIN_SENTENCE_CHARS", 12),
+    eagerEot: bool("NATIVE_EAGER_EOT", false),
+    contextChars: int("NATIVE_CONTEXT_CHARS", 16000),
   },
   widget: {
     enabled: bool("WEBRTC_ENABLED", false),
