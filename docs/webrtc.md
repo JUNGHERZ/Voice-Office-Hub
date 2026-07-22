@@ -29,7 +29,10 @@ durch. Dadurch funktioniert jeder simple TLS-Proxy davor ohne Pfad-Sonderrouten
 (der auch ARI trägt) bleibt auf `127.0.0.1` gehärtet.
 
 - **Route:** Der Browser wählt die **Pseudo-Durchwahl** des Agenten (`widget.exten`, z. B. `120`).
-  Sie muss auch in `targetNumbers` stehen — dann greift das normale DDI-Routing.
+  Sie muss auch in `targetNumbers` stehen — dann greift das normale DDI-Routing. Seit 0.6.12
+  verwaltet der Server beides automatisch: Beim Aktivieren des Widgets wird eine freie
+  3-stellige Nummer vergeben (bzw. eine vorhandene 3-stellige DDI mitgenutzt) und in
+  `targetNumbers` ergänzt; API-Clients können weiterhin explizit eine `exten` setzen.
 - **Eigener Dialplan-Context `[webrtc-inbound]`:** Web-Anrufer können NUR 3-stellige
   Pseudo-DDIs wählen (kein Echo-Test, keine E.164-Nummern) — begrenzt den Missbrauchsradius.
   Die Caller-ID wird pro Anruf eindeutig gesetzt (`web-<uniqueid>`): kollidiert nie mit dem
@@ -42,9 +45,9 @@ durch. Dadurch funktioniert jeder simple TLS-Proxy davor ohne Pfad-Sonderrouten
 
 1. `.env`: `WEBRTC_ENABLED=true` (Kill-Switch; Default aus — dann existiert weder Transport
    noch Endpoint, und alle Widget-Endpoints liefern 404).
-2. Agent-Formular → Sektion **„Web-Widget"**: aktivieren, `exten` setzen (muss in den
-   Zielrufnummern stehen), erlaubte Websites eintragen, speichern → der **Widget-Key** wird
-   server-seitig erzeugt.
+2. Agent-Formular → Sektion **„Web-Widget"**: aktivieren, erlaubte Websites eintragen,
+   speichern → **Widget-Key** und **Pseudo-Durchwahl** werden server-seitig vergeben
+   (die Durchwahl erscheint danach automatisch unter den Zielrufnummern).
 3. Snippet auf der Kunden-Website einbinden (Button unten rechts):
 
 ```html

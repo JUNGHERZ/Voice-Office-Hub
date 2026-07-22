@@ -6,6 +6,34 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.13] – 2026-07-22
+
+### Added
+- **ElevenLabs-Stimm-Feinschliff pro Agent** (`speak.stability`, `speak.similarityBoost`,
+  `speak.speed`): wird in der nativen Kaskade als `voice_settings` mit jeder
+  (Re-)Verbindung an ElevenLabs übergeben — überlebt damit auch die harten
+  Barge-in-Disconnects. `stability`/`similarityBoost` 0–1 (Schema-validiert), `speed`
+  wird auf den erlaubten Bereich 0.7–1.2 geklemmt. Unset = Voice-Default aus dem
+  ElevenLabs-Dashboard. Im Deepgram-Agent-Modus (Dritt-TTS-Durchreiche) sind
+  `voice_settings` nicht übertragbar — dort gelten weiterhin die Dashboard-Defaults
+  der Stimme (dokumentiert).
+- **Admin-UI:** Modal „Erweiterte Stimm-Einstellungen" im Agent-Formular (sichtbar bei
+  TTS-Provider ElevenLabs), inkl. Zusammenfassungszeile und „Zurücksetzen"; Komma als
+  Dezimaltrenner wird akzeptiert.
+
+## [0.6.12] – 2026-07-22
+
+### Changed
+- **Web-Widget: Pseudo-Durchwahl (`widget.exten`) ist jetzt server-verwaltet.** Beim
+  Aktivieren des Widgets vergibt der Server automatisch eine freie 3-stellige Nummer
+  (bzw. nutzt eine vorhandene 3-stellige DDI des Agenten mit) und ergänzt sie in
+  `targetNumbers` — das manuelle Feld samt „muss auch unter Zielrufnummern
+  stehen"-Stolperfalle entfällt im Formular (Anzeige nur noch informativ). API-Clients
+  können `widget.exten` weiterhin explizit setzen; der Schema-Validator bleibt als
+  Sicherheitsnetz bestehen. Behebt den Fehlversuch, das Widget an einem Agenten mit
+  reiner E.164-Nummer zu aktivieren („Widget: exten muss gesetzt sein und in
+  targetNumbers stehen" trotz korrekt wirkender Eingaben).
+
 ## [0.6.11] – 2026-07-22
 
 ### Fixed
