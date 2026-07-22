@@ -106,6 +106,44 @@ test("ElevenLabsTtsStream: Base64-Audio und isFinal", async () => {
   await srv.close();
 });
 
+// 2b ─ Verbrauchszählung: exakt die gesendeten text-Felder (Init-Space, Sätze inkl.
+//      Trailing-Space, Flush-Space); Credits = Zeichen × 0,5 bei Flash-Modellen.
+test("ElevenLabsTtsStream: usage() zählt gesendete Zeichen und Credits", async () => {
+  const srv = startServer();
+  const tts = new ElevenLabsTtsStream(makeOpts(), "call-2b");
+  await tts.start();
+
+  tts.sendText("Hallo Welt."); // → "Hallo Welt. " (12)
+  tts.sendText("Zweiter Satz. "); // Trailing Space schon da (14)
+  tts.flush(); // " " (1)
+  await waitFor(() => srv.state.texts.length === 4);
+
+  const u = tts.usage();
+  assert.equal(u.provider, "eleven_labs");
+  assert.equal(u.model, "eleven_flash_v2_5");
+  assert.equal(u.characters, 1 + 12 + 14 + 1, "Init + zwei Sätze + Flush");
+  assert.equal(u.credits, u.characters * 0.5, "Flash: 0,5 Credits/Zeichen");
+
+  tts.close();
+  await srv.close();
+});
+
+// 2c ─ Nicht gesendete Texte zählen nicht: clear() verwirft Gepuffertes vor dem Connect.
+test("ElevenLabsTtsStream: usage() ignoriert per clear() verworfene Puffer", async () => {
+  const srv = startServer();
+  const tts = new ElevenLabsTtsStream(makeOpts(), "call-2c");
+  tts.on("error", () => {}); // abgebrochener Lazy-Connect darf den Test nicht crashen
+  // Ohne start(): sendText puffert und verbindet lazy — clear() räumt vorher ab.
+  tts.sendText("Wird nie gesendet.");
+  tts.clear();
+  await new Promise((r) => setTimeout(r, 80));
+
+  // Nur der ggf. schon aufgebaute Kontext (Init-Space) darf zählen, nie der Satz.
+  assert.ok(tts.usage().characters <= 1, "verworfener Text wird nicht berechnet");
+  tts.close();
+  await srv.close();
+});
+
 // 3 ─ Barge-in: clear() trennt hart (kein Server-Clear) und stummschaltet in-flight-Audio;
 //     der nächste Satz verbindet lazy neu (inkl. frischer Init-Message).
 test("ElevenLabsTtsStream: clear() trennt, sendText verbindet neu", async () => {

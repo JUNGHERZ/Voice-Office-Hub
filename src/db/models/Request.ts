@@ -60,6 +60,11 @@ const MetricsSchema = new Schema(
     toolErrors: { type: Number, default: 0 },
     voiceProvider: { type: String },
     sttModel: { type: String },
+    // TTS-Verbrauch (nur native, zeichengenau wie an den Anbieter gesendet).
+    ttsProvider: { type: String },
+    ttsModel: { type: String },
+    ttsCharacters: { type: Number },
+    ttsCredits: { type: Number },
   },
   { _id: false },
 );

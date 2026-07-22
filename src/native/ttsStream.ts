@@ -15,7 +15,7 @@ import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 
 import { logger } from "../util/logger.js";
-import type { AuraServerMessage } from "./types.js";
+import type { AuraServerMessage, TtsUsage } from "./types.js";
 
 export interface TtsStreamOptions {
   url: string;
@@ -49,6 +49,8 @@ export class AuraTtsStream extends EventEmitter {
   private clearing = false;
   /** Texte, die während eines (Re-)Connects ankamen. */
   private pending: string[] = [];
+  /** Tatsächlich gesendete Zeichen (= Abrechnungsbasis; gedroppte pending-Texte zählen nicht). */
+  private charactersSent = 0;
   private readonly log;
 
   constructor(
@@ -148,7 +150,16 @@ export class AuraTtsStream extends EventEmitter {
   }
 
   private rawSend(payload: Record<string, unknown>): void {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(payload));
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    if (payload.type === "Speak" && typeof payload.text === "string") {
+      this.charactersSent += payload.text.length;
+    }
+    this.ws.send(JSON.stringify(payload));
+  }
+
+  /** Gesendeter Verbrauch (Deepgram rechnet Aura pro Zeichen ab). */
+  usage(): TtsUsage {
+    return { provider: "deepgram", model: this.opts.model, characters: this.charactersSent };
   }
 
   sendText(text: string): void {

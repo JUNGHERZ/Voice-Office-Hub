@@ -375,3 +375,23 @@ test("Widget-Token: args[2] wird in createRequest durchgereicht", async () => {
   await s2.start(); // Telefonie: kein drittes Arg
   assert.equal(s2.repo.requests[0]?.widgetToken, undefined);
 });
+
+// 17 ─ TTS-Verbrauch: getUsage() der Session landet in den finalisierten Metriken.
+test("Metriken: TTS-Verbrauch (Zeichen/Credits) landet im finalizeRequest", async () => {
+  const s = makeCall();
+  s.session.usage = {
+    ttsProvider: "eleven_labs",
+    ttsModel: "eleven_flash_v2_5",
+    ttsCharacters: 4714,
+    ttsCredits: 2357,
+  };
+  await s.start();
+
+  s.client.emitStasisEnd(s.channel);
+  await waitFor(() => s.repo.finalized.length === 1);
+  const m = s.repo.metrics;
+  assert.equal(m?.ttsProvider, "eleven_labs");
+  assert.equal(m?.ttsModel, "eleven_flash_v2_5");
+  assert.equal(m?.ttsCharacters, 4714);
+  assert.equal(m?.ttsCredits, 2357);
+});

@@ -96,6 +96,12 @@ export interface CallMetrics {
   toolErrors: number;
   voiceProvider?: string;
   sttModel?: string;
+  /** TTS-Verbrauch (nur native: dort senden WIR den Text und kennen die Abrechnungsbasis). */
+  ttsProvider?: string;
+  ttsModel?: string;
+  ttsCharacters?: number;
+  /** Nur ElevenLabs (Credit-Modell): Zeichen × Modell-Multiplikator (Flash/Turbo 0,5). */
+  ttsCredits?: number;
 }
 
 export async function finalizeRequest(

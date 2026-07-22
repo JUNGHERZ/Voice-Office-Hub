@@ -42,6 +42,7 @@ class FakeTts extends EventEmitter {
   texts: string[] = [];
   flushes = 0;
   clears = 0;
+  usageResult = { provider: "fake", model: "fake-model", characters: 0 as number, credits: undefined as number | undefined };
   async start(): Promise<void> {
     this.started = true;
   }
@@ -53,6 +54,9 @@ class FakeTts extends EventEmitter {
   }
   clear(): void {
     this.clears += 1;
+  }
+  usage() {
+    return this.usageResult;
   }
   close(): void {
     this.closed = true;
@@ -367,5 +371,22 @@ test("NativeSession: LLM-Fehler → error-Event, Session bleibt nutzbar", async 
   await waitFor(() => s.llmCalls.length === 2);
   await settle();
   assert.ok(s.tts.texts.includes("Jetzt klappt es wieder."));
+  s.session.close();
+});
+
+// 10 ─ TTS-Verbrauch: getUsage() reicht die Zahlen des TTS-Beins durch (Kostenmetrik).
+test("NativeSession: getUsage() liefert den TTS-Verbrauch", async () => {
+  const s = makeSession([]);
+  await s.session.start();
+
+  assert.equal(s.session.getUsage(), undefined, "0 Zeichen → kein Verbrauch");
+
+  s.tts.usageResult = { provider: "eleven_labs", model: "eleven_flash_v2_5", characters: 4714, credits: 2357 };
+  assert.deepEqual(s.session.getUsage(), {
+    ttsProvider: "eleven_labs",
+    ttsModel: "eleven_flash_v2_5",
+    ttsCharacters: 4714,
+    ttsCredits: 2357,
+  });
   s.session.close();
 });

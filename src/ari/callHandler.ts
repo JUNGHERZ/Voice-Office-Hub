@@ -372,6 +372,14 @@ async function runAgentCall(
     try {
       if (recording) await recording.stop();
     } catch { /* ignore */ }
+    // TTS-Verbrauch VOR dem Schließen abgreifen (Pro-Anruf-Kostenrechnung, nur native).
+    const usage = session?.getUsage?.();
+    if (usage?.ttsCharacters) {
+      metrics.ttsProvider = usage.ttsProvider;
+      metrics.ttsModel = usage.ttsModel;
+      metrics.ttsCharacters = usage.ttsCharacters;
+      if (usage.ttsCredits !== undefined) metrics.ttsCredits = usage.ttsCredits;
+    }
     session?.close();
     media?.close();
     try { await toolset?.close(); } catch { /* ignore */ }

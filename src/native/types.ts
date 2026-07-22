@@ -80,11 +80,24 @@ export interface SttStreamLike {
   on(event: string, listener: (...args: never[]) => void): unknown;
 }
 
+/**
+ * Tatsächlich an den TTS-Anbieter GESENDETER Verbrauch (= Abrechnungsbasis;
+ * gepufferte, per clear() verworfene Texte zählen nicht). credits nur bei
+ * Anbietern mit Credit-Modell (ElevenLabs: Flash/Turbo = 0,5 Credits/Zeichen).
+ */
+export interface TtsUsage {
+  provider: string;
+  model: string;
+  characters: number;
+  credits?: number;
+}
+
 export interface TtsStreamLike {
   start(): Promise<void>;
   sendText(text: string): void;
   flush(): void;
   clear(): void;
   close(): void;
+  usage?(): TtsUsage;
   on(event: string, listener: (...args: never[]) => void): unknown;
 }

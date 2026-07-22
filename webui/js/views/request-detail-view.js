@@ -137,6 +137,13 @@ export default define({
                 ${m.toolCalls} Tool${m.toolCalls === 1 ? "" : "s"}${m.toolErrors > 0 ? ` (${m.toolErrors} Fehler)` : ""}
               </glk-badge>`
             : ""}
+          ${typeof m.ttsCharacters === "number" && m.ttsCharacters > 0
+            ? html`<glk-badge>
+                TTS ${m.ttsCharacters.toLocaleString("de-DE")} Zeichen${typeof m.ttsCredits === "number"
+                  ? ` ≈ ${m.ttsCredits.toLocaleString("de-DE")} Credits`
+                  : ""}${m.ttsModel ? ` (${m.ttsModel})` : ""}
+              </glk-badge>`
+            : ""}
         </div>
 
         ${hasRecording &&

@@ -17,6 +17,15 @@ import WebSocket from "ws";
 
 import { logger } from "../util/logger.js";
 import type { TtsStreamEvents } from "./ttsStream.js";
+import type { TtsUsage } from "./types.js";
+
+/**
+ * Credit-Bewertung pro Zeichen: Flash- und Turbo-Modelle rechnet ElevenLabs mit
+ * 0,5 Credits/Zeichen ab, alle übrigen (z. B. Multilingual v2) mit 1,0.
+ */
+export function elevenCreditMultiplier(modelId: string): number {
+  return /flash|turbo/i.test(modelId) ? 0.5 : 1;
+}
 
 export interface ElevenLabsTtsOptions {
   /** Basis-URL bis /v1 (Default produktiv; Tests zeigen auf den Loopback-Server). */
@@ -46,6 +55,8 @@ export class ElevenLabsTtsStream extends EventEmitter {
   private closed = false;
   private everOpened = false;
   private pending: string[] = [];
+  /** Tatsächlich gesendete Zeichen aller text-Felder (= Abrechnungsbasis von ElevenLabs). */
+  private charactersSent = 0;
   private readonly log;
 
   constructor(
@@ -89,6 +100,7 @@ export class ElevenLabsTtsStream extends EventEmitter {
         // gesendet — die Einstellungen überleben damit auch Barge-in-Disconnects.
         const vs = this.wireVoiceSettings();
         ws.send(JSON.stringify({ text: " ", ...(vs ? { voice_settings: vs } : {}) }));
+        this.charactersSent += 1; // Init-Space wird berechnet
         for (const text of this.pending.splice(0)) this.sendTextRaw(text);
         resolve();
       };
@@ -157,7 +169,9 @@ export class ElevenLabsTtsStream extends EventEmitter {
   private sendTextRaw(text: string): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
     // Trailing Space laut API-Konvention (Wortgrenze zwischen Chunks).
-    this.ws.send(JSON.stringify({ text: text.endsWith(" ") ? text : `${text} ` }));
+    const wire = text.endsWith(" ") ? text : `${text} `;
+    this.charactersSent += wire.length;
+    this.ws.send(JSON.stringify({ text: wire }));
   }
 
   sendText(text: string): void {
@@ -173,7 +187,18 @@ export class ElevenLabsTtsStream extends EventEmitter {
   flush(): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ text: " ", flush: true }));
+      this.charactersSent += 1;
     }
+  }
+
+  /** Gesendeter Verbrauch inkl. Credit-Umrechnung (Flash/Turbo: 0,5 Credits/Zeichen). */
+  usage(): TtsUsage {
+    return {
+      provider: "eleven_labs",
+      model: this.opts.modelId,
+      characters: this.charactersSent,
+      credits: this.charactersSent * elevenCreditMultiplier(this.opts.modelId),
+    };
   }
 
   /** Barge-in: kein serverseitiges Clear → Verbindung hart trennen (verwirft alles). */

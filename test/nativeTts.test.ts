@@ -117,3 +117,24 @@ test("AuraTtsStream: Reconnect bei sendText nach Server-Trennung", async () => {
   tts.close();
   await srv.close();
 });
+
+// 4 ─ Verbrauchszählung: usage() zählt nur tatsächlich gesendete Speak-Texte.
+test("AuraTtsStream: usage() zählt gesendete Zeichen", async () => {
+  const srv = startServer();
+  const tts = new AuraTtsStream(makeOpts(), "call-usage");
+  await tts.start();
+
+  tts.sendText("Hallo Welt."); // 11 Zeichen
+  tts.sendText("Zweiter Satz."); // 13 Zeichen
+  tts.flush(); // Flush ist kein Text → zählt nicht
+  await waitFor(() => srv.state.texts.length === 3);
+
+  const u = tts.usage();
+  assert.equal(u.provider, "deepgram");
+  assert.equal(u.model, "aura-2-viktoria-de");
+  assert.equal(u.characters, 24, "nur Speak-Texte zählen");
+  assert.equal(u.credits, undefined, "Deepgram hat kein Credit-Modell");
+
+  tts.close();
+  await srv.close();
+});

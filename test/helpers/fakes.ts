@@ -41,6 +41,8 @@ export class FakeVoiceAgentSession extends EventEmitter implements VoiceAgentSes
   sentAudio: Buffer[] = [];
   functionResponses: Array<{ id: string; name: string; result: unknown }> = [];
   injectedMessages: string[] = [];
+  /** Wenn gesetzt, liefert getUsage() diesen Verbrauch (TTS-Kostenmetrik testen). */
+  usage?: import("../../src/voice/types.js").VoiceSessionUsage;
 
   async start(): Promise<void> {
     if (this.startError) throw this.startError;
@@ -54,6 +56,9 @@ export class FakeVoiceAgentSession extends EventEmitter implements VoiceAgentSes
   }
   injectMessage(message: string): void {
     this.injectedMessages.push(message);
+  }
+  getUsage(): import("../../src/voice/types.js").VoiceSessionUsage | undefined {
+    return this.usage;
   }
   close(): void {
     this.closed = true;

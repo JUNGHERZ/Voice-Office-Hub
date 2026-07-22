@@ -26,6 +26,7 @@ import type {
   FunctionDefinition,
   VoiceAgentSession,
   VoiceAgentSessionEvents,
+  VoiceSessionUsage,
 } from "../voice/types.js";
 import { ConversationHistory } from "./history.js";
 import { streamChatCompletion, toOpenAiTools, type OpenAiTool } from "./llmStream.js";
@@ -244,6 +245,18 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.stt.close();
     this.tts.close();
     this.emit("close", 1000);
+  }
+
+  /** TTS-Verbrauch der Session (zeichengenau, wie an den Anbieter gesendet). */
+  getUsage(): VoiceSessionUsage | undefined {
+    const u = this.tts.usage?.();
+    if (!u || !u.characters) return undefined;
+    return {
+      ttsProvider: u.provider,
+      ttsModel: u.model,
+      ttsCharacters: u.characters,
+      ...(u.credits !== undefined ? { ttsCredits: u.credits } : {}),
+    };
   }
 
   // ── STT-Verdrahtung ─────────────────────────────────────────────────────────

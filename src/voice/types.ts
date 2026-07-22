@@ -47,6 +47,19 @@ export interface VoiceFunctionCallRequest {
   functions: VoiceFunctionCall[];
 }
 
+/**
+ * Verbrauchsdaten der Session (sofern der Adapter sie kennt) — Grundlage der
+ * Pro-Anruf-Kostenrechnung. Heute liefert nur die NativeSession Werte (dort
+ * senden WIR den TTS-Text und kennen die Abrechnungsbasis zeichengenau);
+ * gebündelte Provider (Deepgram-Agent) sprechen intern → undefined.
+ */
+export interface VoiceSessionUsage {
+  ttsProvider?: string;
+  ttsModel?: string;
+  ttsCharacters?: number;
+  ttsCredits?: number;
+}
+
 /** Latenz-Angaben des Providers zum Sprechbeginn (sofern geliefert), in Sekunden. */
 export interface VoiceAgentLatency {
   total?: number;
@@ -87,6 +100,8 @@ export interface VoiceAgentSession {
   sendFunctionResponse(id: string, name: string, result: unknown): void;
   /** Den Agenten eine vorgegebene Nachricht sprechen lassen (z. B. Transfer-Fehlschlag). */
   injectMessage(message: string): void;
+  /** Verbrauch der Session (TTS-Zeichen/Credits), sofern der Adapter ihn kennt. */
+  getUsage?(): VoiceSessionUsage | undefined;
   close(): void;
   on<E extends keyof VoiceAgentSessionEvents>(event: E, listener: VoiceAgentSessionEvents[E]): this;
 }

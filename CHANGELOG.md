@@ -6,6 +6,18 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.16] – 2026-07-22
+
+### Added
+- **TTS-Verbrauchsmetrik pro Anruf (native):** Die Engine zählt zeichengenau, was
+  tatsächlich an den TTS-Anbieter gesendet wurde (= Abrechnungsbasis; per Barge-in
+  verworfene, nie gesendete Sätze zählen nicht) und persistiert `metrics.ttsProvider/
+  ttsModel/ttsCharacters` — bei ElevenLabs zusätzlich `ttsCredits` (Flash/Turbo:
+  0,5 Credits/Zeichen, sonst 1,0). Damit ist der ElevenLabs-Credit-Verbrauch pro
+  Gespräch exakt zuordenbar, auch wenn das Konto von mehreren Diensten geteilt wird.
+  Anzeige als Badge im Anruf-Detail („TTS 4.714 Zeichen ≈ 2.357 Credits").
+  Der gebündelte Deepgram-Agent spricht intern → dort weiterhin keine Verbrauchsdaten.
+
 ## [0.6.15] – 2026-07-22
 
 ### Added
