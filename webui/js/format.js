@@ -81,13 +81,15 @@ export function fmtDateTime(iso) {
   });
 }
 
-/** "caller → target"-Kurzbeschriftung eines Anrufs. */
+/** "caller → target (Agent)"-Kurzbeschriftung eines Anrufs. */
 export function callLabel(r) {
   // Web-Widget-Anrufe tragen eine synthetische Caller-ID (web-<uniqueid>) — als "Web" anzeigen.
   const raw = r.callerNumber || "unbekannt";
   const from = /^web-/.test(raw) ? "Web" : raw;
   const to = r.targetNumber || "—";
-  return `${from} → ${to}`;
+  // agentId kommt von der API populated ({_id, name}) — Name als Auflösung anhängen.
+  const agent = r.agentId && r.agentId.name;
+  return agent ? `${from} → ${to} (${agent})` : `${from} → ${to}`;
 }
 
 /** Modus für die Anzeige großschreiben ("agent" → "Agent"). Intern bleibt klein. */

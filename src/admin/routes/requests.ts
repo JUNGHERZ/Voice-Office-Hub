@@ -40,8 +40,10 @@ export async function requestRoutes(app: FastifyInstance): Promise<void> {
     const [items, total] = await Promise.all([
       RequestModel.find(filter)
         .select(
-          "mode callerNumber targetNumber status startedAt endedAt durationSec transcriptionStatus recording.gridFsId recording.durationSec summary.status",
+          "mode callerNumber targetNumber status startedAt endedAt durationSec transcriptionStatus recording.gridFsId recording.durationSec summary.status agentId",
         )
+        // Agenten-Name für die Listen-Beschriftung ("Web → 123 (Weiterleitungs Fred)").
+        .populate("agentId", "name")
         .sort({ startedAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -54,7 +56,7 @@ export async function requestRoutes(app: FastifyInstance): Promise<void> {
   // Detail (vollständig)
   app.get("/:id", { schema: { tags: ["requests"], summary: "Anruf (Detail)", params: idParam } }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const request = await RequestModel.findById(id).lean();
+    const request = await RequestModel.findById(id).populate("agentId", "name").lean();
     if (!request) return reply.code(404).send({ error: "not found" });
     return { request };
   });

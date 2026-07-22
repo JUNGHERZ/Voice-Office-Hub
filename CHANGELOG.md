@@ -6,6 +6,16 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.15] – 2026-07-22
+
+### Added
+- **Anrufbeschriftung mit Agenten-Auflösung:** Anrufliste, Dashboard („Letzte Anrufe"),
+  Live-Ansicht und Anruf-Detail zeigen den Agenten-Namen in Klammern hinter der
+  gewählten Nummer — z. B. „Web → 123 (Weiterleitungs Fred)". Die Requests-API
+  liefert dafür den referenzierten Agenten-Namen mit (`populate` auf `agentId`);
+  besonders nützlich bei Web-Anrufen, wo die interne Pseudo-Durchwahl statt der
+  vollwertigen DDI erscheint.
+
 ## [0.6.14] – 2026-07-22
 
 ### Fixed
