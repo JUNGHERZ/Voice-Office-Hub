@@ -6,6 +6,7 @@ import { define, html } from "hybrids";
 
 import { api } from "../api.js";
 import { callLabel, fmtCallDuration, fmtTime, modeLabel, statusVariant } from "../format.js";
+import { callIcon } from "../icons.js";
 
 function navigate(host, view, id) {
   host.dispatchEvent(
@@ -74,6 +75,7 @@ export default define({
                     subtitle="${`${fmtTime(r.startedAt)} · ${fmtCallDuration(r)}`}"
                     onglk-click="${(host) => navigate(host, "request", r._id)}"
                   >
+                    <span slot="leading">${callIcon(r)}</span>
                     <span slot="trailing">
                       <glk-badge variant="${statusVariant(r.status)}">${modeLabel(r.mode)}</glk-badge>
                     </span>
@@ -90,6 +92,9 @@ export default define({
             </glk-list>
           `}
     `.css`
+      /* GlassKit-Falle: Shadow-CSS erreicht Slot-Inhalte nicht — Icon-Größe hier setzen. */
+      span[slot="leading"] { display: flex; align-items: center; justify-content: center; }
+      span[slot="leading"] svg { width: 24px; height: 24px; }
       .stat-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 16px 0; }
       @media (min-width: 520px) { .stat-grid { grid-template-columns: repeat(3, 1fr); } }
       .card {

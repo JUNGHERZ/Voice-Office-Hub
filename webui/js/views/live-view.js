@@ -10,6 +10,7 @@ import { define, html } from "hybrids";
 
 import { api } from "../api.js";
 import { callLabel, fmtDuration } from "../format.js";
+import { callIcon } from "../icons.js";
 
 const POLL_MS = 3000;
 
@@ -66,6 +67,7 @@ export default define({
                       subtitle="${`${r.mode === "passthrough" ? "Passthrough" : "Agent"} · seit ${liveDuration(r, now)}`}"
                       onglk-click="${(host) => navigate(host, "request", r._id)}"
                     >
+                      <span slot="leading">${callIcon(r)}</span>
                       <span slot="trailing">
                         <glk-badge variant="primary">Läuft</glk-badge>
                       </span>
@@ -89,6 +91,9 @@ export default define({
       @media (prefers-reduced-motion: reduce) {
         .pulse.on { animation: none; }
       }
+      /* GlassKit-Falle: Shadow-CSS erreicht Slot-Inhalte nicht — Icon-Größe hier setzen. */
+      span[slot="leading"] { display: flex; align-items: center; justify-content: center; }
+      span[slot="leading"] svg { width: 24px; height: 24px; }
     `,
     connect: (host) => {
       host.now = Date.now();

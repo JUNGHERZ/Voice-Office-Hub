@@ -5,6 +5,7 @@ import { define, html } from "hybrids";
 
 import { api } from "../api.js";
 import { callLabel, fmtCallDuration, fmtDateTime, statusLabel, statusVariant } from "../format.js";
+import { callIcon } from "../icons.js";
 
 const PAGE = 15;
 
@@ -92,6 +93,7 @@ export default define({
                       subtitle="${`${fmtDateTime(r.startedAt)} · ${fmtCallDuration(r)}`}"
                       onglk-click="${(host) => navigate(host, "request", r._id)}"
                     >
+                      <span slot="leading">${callIcon(r)}</span>
                       <span slot="trailing" class="trail">
                         ${r.recording && r.recording.gridFsId
                           ? html`<span class="hp">🎧</span>`
@@ -120,6 +122,9 @@ export default define({
         }
         .filters { display: flex; gap: 6px; }
         .trail { display: inline-flex; align-items: center; gap: 8px; }
+        /* GlassKit-Falle: Shadow-CSS erreicht Slot-Inhalte nicht — Icon-Größe hier setzen. */
+        span[slot="leading"] { display: flex; align-items: center; justify-content: center; }
+        span[slot="leading"] svg { width: 24px; height: 24px; }
         .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
         .count { font-size: 13px; color: var(--gl-color-text-muted); }
       `;

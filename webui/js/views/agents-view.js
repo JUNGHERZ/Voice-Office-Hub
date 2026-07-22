@@ -1,10 +1,12 @@
 /*
- * Agents-Liste: Name, DDI(s), Modus-Badge. Klick → Bearbeiten. "+ Neuer Agent".
+ * Agents-Liste: Leading-Icon (Modus), Name, DDI(s), Modus-Badge. Klick → Bearbeiten.
+ * "+ Neuer Agent". Icons wie im ursprünglichen Mockup (Headset/Transfer-Pfeile).
  */
 import { define, html } from "hybrids";
 
 import { api } from "../api.js";
 import { modeLabel } from "../format.js";
+import { ICON_AGENT, ICON_PASSTHROUGH } from "../icons.js";
 
 function navigate(host, view, id) {
   host.dispatchEvent(
@@ -25,9 +27,21 @@ async function load(host) {
   }
 }
 
+// TTS-Beschriftung der Zeile: bei ElevenLabs nie das (dort bedeutungslose)
+// Aura-Modell zeigen — entweder das explizite ElevenLabs-Modell oder "ElevenLabs".
+function voiceLabel(a) {
+  if (a.mode === "passthrough") return `leitet an ${a.passthroughTarget || "?"}`;
+  const speak = a.speak || {};
+  if (speak.provider === "eleven_labs") {
+    const m = speak.model && speak.model.indexOf("aura") !== 0 ? speak.model : "";
+    return m || "ElevenLabs";
+  }
+  return speak.model || "";
+}
+
 function ddiLabel(a) {
   const ddis = (a.targetNumbers || []).join(", ") || "—";
-  const voice = a.mode === "passthrough" ? `leitet an ${a.passthroughTarget || "?"}` : a.speak?.model || "";
+  const voice = voiceLabel(a);
   return voice ? `DDI ${ddis} · ${voice}` : `DDI ${ddis}`;
 }
 
@@ -60,6 +74,9 @@ export default define({
                     subtitle="${ddiLabel(a)}"
                     onglk-click="${(host) => navigate(host, "agent", a._id)}"
                   >
+                    <span slot="leading">
+                      ${a.mode === "passthrough" ? ICON_PASSTHROUGH : ICON_AGENT}
+                    </span>
                     <span slot="trailing">
                       <glk-badge variant="${a.mode === "passthrough" ? "primary" : "success"}">
                         ${modeLabel(a.mode)}
@@ -75,6 +92,10 @@ export default define({
         display: flex; align-items: center; justify-content: space-between;
         gap: 12px; margin-bottom: 14px;
       }
+      /* GlassKits ".glass-list__leading svg"-Regel erreicht geslottete Inhalte nicht
+         (Shadow-Grenze) — Größe deshalb hier setzen, sonst kollabiert das SVG auf 0×0. */
+      span[slot="leading"] { display: flex; align-items: center; justify-content: center; }
+      span[slot="leading"] svg { width: 24px; height: 24px; }
     `,
     connect: (host) => {
       load(host);

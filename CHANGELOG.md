@@ -21,6 +21,18 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
   TTS-Provider ElevenLabs), inkl. Zusammenfassungszeile und „Zurücksetzen"; Komma als
   Dezimaltrenner wird akzeptiert.
 
+### Fixed
+- **Agents-Liste:** zeigt bei ElevenLabs-Agents nicht mehr irreführend das (dort
+  bedeutungslose) gespeicherte Aura-Modell, sondern das ElevenLabs-Modell bzw.
+  „ElevenLabs". Zeilen tragen außerdem wieder die Leading-Icons aus dem ursprünglichen
+  Mockup (Headset = Agent, Transfer-Pfeile = Passthrough) — der leere Platz vor dem
+  Text entfällt.
+- **Anrufliste, Dashboard („Letzte Anrufe") und Live-Ansicht** haben jetzt dieselben
+  Leading-Icons, dort nach Herkunft des Anrufs: Telefonhörer (Trunk/Softphone) bzw.
+  Globus (Web-Widget) — der Modus steht weiterhin im Badge/Filter. Gemeinsames Modul
+  `webui/js/icons.js`; GlassKit-Eigenheit dokumentiert (Shadow-CSS erreicht geslottete
+  SVGs nicht — Größe muss in der View gesetzt werden, sonst 0×0).
+
 ## [0.6.12] – 2026-07-22
 
 ### Changed

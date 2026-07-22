@@ -6,7 +6,7 @@
  *  - Navigationsanfragen → index.html (SPA-Shell), damit Offline der App-Rahmen lädt.
  */
 
-const CACHE = "vh-shell-v8";
+const CACHE = "vh-shell-v10";
 
 // Bekannte Shell-Dateien (Best Effort — fehlende Einträge brechen Install nicht ab).
 const PRECACHE = [
@@ -20,6 +20,7 @@ const PRECACHE = [
   "/js/app.js",
   "/js/api.js",
   "/js/format.js",
+  "/js/icons.js",
   "/js/app-tabbar.js",
   "/js/views/login-view.js",
   "/js/views/dashboard-view.js",
