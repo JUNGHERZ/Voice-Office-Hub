@@ -47,8 +47,9 @@ describe("ensureWidgetExten", () => {
   });
 
   it("behält die bestehende Exten des Agenten und ergänzt sie erneut in targetNumbers", () => {
+    // usedByOthers enthält die EIGENE Exten nie (Route schließt self aus der Abfrage aus).
     const body = { targetNumbers: ["+49111"], widget: { enabled: true } };
-    ensureWidgetExten(body, "140", new Set(["120", "140"]));
+    ensureWidgetExten(body, "140", new Set(["120"]));
     assert.equal((body.widget as { exten?: string }).exten, "140");
     assert.deepEqual(body.targetNumbers, ["+49111", "140"]);
   });
@@ -65,5 +66,17 @@ describe("ensureWidgetExten", () => {
     ensureWidgetExten(body, "140", new Set());
     assert.equal((body.widget as { exten?: string }).exten, "555");
     assert.deepEqual(body.targetNumbers, ["+49111", "555"]);
+  });
+
+  it("vergibt neu, wenn die gewünschte Exten von einem anderen Agent belegt ist", () => {
+    // Fall "Weiterleitungs Fred": stale exten 120 + 120 in targetNumbers, aber 120
+    // gehört dem Vertrieb-Agenten → Kollision überspringen, 123 vergeben.
+    const body = {
+      targetNumbers: ["+49236298381975", "120"],
+      widget: { enabled: true, exten: "120" },
+    };
+    ensureWidgetExten(body, "120", new Set(["120", "121", "122"]));
+    assert.equal((body.widget as { exten?: string }).exten, "123");
+    assert.deepEqual(body.targetNumbers, ["+49236298381975", "120", "123"]);
   });
 });

@@ -53,10 +53,17 @@ export function ensureWidgetExten(
   const widget = body.widget;
   if (!widget || typeof widget !== "object" || !widget.enabled) return;
   const numbers = Array.isArray(body.targetNumbers) ? (body.targetNumbers as string[]) : undefined;
-  let exten =
-    typeof widget.exten === "string" && EXTEN_PATTERN.test(widget.exten) ? widget.exten : undefined;
-  exten ??= currentExten && EXTEN_PATTERN.test(currentExten) ? currentExten : undefined;
-  exten ??= numbers?.find((n) => EXTEN_PATTERN.test(n));
+  // Kandidaten in Prioritätsreihenfolge; von ANDEREN Agents belegte Nummern werden
+  // übersprungen und neu vergeben (Fall: stale exten aus einem alten Speicherversuch,
+  // die inzwischen als DDI eines anderen Agenten existiert → sonst Routing-Kollision).
+  const candidates = [
+    typeof widget.exten === "string" ? widget.exten : undefined,
+    currentExten,
+    ...(numbers ?? []),
+  ];
+  let exten = candidates.find(
+    (c): c is string => !!c && EXTEN_PATTERN.test(c) && !usedByOthers.has(c),
+  );
   exten ??= pickFreeExten(usedByOthers);
   if (!exten) return; // kein freier Slot → der Schema-Validator meldet den Fehler
   widget.exten = exten;

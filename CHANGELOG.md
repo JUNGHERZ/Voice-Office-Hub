@@ -6,6 +6,23 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.14] – 2026-07-22
+
+### Fixed
+- **Web-Widget hinter Docker-NAT (EasyPanel/Swarm): kein Audio in beide Richtungen.**
+  Signalisierung und Engine-Seite liefen (Transkript/Begrüßung in der Aufnahme), aber
+  Asterisk annoncierte dem Browser nur container-interne ICE-Host-Kandidaten
+  (172.18.x/10.x) — unerreichbar, alle Kandidaten-Paare scheiterten. Der entrypoint
+  schreibt jetzt bei **explizit gesetzter `PUBLIC_IP`** einen `[ice_host_candidates]`-
+  Block in die rtp.conf (alle Container-IPs → öffentliche IP; RTP-Ports sind
+  host-publiziert). Auto-erkannte PUBLIC_IP schreibt bewusst NICHT um — lokales
+  Direktrouting (OrbStack) behält seine funktionierenden lokalen Kandidaten.
+- **Widget-Exten-Auto-Vergabe übernahm eine kollidierende Nummer:** Eine früher (bei
+  deaktiviertem Widget, daher unvalidiert) gespeicherte `widget.exten`, die inzwischen
+  als DDI eines ANDEREN Agenten existiert, wurde beim Aktivieren respektiert → der
+  Web-Anruf landete beim falschen Agenten. Kandidaten, die andere Agents belegen,
+  werden jetzt übersprungen und neu vergeben.
+
 ## [0.6.13] – 2026-07-22
 
 ### Added
