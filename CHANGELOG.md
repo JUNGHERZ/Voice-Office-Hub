@@ -6,6 +6,16 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.19] – 2026-07-22
+
+### Added
+- **Spekulations-Telemetrie im Turn-Latenz-Log:** Jede `Turn-Latenz`-Zeile trägt
+  jetzt `eager: "hit"` (Turn wurde aus der bestätigten Spekulation bedient) bzw.
+  `"miss"` (Spekulation verworfen, normaler Neustart); verworfene Spekulationen
+  durch Weitersprechen loggen `TurnResumed — Spekulation verworfen` auf info.
+  Damit sind Trefferquote und Threshold-Tuning (`NATIVE_EAGER_EOT_THRESHOLD`)
+  ohne Debug-Loglevel am Live-System ablesbar.
+
 ## [0.6.18] – 2026-07-22
 
 ### Fixed

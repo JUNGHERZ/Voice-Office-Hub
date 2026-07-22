@@ -165,6 +165,8 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   /** Bei Konstruktion eingefroren (Tests können config vor dem new umschalten). */
   private readonly eagerEnabled = config.native.eagerEot;
   private speculation?: Speculation;
+  /** Ausgang der Spekulation des laufenden Turns (nur fürs Turn-Latenz-Log). */
+  private eagerOutcome?: "hit" | "miss";
 
   // Latenz-Messpunkte des laufenden Assistant-Turns (für agentStartedSpeaking + A/B-Logs).
   private eotAt = 0;
@@ -313,7 +315,10 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       const text = transcript.trim();
       const spec = this.speculation;
       this.speculation = undefined;
+      // Fürs A/B-Log: Trug eine Spekulation diesen Turn (hit) oder wurde sie verworfen (miss)?
+      this.eagerOutcome = spec ? "miss" : undefined;
       if (spec && spec.gen === this.generation && text && sameUtterance(spec.transcript, text)) {
+        this.eagerOutcome = "hit";
         // Spekulation bestätigt: Historie/Transkript nachziehen, TTS-Gate öffnen —
         // der LLM-Turn läuft bereits (oder ist sogar schon fertig).
         this.history.addUser(text);
@@ -357,7 +362,8 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       const spec = this.speculation;
       if (!spec) return;
       this.speculation = undefined;
-      this.log.debug("TurnResumed — Spekulation verworfen");
+      // info statt debug: die Verwerfungsquote ist die zentrale Tuning-Größe fürs Threshold.
+      this.log.info("TurnResumed — Spekulation verworfen", { transcript: spec.transcript });
       this.abortSpeculation(spec);
     });
     this.stt.on("error", (description: string) => {
@@ -398,7 +404,10 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
           ...(this.firstSentenceAt ? { tts: (now - this.firstSentenceAt) / 1000 } : {}),
         };
         this.emit("agentStartedSpeaking", latency);
-        this.log.info("Turn-Latenz", latency);
+        this.log.info("Turn-Latenz", {
+          ...latency,
+          ...(this.eagerOutcome ? { eager: this.eagerOutcome } : {}),
+        });
       }
       this.emit("audio", chunk);
     });
