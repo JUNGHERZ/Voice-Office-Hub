@@ -558,3 +558,31 @@ test("NativeSession: EagerEOT aus — kein spekulativer Start", async () => {
   assert.equal(s.llmCalls.length, 0, "ohne Flag keine Spekulation");
   s.session.close();
 });
+
+// 16 ─ Eager-Flag ⇒ Flux bekommt IMMER eine eager_eot_threshold (ohne sie deaktiviert
+//      Flux den Eager-Modus komplett — das Flag liefe sonst stumm ins Leere).
+test("NativeSession: EagerEOT sendet Default-Threshold an Flux", async () => {
+  const captured: Array<Record<string, unknown>> = [];
+  const build = () =>
+    new NativeSession(
+      testAgent({ voiceProvider: "native" }),
+      [],
+      "call-thresh",
+      {
+        createStt: (opts) => {
+          captured.push(opts as unknown as Record<string, unknown>);
+          return new FakeStt();
+        },
+        createTts: () => new FakeTts(),
+        streamLlm: async () => ({ content: "", toolCalls: [] }),
+      },
+    );
+
+  build(); // Flag aus (Default): keine Schwelle
+  assert.equal(captured[0]!.eagerEotThreshold, undefined);
+
+  await withEagerEot(async () => {
+    build(); // Flag an, kein expliziter Wert → Default 0.5
+    assert.equal(captured[1]!.eagerEotThreshold, 0.5);
+  });
+});

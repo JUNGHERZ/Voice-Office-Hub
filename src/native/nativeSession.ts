@@ -219,8 +219,11 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       ...(this.agent.listen.eot_timeout_ms !== undefined
         ? { eotTimeoutMs: this.agent.listen.eot_timeout_ms }
         : {}),
-      ...(this.eagerEnabled && config.native.eagerEotThreshold !== undefined
-        ? { eagerEotThreshold: config.native.eagerEotThreshold }
+      // Flux deaktiviert den Eager-Modus OHNE Threshold komplett (verifiziert 2026-07-22)
+      // — das Flag muss also immer eine Schwelle mitsenden. 0,5 = Mitte des gültigen
+      // Bereichs (0,3–0,9); Fehlspekulationen sind dank Gate unhörbar und billig.
+      ...(this.eagerEnabled
+        ? { eagerEotThreshold: config.native.eagerEotThreshold ?? 0.5 }
         : {}),
     };
   }

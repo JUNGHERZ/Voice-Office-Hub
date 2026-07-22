@@ -6,6 +6,16 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.18] – 2026-07-22
+
+### Fixed
+- **`NATIVE_EAGER_EOT` griff ohne Threshold nicht:** Flux deaktiviert den Eager-Modus
+  komplett, wenn keine `eager_eot_threshold` mitgesendet wird (im Live-Test 0.6.17
+  entdeckt: Latenzen unverändert, keine EagerEndOfTurn-Events). Bei aktivem Flag
+  sendet die Engine jetzt immer eine Schwelle — `NATIVE_EAGER_EOT_THRESHOLD` oder
+  Default 0.5 (Mitte des gültigen Bereichs 0.3–0.9; Fehlspekulationen sind dank
+  Gate unhörbar und kosten nur LLM-Input-Tokens).
+
 ## [0.6.17] – 2026-07-22
 
 ### Added
