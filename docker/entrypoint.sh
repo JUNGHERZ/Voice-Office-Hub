@@ -40,6 +40,10 @@ fi
 # WebRTC-Transport-Generierung gebraucht. Explizit setzen (PUBLIC_IP, empfohlen) oder bei
 # aktivem Trunk/WebRTC best-effort automatisch ermitteln.
 PUBLIC_IP="${PUBLIC_IP:-${EXTERNAL_IP:-}}"
+# Merken, ob die IP explizit konfiguriert wurde: Nur dann werden unten ICE-Host-Kandidaten
+# umgeschrieben (auto-erkannte IP = vermutlich Direktrouting wie OrbStack; Umschreiben
+# würde dort den funktionierenden lokalen Medienpfad durch Hairpin-NAT ersetzen).
+PUBLIC_IP_EXPLICIT="false"; [[ -n "${PUBLIC_IP}" ]] && PUBLIC_IP_EXPLICIT="true"
 if [[ "${EMBED_ASTERISK:-true}" == "true" && -z "${PUBLIC_IP}" ]] \
    && [[ "${TRUNK_ENABLED:-false}" == "true" || "${WEBRTC_ENABLED:-false}" == "true" ]]; then
   PUBLIC_IP="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
@@ -265,6 +269,30 @@ EOF
   # ICE für WebRTC-Medien (Browser <-> Asterisk über die bestehende RTP-Range).
   grep -q icesupport /etc/asterisk/rtp.conf || \
     printf 'icesupport = yes\n' >> /etc/asterisk/rtp.conf
+  # Hinter Docker-NAT (Swarm/EasyPanel) annonciert Asterisk sonst nur container-interne
+  # ICE-Host-Kandidaten (172.18.x/10.x) — vom Browser unerreichbar => null Media in beide
+  # Richtungen trotz sauberer Signalisierung. Bei EXPLIZIT gesetzter PUBLIC_IP wird der
+  # Kandidat der Default-Route auf die öffentliche IP umgeschrieben (RTP-Ports sind
+  # host-publiziert). Idempotent über Marker-Block (Restart mit neuer Container-IP).
+  sed -i '/^; VOH-ICE-BEGIN/,/^; VOH-ICE-END/d' /etc/asterisk/rtp.conf
+  if [[ "${PUBLIC_IP_EXPLICIT}" == "true" && -n "${PUBLIC_IP}" ]]; then
+    # Alle Container-IPs mappen (Swarm hat mehrere Overlays; iproute2 fehlt im Image,
+    # und welches Interface die Default-Route trägt, ist damit egal).
+    ICE_LOCAL_IPS="$(hostname -I 2>/dev/null || true)"
+    if [[ -n "${ICE_LOCAL_IPS// /}" ]]; then
+      {
+        echo "; VOH-ICE-BEGIN (auto-generiert: Docker-NAT -> öffentlicher ICE-Kandidat)"
+        echo "[ice_host_candidates]"
+        for LIP in ${ICE_LOCAL_IPS}; do
+          echo "${LIP} => ${PUBLIC_IP}"
+        done
+        echo "; VOH-ICE-END"
+      } >> /etc/asterisk/rtp.conf
+      echo "entrypoint: ICE-Host-Kandidaten (${ICE_LOCAL_IPS% }) -> ${PUBLIC_IP} (rtp.conf)"
+    fi
+  else
+    echo "entrypoint: PUBLIC_IP nicht explizit gesetzt — ICE behält lokale Kandidaten (Direktrouting, z. B. OrbStack)."
+  fi
   if [[ -z "${PUBLIC_IP}" ]]; then
     echo "WARNUNG: WEBRTC_ENABLED=true ohne PUBLIC_IP — hinter NAT droht einseitiges Audio (lokal via OrbStack ok)."
   fi
