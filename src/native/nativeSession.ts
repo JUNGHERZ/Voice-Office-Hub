@@ -59,6 +59,9 @@ export function buildNativeTts(agent: ResolvedAgent, callId: string): TtsStreamL
         agent.speak.model && !agent.speak.model.startsWith("aura")
           ? agent.speak.model
           : "eleven_flash_v2_5";
+      const { stability, similarityBoost, speed } = agent.speak;
+      const hasVoiceSettings =
+        stability !== undefined || similarityBoost !== undefined || speed !== undefined;
       return new ElevenLabsTtsStream(
         {
           baseUrl: config.native.elevenUrl,
@@ -66,6 +69,7 @@ export function buildNativeTts(agent: ResolvedAgent, callId: string): TtsStreamL
           voiceId,
           modelId,
           outputFormat: `pcm_${config.audio.sampleRate}`,
+          ...(hasVoiceSettings ? { voiceSettings: { stability, similarityBoost, speed } } : {}),
         },
         callId,
       );

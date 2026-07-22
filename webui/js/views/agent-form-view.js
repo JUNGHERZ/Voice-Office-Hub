@@ -65,6 +65,10 @@ function emptyForm() {
     // Getrenntes Modellfeld je Provider: beim Umschalten geht kein Wert verloren.
     speakModelEleven: "",
     speakVoice: "",
+    // ElevenLabs voice_settings (leer = Voice-Default aus dem Dashboard).
+    speakStability: "",
+    speakSimilarity: "",
+    speakSpeed: "",
     ambienceEnabled: false,
     ambiencePreset: "office",
     ambienceVolume: "25",
@@ -115,6 +119,9 @@ function toForm(a) {
         ? a.speak.model
         : "",
     speakVoice: (a.speak && a.speak.voice) || "",
+    speakStability: a.speak && a.speak.stability != null ? String(a.speak.stability) : "",
+    speakSimilarity: a.speak && a.speak.similarityBoost != null ? String(a.speak.similarityBoost) : "",
+    speakSpeed: a.speak && a.speak.speed != null ? String(a.speak.speed) : "",
     ambienceEnabled: !!ambience.enabled,
     ambiencePreset: ambience.preset || "office",
     ambienceVolume: String(Math.round((ambience.volume != null ? ambience.volume : 0.25) * 100)),
@@ -170,6 +177,11 @@ function toBody(f) {
         (f.speakProvider === "eleven_labs" ? f.speakModelEleven.trim() : f.speakModel.trim()) ||
         undefined,
       voice: f.speakVoice.trim() || undefined,
+      // voice_settings: leeres Feld löscht den Wert (→ Voice-Default); Komma als
+      // Dezimaltrenner zulassen ("0,5").
+      stability: num(String(f.speakStability).replace(",", ".")),
+      similarityBoost: num(String(f.speakSimilarity).replace(",", ".")),
+      speed: num(String(f.speakSpeed).replace(",", ".")),
     },
     tools: f.tools,
     customTools: f.customTools,
@@ -468,6 +480,15 @@ function mcpSubtitle(s) {
   return `${s.url || ""}${filter}`;
 }
 
+/** Kurzfassung der ElevenLabs-voice_settings für die Zeile neben dem Modal-Button. */
+function voiceSettingsSummary(f) {
+  const parts = [];
+  if (f.speakStability !== "") parts.push(`Stabilität ${f.speakStability}`);
+  if (f.speakSimilarity !== "") parts.push(`Ähnlichkeit ${f.speakSimilarity}`);
+  if (f.speakSpeed !== "") parts.push(`Tempo ${f.speakSpeed}`);
+  return parts.length ? parts.join(" · ") : "Voice-Defaults aus dem ElevenLabs-Dashboard";
+}
+
 async function save(host) {
   if (host.busy) return;
   host.error = "";
@@ -540,8 +561,9 @@ export default define({
   mcpEditIndex: -1,
   mcpDraft: undefined,
   mcpError: "",
+  voiceModalOpen: false,
   render: {
-    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, ambiencePresets, toolModalOpen, toolEditIndex, toolDraft, toolError, mcpModalOpen, mcpEditIndex, mcpDraft, mcpError }) => {
+    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, ambiencePresets, toolModalOpen, toolEditIndex, toolDraft, toolError, mcpModalOpen, mcpEditIndex, mcpDraft, mcpError, voiceModalOpen }) => {
       const f = form || emptyForm();
       const title = agentId ? f.name || "Agent" : "Neuer Agent";
       return html`
@@ -674,6 +696,18 @@ export default define({
                         placeholder="leer = eleven_turbo_v2_5"
                         onglk-input="${(host, e) => setField(host, "speakModelEleven", e.detail.value)}"
                       ></glk-input>
+                      <div class="group-head">
+                        <glk-button
+                          size="sm"
+                          variant="secondary"
+                          onclick="${(host) => {
+                            host.voiceModalOpen = true;
+                          }}"
+                        >
+                          Erweiterte Stimm-Einstellungen…
+                        </glk-button>
+                        <span class="empty-hint">${voiceSettingsSummary(f)}</span>
+                      </div>
                     `
                   : html`
                       <glk-input
@@ -893,6 +927,56 @@ export default define({
                   <button class="glass-modal__action glass-modal__action--danger" onclick="${confirmDelete}">
                     Löschen
                   </button>
+                </div>
+              </glk-modal>
+
+              <glk-modal
+                title="ElevenLabs — erweiterte Stimm-Einstellungen"
+                open="${voiceModalOpen}"
+                onglk-close="${(host) => {
+                  host.voiceModalOpen = false;
+                }}"
+              >
+                <div class="tool-form">
+                  <div class="empty-hint">
+                    Leer = Voice-Default aus dem ElevenLabs-Dashboard. Die Werte wirken in der
+                    nativen Kaskade; im Deepgram-Agent-Modus gelten immer die Dashboard-Defaults.
+                  </div>
+                  <glk-input
+                    label="Stabilität (0–1)"
+                    value="${f.speakStability}"
+                    placeholder="z. B. 0.5"
+                    hint="Niedrig = lebendiger/expressiver, hoch = gleichmäßiger"
+                    onglk-input="${(host, e) => setField(host, "speakStability", e.detail.value)}"
+                  ></glk-input>
+                  <glk-input
+                    label="Similarity Boost (0–1)"
+                    value="${f.speakSimilarity}"
+                    placeholder="z. B. 0.75"
+                    hint="Wie eng die Synthese am Original der Stimme bleibt"
+                    onglk-input="${(host, e) => setField(host, "speakSimilarity", e.detail.value)}"
+                  ></glk-input>
+                  <glk-input
+                    label="Sprechtempo (0.7–1.2)"
+                    value="${f.speakSpeed}"
+                    placeholder="1.0 = normal"
+                    hint="Werte außerhalb 0.7–1.2 werden beim Sprechen geklemmt"
+                    onglk-input="${(host, e) => setField(host, "speakSpeed", e.detail.value)}"
+                  ></glk-input>
+                </div>
+                <div slot="actions">
+                  <button
+                    class="glass-modal__action"
+                    onclick="${(host) => {
+                      host.form = { ...host.form, speakStability: "", speakSimilarity: "", speakSpeed: "" };
+                    }}"
+                  >Zurücksetzen</button>
+                  <button
+                    class="glass-modal__action"
+                    onclick="${(host) => {
+                      host.voiceModalOpen = false;
+                    }}"
+                  >Fertig</button>
                 </div>
               </glk-modal>
 

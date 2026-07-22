@@ -33,6 +33,9 @@ export interface ResolvedSpeak {
   language?: string;
   speed?: number;
   volume?: number;
+  /** ElevenLabs voice_settings (nur native Kaskade), 0..1. */
+  stability?: number;
+  similarityBoost?: number;
 }
 
 export interface ResolvedCustomToolEndpoint {

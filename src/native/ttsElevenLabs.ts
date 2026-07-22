@@ -26,6 +26,13 @@ export interface ElevenLabsTtsOptions {
   modelId: string;
   /** z. B. "pcm_8000" — muss zur System-Sample-Rate passen. */
   outputFormat: string;
+  /** Optionaler Feinschliff; unset = Voice-Defaults aus dem ElevenLabs-Dashboard. */
+  voiceSettings?: {
+    stability?: number;
+    similarityBoost?: number;
+    /** ElevenLabs erlaubt 0.7–1.2; Werte außerhalb werden geklemmt (warn-Log). */
+    speed?: number;
+  };
 }
 
 export declare interface ElevenLabsTtsStream {
@@ -77,7 +84,11 @@ export class ElevenLabsTtsStream extends EventEmitter {
         cleanup();
         this.connecting = undefined;
         this.everOpened = true;
-        ws.send(JSON.stringify({ text: " " })); // Kontext initialisieren (Voice-Defaults)
+        // Kontext initialisieren; voice_settings nur mitsenden, wenn konfiguriert
+        // (sonst gelten die Voice-Defaults). Wird bei jedem Lazy-Reconnect erneut
+        // gesendet — die Einstellungen überleben damit auch Barge-in-Disconnects.
+        const vs = this.wireVoiceSettings();
+        ws.send(JSON.stringify({ text: " ", ...(vs ? { voice_settings: vs } : {}) }));
         for (const text of this.pending.splice(0)) this.sendTextRaw(text);
         resolve();
       };
@@ -101,6 +112,23 @@ export class ElevenLabsTtsStream extends EventEmitter {
       ws.on("close", onClose);
     });
     return this.connecting;
+  }
+
+  /** voice_settings ins Wire-Format mappen; speed auf den erlaubten Bereich klemmen. */
+  private wireVoiceSettings(): Record<string, number> | undefined {
+    const vs = this.opts.voiceSettings;
+    if (!vs) return undefined;
+    const out: Record<string, number> = {};
+    if (vs.stability !== undefined) out.stability = vs.stability;
+    if (vs.similarityBoost !== undefined) out.similarity_boost = vs.similarityBoost;
+    if (vs.speed !== undefined) {
+      const clamped = Math.min(1.2, Math.max(0.7, vs.speed));
+      if (clamped !== vs.speed) {
+        this.log.warn("speak.speed außerhalb 0.7–1.2 — geklemmt", { speed: vs.speed, clamped });
+      }
+      out.speed = clamped;
+    }
+    return Object.keys(out).length ? out : undefined;
   }
 
   private wire(ws: WebSocket): void {

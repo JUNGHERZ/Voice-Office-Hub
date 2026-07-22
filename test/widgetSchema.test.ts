@@ -58,3 +58,17 @@ test("Widget-Schema: Defaults", () => {
   assert.equal(w.enabled, false);
   assert.equal(w.showTranscript, true);
 });
+
+// 5 ─ ElevenLabs-voice_settings: stability/similarityBoost nur im Bereich 0–1.
+test("Speak-Schema: voice_settings-Bereiche", () => {
+  const bad = new Agent({ name: "a", speak: { stability: 1.5, similarityBoost: -0.1 } });
+  const errs = bad.validateSync()?.errors ?? {};
+  assert.ok(errs["speak.stability"], "stability > 1 muss abgelehnt werden");
+  assert.ok(errs["speak.similarityBoost"], "similarityBoost < 0 muss abgelehnt werden");
+
+  const ok = new Agent({
+    name: "a",
+    speak: { provider: "eleven_labs", voice: "v1", stability: 0.4, similarityBoost: 0.8, speed: 1.1 },
+  });
+  assert.equal(ok.validateSync(), undefined);
+});

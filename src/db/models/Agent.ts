@@ -48,6 +48,14 @@ const SpeakSchema = new Schema(
     language: { type: String },
     speed: { type: Number },
     volume: { type: Number },
+    // ElevenLabs-Feinschliff (voice_settings der nativen Kaskade; im Deepgram-Modus
+    // gelten stattdessen die Voice-Defaults aus dem ElevenLabs-Dashboard).
+    stability: { type: Number, min: [0, "speak.stability: 0–1"], max: [1, "speak.stability: 0–1"] },
+    similarityBoost: {
+      type: Number,
+      min: [0, "speak.similarityBoost: 0–1"],
+      max: [1, "speak.similarityBoost: 0–1"],
+    },
   },
   { _id: false },
 );

@@ -65,6 +65,26 @@ test("ElevenLabsTtsStream: URL, Init und Wire-Format", async () => {
   await srv.close();
 });
 
+// 1b ─ voice_settings landen im Wire-Format der Init-Message (snake_case),
+//      speed wird auf den erlaubten Bereich 0.7–1.2 geklemmt.
+test("ElevenLabsTtsStream: voice_settings in der Init-Message", async () => {
+  const srv = startServer();
+  const tts = new ElevenLabsTtsStream(
+    { ...makeOpts(), voiceSettings: { stability: 0.4, similarityBoost: 0.8, speed: 2 } },
+    "call-1b",
+  );
+  await tts.start();
+
+  await waitFor(() => srv.state.texts.length === 1);
+  assert.deepEqual(JSON.parse(srv.state.texts[0]!), {
+    text: " ",
+    voice_settings: { stability: 0.4, similarity_boost: 0.8, speed: 1.2 },
+  });
+
+  tts.close();
+  await srv.close();
+});
+
 // 2 ─ Audio kommt als Base64-JSON → dekodierter PCM-Buffer; isFinal → flushed.
 test("ElevenLabsTtsStream: Base64-Audio und isFinal", async () => {
   const srv = startServer();
