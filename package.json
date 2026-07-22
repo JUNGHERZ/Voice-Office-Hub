@@ -1,6 +1,6 @@
 {
   "name": "voice-office-hub",
-  "version": "0.6.16",
+  "version": "0.6.17",
   "private": true,
   "description": "Voice-Office-Hub — telefonisch erreichbarer KI-Voice-Agent: Asterisk (ARI) <-> Deepgram Voice Agent API",
   "type": "module",

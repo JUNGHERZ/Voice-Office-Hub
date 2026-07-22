@@ -80,8 +80,10 @@ export interface Config {
     elevenUrl: string;
     /** Mindestlänge (Zeichen), bevor der Satz-Chunker einen Satz an die TTS gibt. */
     minSentenceChars: number;
-    /** Spekulativer LLM-Start auf EagerEndOfTurn — v1 nur geloggt, nicht aktiv. */
+    /** Spekulativer LLM-Start auf EagerEndOfTurn (0.6.17; Audio erst nach bestätigtem Turn-Ende). */
     eagerEot: boolean;
+    /** Optionale Flux-Schwelle für EagerEndOfTurn (0–1); undefined = Flux-Default. */
+    eagerEotThreshold?: number;
     /** Zeichenbudget der Konversationshistorie (Fallback, wenn agent.think.context_length fehlt). */
     contextChars: number;
   };
@@ -214,6 +216,10 @@ export const config: Config = {
     elevenUrl: opt("NATIVE_TTS_ELEVEN_URL", "wss://api.elevenlabs.io/v1"),
     minSentenceChars: int("NATIVE_MIN_SENTENCE_CHARS", 12),
     eagerEot: bool("NATIVE_EAGER_EOT", false),
+    ...(process.env.NATIVE_EAGER_EOT_THRESHOLD !== undefined &&
+    Number.isFinite(Number(process.env.NATIVE_EAGER_EOT_THRESHOLD))
+      ? { eagerEotThreshold: Number(process.env.NATIVE_EAGER_EOT_THRESHOLD) }
+      : {}),
     contextChars: int("NATIVE_CONTEXT_CHARS", 16000),
   },
   widget: {

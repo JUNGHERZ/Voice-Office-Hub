@@ -14,6 +14,13 @@
  *   Schicht 2: Turn-GENERATIONSZÄHLER — jeder Abbruch inkrementiert; jeder async
  *   Callback (LLM-Delta, TTS-Audio, Tool-Fortsetzung) prüft seine Geburts-Generation
  *   vor jedem emit/sendText. Verspätete Chunks abgebrochener Turns sind damit stumm.
+ *
+ * EagerEndOfTurn-Spekulation (NATIVE_EAGER_EOT, 0.6.17):
+ *   Flux meldet ein vorläufiges Turn-Ende einige hundert ms vor dem bestätigten —
+ *   der LLM-Turn startet sofort, aber hinter einem Gate: Sätze werden gepuffert,
+ *   Historie/Transkript/Tool-Calls warten. Bestätigt EndOfTurn (gleicher Wortlaut)
+ *   → Gate auf, Puffer sprechen; TurnResumed/abweichendes Transkript → Abbruch,
+ *   für den Anrufer unhörbar. Kosten einer Fehlspekulation: nur LLM-Input-Tokens.
  */
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
@@ -108,6 +115,30 @@ interface ToolRound {
   resolve: () => void;
 }
 
+/**
+ * Laufende EagerEndOfTurn-Spekulation (0.6.17): Der LLM-Turn startet bereits auf
+ * das vorläufige Flux-Transkript; nach außen (TTS, Historie, Tool-Calls,
+ * Transkript-Events) passiert NICHTS, bis das bestätigte EndOfTurn das Gate öffnet.
+ * TurnResumed oder ein abweichendes Final-Transkript verwerfen die Spekulation —
+ * der Anrufer merkt davon nichts (es wurde nie Audio erzeugt).
+ */
+interface Speculation {
+  gen: number;
+  transcript: string;
+  /** TTS-Gate: false = Sätze werden gepuffert; true (bestätigt) = direkt sprechen. */
+  open: boolean;
+  buffer: string[];
+  confirmed: Promise<void>;
+  resolveConfirmed: () => void;
+  abort?: AbortController;
+}
+
+/** Vergleich Eager- vs. Final-Transkript: Interpunktion/Großschreibung egal, Wortlaut zählt. */
+function sameUtterance(a: string, b: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/[\s.,!?;:…\-–—]+/gu, " ").trim();
+  return norm(a) === norm(b);
+}
+
 export declare interface NativeSession {
   on<E extends keyof VoiceAgentSessionEvents>(event: E, listener: VoiceAgentSessionEvents[E]): this;
   emit<E extends keyof VoiceAgentSessionEvents>(
@@ -131,6 +162,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   private activeAbort?: AbortController;
   private toolRound?: ToolRound;
   private responding = false;
+  /** Bei Konstruktion eingefroren (Tests können config vor dem new umschalten). */
+  private readonly eagerEnabled = config.native.eagerEot;
+  private speculation?: Speculation;
 
   // Latenz-Messpunkte des laufenden Assistant-Turns (für agentStartedSpeaking + A/B-Logs).
   private eotAt = 0;
@@ -184,6 +218,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
         : {}),
       ...(this.agent.listen.eot_timeout_ms !== undefined
         ? { eotTimeoutMs: this.agent.listen.eot_timeout_ms }
+        : {}),
+      ...(this.eagerEnabled && config.native.eagerEotThreshold !== undefined
+        ? { eagerEotThreshold: config.native.eagerEotThreshold }
         : {}),
     };
   }
@@ -271,14 +308,54 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.stt.on("turnEnded", (transcript: string) => {
       if (this.closed) return;
       const text = transcript.trim();
+      const spec = this.speculation;
+      this.speculation = undefined;
+      if (spec && spec.gen === this.generation && text && sameUtterance(spec.transcript, text)) {
+        // Spekulation bestätigt: Historie/Transkript nachziehen, TTS-Gate öffnen —
+        // der LLM-Turn läuft bereits (oder ist sogar schon fertig).
+        this.history.addUser(text);
+        this.emit("conversationText", { role: "user", content: text });
+        this.confirmSpeculation(spec);
+        return;
+      }
+      if (spec) this.abortSpeculation(spec); // Final-Transkript weicht ab → sauber neu
       if (!text) return; // "ähm"/Leerlauf: kein LLM-Turn
       this.history.addUser(text);
       this.emit("conversationText", { role: "user", content: text });
       void this.runAssistantTurn(this.generation);
     });
     this.stt.on("eagerTurnEnded", (transcript: string) => {
-      // v1: nur Beobachtung (spekulativer Start ist eine dokumentierte Ausbaustufe).
-      if (config.native.eagerEot) this.log.debug("EagerEndOfTurn", { transcript });
+      if (this.closed || !this.eagerEnabled) return;
+      const text = transcript.trim();
+      if (!text) return;
+      const prev = this.speculation;
+      if (prev) {
+        if (sameUtterance(prev.transcript, text)) return; // läuft bereits
+        this.speculation = undefined;
+        this.abortSpeculation(prev);
+      }
+      if (this.responding) return; // echter Antwort-Turn läuft — kein Spekulationsfall
+      const spec: Speculation = {
+        gen: this.generation,
+        transcript: text,
+        open: false,
+        buffer: [],
+        confirmed: Promise.resolve(),
+        resolveConfirmed: () => {},
+      };
+      spec.confirmed = new Promise<void>((resolve) => {
+        spec.resolveConfirmed = resolve;
+      });
+      this.speculation = spec;
+      this.log.debug("EagerEndOfTurn — spekulativer LLM-Start", { transcript: text });
+      void this.runAssistantTurn(spec.gen, spec);
+    });
+    this.stt.on("turnResumed", () => {
+      const spec = this.speculation;
+      if (!spec) return;
+      this.speculation = undefined;
+      this.log.debug("TurnResumed — Spekulation verworfen");
+      this.abortSpeculation(spec);
     });
     this.stt.on("error", (description: string) => {
       if (!this.closed) this.emit("error", `STT: ${description}`);
@@ -348,6 +425,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   // ── Assistant-Turn (LLM-Loop inkl. Tools) ───────────────────────────────────
 
   private cancelActiveTurn(): void {
+    const spec = this.speculation;
+    this.speculation = undefined;
+    spec?.resolveConfirmed(); // wartenden Spekulations-Runner wecken (erkennt stale Gen)
     this.generation += 1;
     this.responding = false;
     this.activeAbort?.abort();
@@ -358,10 +438,29 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.tts.clear();
   }
 
-  private async runAssistantTurn(gen: number): Promise<void> {
+  /** Bestätigtes EndOfTurn: Gate öffnen, gepufferte Sätze sprechen, Latenz ab JETZT messen. */
+  private confirmSpeculation(spec: Speculation): void {
+    spec.open = true;
+    this.eotAt = Date.now();
+    // Token kamen ggf. schon vor dem bestätigten Turn-Ende → ttt nicht negativ ausweisen.
+    if (this.firstTokenAt && this.firstTokenAt < this.eotAt) this.firstTokenAt = this.eotAt;
+    for (const s of spec.buffer.splice(0)) this.speak(s, spec.gen);
+    spec.resolveConfirmed();
+  }
+
+  /** Spekulation verwerfen (TurnResumed/abweichendes Transkript) — es wurde nie Audio erzeugt. */
+  private abortSpeculation(spec: Speculation): void {
+    if (spec.gen === this.generation) this.generation += 1;
+    this.responding = false;
+    spec.abort?.abort();
+    spec.resolveConfirmed();
+  }
+
+  private async runAssistantTurn(gen: number, spec?: Speculation): Promise<void> {
     if (gen !== this.generation || this.closed) return;
     this.responding = true;
-    this.eotAt = Date.now();
+    // Spekulativ: Latenz erst ab dem BESTÄTIGTEN Turn-Ende messen (confirmSpeculation).
+    this.eotAt = spec ? 0 : Date.now();
     this.firstTokenAt = 0;
     this.firstSentenceAt = 0;
     this.startedSpeakingEmitted = false;
@@ -369,7 +468,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
 
     const abort = new AbortController();
     this.activeAbort = abort;
+    if (spec) spec.abort = abort;
     const model = this.agent.think.model || config.llm.model;
+    let firstRound = true;
 
     try {
       // Tool-Loop: LLM-Runden, bis eine Antwort ohne tool_calls kommt.
@@ -380,7 +481,12 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
             baseUrl: config.llm.requestyBaseUrl,
             apiKey: config.llm.requestyApiKey,
             model,
-            messages: this.history.messages(),
+            // Spekulative Runde 1: User-Turn nur im Request, NICHT in der Historie —
+            // die wird erst beim bestätigten EndOfTurn nachgezogen.
+            messages:
+              spec && firstRound
+                ? [...this.history.messages(), { role: "user" as const, content: spec.transcript }]
+                : this.history.messages(),
             ...(this.tools.length ? { tools: this.tools } : {}),
             ...(modelSupportsTemperature(model)
               ? { temperature: this.agent.think.temperature }
@@ -390,10 +496,20 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
           (delta) => {
             if (gen !== this.generation) return;
             if (!this.firstTokenAt) this.firstTokenAt = Date.now();
-            for (const sentence of chunker.push(delta)) this.speak(sentence, gen);
+            for (const sentence of chunker.push(delta)) {
+              // TTS-Gate der Spekulation: puffern, bis das Turn-Ende bestätigt ist.
+              if (spec && !spec.open) spec.buffer.push(sentence);
+              else this.speak(sentence, gen);
+            }
           },
         );
         if (gen !== this.generation || this.closed) return;
+        if (spec && firstRound && !spec.open) {
+          // Nichts darf nach außen (TTS/Historie/Tools), bevor das EndOfTurn bestätigt.
+          await spec.confirmed;
+          if (gen !== this.generation || this.closed) return;
+        }
+        firstRound = false;
 
         const rest = chunker.flush();
         if (rest) this.speak(rest, gen);
@@ -433,6 +549,8 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
         return;
       }
     } catch (err) {
+      // Tote Spekulation freigeben — das bestätigte EndOfTurn startet dann normal neu.
+      if (spec && this.speculation === spec) this.speculation = undefined;
       if ((err as Error).name === "AbortError") return; // Barge-in: bewusst verworfen
       this.responding = false;
       if (gen !== this.generation || this.closed) return;

@@ -6,6 +6,18 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.17] – 2026-07-22
+
+### Added
+- **EagerEndOfTurn-Spekulation (native, `NATIVE_EAGER_EOT`):** Der LLM-Turn startet
+  bereits auf das vorläufige Flux-Turn-Ende (EagerEndOfTurn) statt erst auf das
+  bestätigte — typischer Gewinn 200–500 ms Antwortzeit. Sicherheitsmodell: Sätze,
+  Historie, Transkript-Events und Tool-Calls warten hinter einem Gate, bis das
+  EndOfTurn den Wortlaut bestätigt; TurnResumed oder ein abweichendes Final-Transkript
+  brechen die Spekulation ab (LLM-Abort + Generationszähler) — für den Anrufer
+  unhörbar, Kosten nur LLM-Input-Tokens. `NATIVE_EAGER_EOT_THRESHOLD` übersteuert
+  optional die Flux-Schwelle. Default aus (opt-in pro Deployment).
+
 ## [0.6.16] – 2026-07-22
 
 ### Added

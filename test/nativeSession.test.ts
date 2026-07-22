@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test } from "node:test";
 
+import { config } from "../src/config.js";
 import { NativeSession } from "../src/native/nativeSession.js";
 import type { ChatStreamRequest } from "../src/native/llmStream.js";
 import type { LlmStreamResult, ChatMessage } from "../src/native/types.js";
@@ -33,6 +34,12 @@ class FakeStt extends EventEmitter {
   }
   turn(transcript: string): void {
     this.emit("turnEnded", transcript);
+  }
+  eager(transcript: string): void {
+    this.emit("eagerTurnEnded", transcript);
+  }
+  resumed(): void {
+    this.emit("turnResumed");
   }
 }
 
@@ -388,5 +395,166 @@ test("NativeSession: getUsage() liefert den TTS-Verbrauch", async () => {
     ttsCharacters: 4714,
     ttsCredits: 2357,
   });
+  s.session.close();
+});
+
+// ── EagerEndOfTurn-Spekulation (0.6.17) ──────────────────────────────────────
+// Flag wird bei Konstruktion eingefroren — Tests schalten config vor makeSession um.
+
+function withEagerEot<T>(fn: () => Promise<T>): Promise<T> {
+  (config.native as { eagerEot: boolean }).eagerEot = true;
+  return fn().finally(() => {
+    (config.native as { eagerEot: boolean }).eagerEot = false;
+  });
+}
+
+// 11 ─ Bestätigte Spekulation: LLM läuft auf das Eager-Transkript; nichts geht nach
+//      außen, bis EndOfTurn (gleicher Wortlaut, andere Interpunktion) bestätigt.
+test("NativeSession: EagerEOT bestätigt — ein LLM-Call, Gate öffnet erst am Turn-Ende", () =>
+  withEagerEot(async () => {
+    const s = makeSession([
+      async (_req, onDelta) => {
+        onDelta("Es sind 20 Grad. ");
+        return { content: "Es sind 20 Grad. ", toolCalls: [] };
+      },
+    ]);
+    await s.session.start();
+
+    s.stt.eager("wie ist das wetter");
+    await waitFor(() => s.llmCalls.length === 1);
+    await settle();
+    assert.deepEqual(s.tts.texts, ["Hallo!"], "vor Bestätigung geht nichts in die TTS");
+    assert.ok(
+      !s.events.some(([e, v]) => e === "conversationText" && (v as { role: string }).role === "user"),
+      "kein User-Transkript vor Bestätigung",
+    );
+    const msgs = s.llmCalls[0]!.messages;
+    assert.equal(msgs[msgs.length - 1]?.content, "wie ist das wetter", "Eager-Text nur im Request");
+
+    s.stt.turn("Wie ist das Wetter?");
+    await settle();
+    assert.ok(s.tts.texts.includes("Es sind 20 Grad."), "gepufferter Satz wird gesprochen");
+    assert.equal(s.llmCalls.length, 1, "kein zweiter LLM-Call nach Bestätigung");
+    assert.deepEqual(
+      s.events.filter(([e]) => e === "conversationText").map(([, v]) => (v as { role: string }).role),
+      ["assistant", "user", "assistant"],
+      "Greeting, User (bei Bestätigung), Antwort",
+    );
+    s.session.close();
+  }));
+
+// 12 ─ TurnResumed: Spekulation wird abgebrochen (LLM-Abort), für den Anrufer unhörbar;
+//      der echte Turn läuft danach frisch.
+test("NativeSession: EagerEOT + TurnResumed — Abbruch ohne Außenwirkung", () =>
+  withEagerEot(async () => {
+    let aborts = 0;
+    const s = makeSession([
+      async (req) =>
+        new Promise((_, reject) => {
+          req.signal.addEventListener("abort", () => {
+            aborts += 1;
+            reject(new DOMException("abgebrochen", "AbortError"));
+          });
+        }),
+      async (_req, onDelta) => {
+        onDelta("Antwort auf die echte Frage.");
+        return { content: "Antwort auf die echte Frage.", toolCalls: [] };
+      },
+    ]);
+    await s.session.start();
+
+    s.stt.eager("halb fertige fra");
+    await waitFor(() => s.llmCalls.length === 1);
+    s.stt.resumed();
+    await settle();
+    assert.equal(aborts, 1, "spekulativer LLM-Call wird abgebrochen");
+    assert.deepEqual(s.tts.texts, ["Hallo!"], "keine TTS-Ausgabe der Spekulation");
+
+    s.stt.turn("Die ganze Frage bitte?");
+    await waitFor(() => s.llmCalls.length === 2);
+    await settle();
+    assert.ok(s.tts.texts.includes("Antwort auf die echte Frage."));
+    const msgs = s.llmCalls[1]!.messages;
+    assert.equal(msgs[msgs.length - 1]?.content, "Die ganze Frage bitte?");
+    assert.equal(
+      msgs.filter((m) => m.role === "user").length,
+      1,
+      "kein spekulativer User-Rest in der Historie",
+    );
+    s.session.close();
+  }));
+
+// 13 ─ Abweichendes Final-Transkript: Spekulation verworfen, frischer Turn mit dem
+//      bestätigten Text (der Nutzer hat weitergesprochen, ohne dass TurnResumed kam).
+test("NativeSession: EagerEOT mit abweichendem Final — Neustart mit Final-Text", () =>
+  withEagerEot(async () => {
+    const s = makeSession([
+      async (req) =>
+        new Promise((_, reject) => {
+          req.signal.addEventListener("abort", () =>
+            reject(new DOMException("abgebrochen", "AbortError")),
+          );
+        }),
+      async (_req, onDelta) => {
+        onDelta("In Berlin sind es 20 Grad.");
+        return { content: "In Berlin sind es 20 Grad.", toolCalls: [] };
+      },
+    ]);
+    await s.session.start();
+
+    s.stt.eager("wie ist das wetter");
+    await waitFor(() => s.llmCalls.length === 1);
+    s.stt.turn("Wie ist das Wetter in Berlin?");
+    await waitFor(() => s.llmCalls.length === 2);
+    await settle();
+
+    const msgs = s.llmCalls[1]!.messages;
+    assert.equal(msgs[msgs.length - 1]?.content, "Wie ist das Wetter in Berlin?");
+    assert.ok(s.tts.texts.includes("In Berlin sind es 20 Grad."));
+    assert.equal(
+      s.events.filter(([e, v]) => e === "conversationText" && (v as { role: string }).role === "user").length,
+      1,
+      "nur der bestätigte User-Turn im Transkript",
+    );
+    s.session.close();
+  }));
+
+// 14 ─ Tool-Calls einer Spekulation warten hinter dem Gate: kein functionCallRequest
+//      (= keine Seiteneffekte) vor dem bestätigten Turn-Ende.
+test("NativeSession: EagerEOT — Tool-Calls erst nach Bestätigung", () =>
+  withEagerEot(async () => {
+    const s = makeSession([
+      async () => ({ content: "", toolCalls: [toolCall("t1", "get_weather", "{}")] }),
+      async (_req, onDelta) => {
+        onDelta("Fertig geprüft.");
+        return { content: "Fertig geprüft.", toolCalls: [] };
+      },
+    ]);
+    await s.session.start();
+
+    s.stt.eager("wetter bitte");
+    await waitFor(() => s.llmCalls.length === 1);
+    await settle(4);
+    assert.ok(
+      !s.events.some(([e]) => e === "functionCallRequest"),
+      "Tool-Call bleibt hinter dem Gate",
+    );
+
+    s.stt.turn("Wetter bitte!");
+    await waitFor(() => s.events.some(([e]) => e === "functionCallRequest"));
+    s.session.sendFunctionResponse("t1", "get_weather", { ok: true });
+    await waitFor(() => s.llmCalls.length === 2);
+    await settle();
+    assert.ok(s.tts.texts.includes("Fertig geprüft."));
+    s.session.close();
+  }));
+
+// 15 ─ Flag aus (Default): EagerEndOfTurn wird ignoriert, kein spekulativer LLM-Start.
+test("NativeSession: EagerEOT aus — kein spekulativer Start", async () => {
+  const s = makeSession([]);
+  await s.session.start();
+  s.stt.eager("wie ist das wetter");
+  await settle(4);
+  assert.equal(s.llmCalls.length, 0, "ohne Flag keine Spekulation");
   s.session.close();
 });
