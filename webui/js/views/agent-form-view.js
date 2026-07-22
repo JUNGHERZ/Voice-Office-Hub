@@ -69,7 +69,6 @@ function emptyForm() {
     ambiencePreset: "office",
     ambienceVolume: "25",
     widgetEnabled: false,
-    widgetExten: "",
     widgetOrigins: "",
     widgetShowTranscript: true,
     tools: ["transfer_call", "end_call"],
@@ -120,7 +119,6 @@ function toForm(a) {
     ambiencePreset: ambience.preset || "office",
     ambienceVolume: String(Math.round((ambience.volume != null ? ambience.volume : 0.25) * 100)),
     widgetEnabled: !!widget.enabled,
-    widgetExten: widget.exten || "",
     widgetOrigins: (widget.allowedOrigins || []).join("\n"),
     widgetShowTranscript: widget.showTranscript !== false,
     tools: a.tools && a.tools.length ? [...a.tools] : ["transfer_call", "end_call"],
@@ -184,11 +182,11 @@ function toBody(f) {
       preset: f.ambiencePreset,
       volume: Math.max(0, Math.min(1, Number(f.ambienceVolume) / 100 || 0)),
     },
-    // widget.key wird server-seitig verwaltet (Client-Werte zählen nie).
+    // widget.key UND widget.exten werden server-seitig verwaltet (exten kommt
+    // per Carry-along mit; beim ersten Aktivieren vergibt sie der Server).
     widget: {
       ...f._widget,
       enabled: f.widgetEnabled,
-      exten: f.widgetExten.trim() || undefined,
       allowedOrigins: f.widgetOrigins
         .split("\n")
         .map((s) => s.trim())
@@ -569,7 +567,7 @@ export default define({
                 <glk-input
                   label="Zielrufnummern (DDI)"
                   value="${f.targetNumbers}"
-                  hint="Komma-getrennt; in Prod E.164 (+49…)"
+                  hint="Komma-getrennt; in Prod E.164 (+49…). Bei aktivem Web-Widget ergänzt der Server die interne Web-Durchwahl automatisch."
                   onglk-input="${(host, e) => setField(host, "targetNumbers", e.detail.value)}"
                 ></glk-input>
 
@@ -727,13 +725,14 @@ export default define({
                 ></glk-toggle>
                 ${f.widgetEnabled &&
                 html`
-                  <glk-input
-                    label="Pseudo-Durchwahl (widget.exten)"
-                    value="${f.widgetExten}"
-                    placeholder="z. B. 120"
-                    hint="3-stellig; muss auch unter Zielrufnummern stehen (dorthin routet der Web-Anruf)"
-                    onglk-input="${(host, e) => setField(host, "widgetExten", e.detail.value)}"
-                  ></glk-input>
+                  <div class="empty-hint">
+                    ${f._widget && f._widget.exten
+                      ? html`Interne Web-Durchwahl: <strong>${f._widget.exten}</strong> (automatisch
+                          verwaltet — dorthin routet der Web-Anruf, steht deshalb auch unter
+                          Zielrufnummern).`
+                      : html`Die interne Web-Durchwahl wird beim Speichern automatisch vergeben und
+                          den Zielrufnummern hinzugefügt.`}
+                  </div>
                   <glk-textarea
                     label="Erlaubte Websites (eine Origin pro Zeile)"
                     rows="3"

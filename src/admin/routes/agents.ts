@@ -8,6 +8,7 @@ import type { FastifyInstance } from "fastify";
 
 import { Agent } from "../../db/models/Agent.js";
 import { requireAuth } from "../auth.js";
+import { collectUsedExtens, ensureWidgetExten } from "../widgetExten.js";
 
 /** Widget-Key ist SERVER-verwaltet: Client-Werte werden nie übernommen. */
 function newWidgetKey(): string {
@@ -44,7 +45,14 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   app.post("/", { schema: { tags: ["agents"], summary: "Agent anlegen", body: agentBody } }, async (req, reply) => {
     const body = { ...(req.body as Record<string, unknown>) };
     const widget = body.widget as Record<string, unknown> | undefined;
-    if (widget && typeof widget === "object") widget.key = newWidgetKey();
+    if (widget && typeof widget === "object") {
+      widget.key = newWidgetKey();
+      if (widget.enabled) {
+        // Pseudo-Durchwahl server-seitig sicherstellen (Exten + targetNumbers-Eintrag).
+        const all = await Agent.find({}, { targetNumbers: 1, "widget.exten": 1 }).lean();
+        ensureWidgetExten(body, undefined, collectUsedExtens(all));
+      }
+    }
     const agent = await Agent.create(body);
     return reply.code(201).send({ agent: agent.toObject() });
   });
@@ -60,11 +68,20 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       if (widget && typeof widget === "object") {
         // PATCH ersetzt Subdokumente komplett — den bestehenden Key bewahren
         // (bzw. beim ersten Aktivieren erzeugen); Client-Werte zählen nie.
-        const current = await Agent.findById(id, { "widget.key": 1 }).lean<{
-          widget?: { key?: string };
+        const current = await Agent.findById(id, { "widget.key": 1, "widget.exten": 1 }).lean<{
+          widget?: { key?: string; exten?: string };
         }>();
         if (!current) return reply.code(404).send({ error: "not found" });
         widget.key = current.widget?.key || newWidgetKey();
+        if (widget.enabled) {
+          // Pseudo-Durchwahl server-seitig sicherstellen; belegte Nummern anderer
+          // Agents meiden (die eigenen kommen ggf. aus dem Body selbst).
+          const others = await Agent.find(
+            { _id: { $ne: id } },
+            { targetNumbers: 1, "widget.exten": 1 },
+          ).lean();
+          ensureWidgetExten(body, current.widget?.exten, collectUsedExtens(others));
+        }
       }
       const agent = await Agent.findByIdAndUpdate(id, body, {
         new: true,
