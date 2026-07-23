@@ -451,6 +451,10 @@ async function runAgentCall(
         if (result.connected) {
           // Mensch hat übernommen → Agent voll stumm, hört NICHT mit. Anruf läuft Anrufer ↔ Mitarbeiter.
           transferActive = true;
+          // Restansage sofort verwerfen: Das Audio-Gate blockt nur NEUE Frames — was beim
+          // Connect noch im Playout-Puffer liegt ("…ich verbinde dich…"), würde sonst dem
+          // frisch zugeschalteten Mitarbeiter in der Bridge vorgespielt (Sofortannahme!).
+          media?.flush();
           media?.setAmbiencePaused?.(true); // Ambience gehört nicht ins durchgestellte Gespräch
           calleeChannel = result.channel;
           // Legt der Mitarbeiter auf, endet der ganze Anruf (Caller-Hangup deckt cleanup ohnehin ab).

@@ -208,6 +208,9 @@ test("Transfer connected: Voll-Mute beider Richtungen, Callee-Ende beendet Call"
   assert.equal(s.session.sentAudio.length, 0, "Anrufer-Audio geht nicht mehr zur Session");
   s.session.emitAudio();
   assert.equal(s.media.sentAudio.length, 0, "Session-Audio geht nicht mehr zum Anrufer");
+  // Sofortannahme-Leck (0.6.20): die beim Connect noch gepufferte Restansage wird verworfen,
+  // damit der zugeschaltete Mitarbeiter sie nicht hört.
+  assert.equal(s.media.flushCount, 1, "Playout-Puffer wird beim Connect geflusht");
 
   s.client.emitChannelDestroyed(callee);
   await waitFor(() => s.repo.finalized.length === 1);

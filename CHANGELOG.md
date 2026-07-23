@@ -6,6 +6,15 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.20] – 2026-07-23
+
+### Fixed
+- **Transfer bei Sofortannahme: Mitarbeiter hörte den Rest der Verbinde-Ansage.**
+  Das Audio-Gate blockt nach dem Connect nur neue Frames; die beim Connect noch im
+  Playout gepufferte Restansage spielte weiter in die Mixing-Bridge — bei sofort
+  annehmenden Zielen hörbar. Der callHandler flusht den Playout-Puffer jetzt im
+  Connect-Zweig (derselbe Mechanismus wie beim Barge-in).
+
 ## [0.6.19] – 2026-07-22
 
 ### Added
