@@ -12,6 +12,7 @@ const log = logger.child({ mod: "ari" });
 
 export async function startAri(): Promise<AriClient> {
   const client = await connectWithRetry();
+  await warnOnAudioSocket16k(client);
 
   client.on("StasisStart", (event: any, channel: any) => {
     // Von uns selbst erzeugte Media-/Hilfskanäle ignorieren — nur echte eingehende Anrufe.
@@ -35,6 +36,35 @@ export async function startAri(): Promise<AriClient> {
   client.start(config.ari.app);
   log.info("Stasis-App registriert", { app: config.ari.app });
   return client;
+}
+
+/**
+ * Betriebsschutz: AudioSocket überträgt bis einschließlich Asterisk 22.6 IMMER slin@8kHz —
+ * `externalMedia format=slin16` setzt dort nur die NativeFormats-Deklaration (Write/Read
+ * bleiben slin), 16-kHz-Audio läuft dann mit halber Geschwindigkeit („Murmelstimmen").
+ * Multi-Format-AudioSocket (Message-Typen 0x11–0x18) gibt es erst ab Asterisk 22.7 —
+ * und erfordert zusätzlich eine Protokoll-Anpassung unseres Servers.
+ */
+async function warnOnAudioSocket16k(client: AriClient): Promise<void> {
+  if (config.audio.sampleRate <= 8000 || config.audio.transport !== "audiosocket") return;
+  try {
+    const info = await (client as unknown as {
+      asterisk: { getInfo(): Promise<{ system?: { version?: string } }> };
+    }).asterisk.getInfo();
+    const version = info?.system?.version ?? "unbekannt";
+    const [maj = 0, min = 0] = version.split(".").map((v) => parseInt(v, 10));
+    const supported = maj > 22 || (maj === 22 && min >= 7);
+    if (!supported) {
+      log.error(
+        "AUDIO_SAMPLE_RATE > 8000 mit AudioSocket, aber dieses Asterisk kann nur slin@8k — " +
+          "Audio läuft mit falscher Geschwindigkeit! 16 kHz erfordert Asterisk >= 22.7 " +
+          "(Multi-Format-AudioSocket). Bitte AUDIO_SAMPLE_RATE=8000 + EXTERNAL_MEDIA_FORMAT=slin setzen.",
+        { asteriskVersion: version },
+      );
+    }
+  } catch (err) {
+    log.warn("Asterisk-Versionsprüfung fehlgeschlagen", { err: String(err) });
+  }
 }
 
 async function connectWithRetry(): Promise<AriClient> {

@@ -6,6 +6,20 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.25] – 2026-07-23
+
+### Fixed
+- **16-kHz-Pipeline: „Murmelstimmen" auf der Appliance — Einschränkung dokumentiert
+  und abgesichert.** Der AudioSocket-Treiber von Asterisk ≤ 22.6 (Appliance: 20.6)
+  überträgt unabhängig vom `externalMedia`-Format IMMER slin@8 kHz (`format=slin16`
+  setzt nur die NativeFormats-Deklaration; Write/Read bleiben slin) — 16-kHz-Audio
+  läuft dann mit halber Geschwindigkeit. Multi-Format-AudioSocket (Message-Typen
+  0x11–0x18) existiert erst ab Asterisk 22.7 und erfordert zusätzlich eine
+  Protokoll-Erweiterung unseres AudioSocket-Servers. Die Engine prüft jetzt beim
+  Boot die Asterisk-Version und loggt bei 16 kHz + AudioSocket + Asterisk < 22.7
+  einen klaren Fehler. Doku/.env.example entsprechend korrigiert; auf der
+  Appliance vorerst bei `AUDIO_SAMPLE_RATE=8000` bleiben.
+
 ## [0.6.24] – 2026-07-23
 
 ### Added
