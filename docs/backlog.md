@@ -71,15 +71,24 @@ der DB), hartes Timeout, Fehler → sprechbares `{error}`-Ergebnis + `status:"er
 (Call hängt nie). Editor im Agent-Formular (0.6.2), Kontrakt in `docs/tools.md`.
 Offen (Phase 2): verschlüsselter Secret-Store zusammen mit Trunk-Credentials.
 
-### 6. Audio-Pipeline auf 16 kHz (`slin16`) umstellen
-**Idee:** Durchgängig 16 kHz statt 8 kHz: bessere STT-Genauigkeit, Voraussetzung für
-ElevenLabs `pcm_16000`. Geht rein über ENV (`EXTERNAL_MEDIA_FORMAT=slin16`,
-`AUDIO_SAMPLE_RATE=16000`) — Frame-Größen werden im Code bereits aus der Rate berechnet,
-Resampling existiert bewusst nicht.
-- **Zu prüfen:** Trunk bleibt G.711/8 kHz → Asterisk transcodiert (CPU minimal); Bandbreite zur
-  Voice-API verdoppelt sich; Ambience-Dateien (→ 1) müssten dann 16 kHz sein; Regressionstest
-  Playout/Barge-in am echten Trunk.
-- **Aufwand:** ~0,5–1 Tag inkl. Test.
+### 6. Audio-Pipeline auf 16 kHz (`slin16`) umstellen — BLOCKIERT durch Asterisk-AudioSocket
+**Stand 2026-07-23 (0.6.24/0.6.25):** Engine-Seite ist FERTIG — die komplette Kette
+(Framing, Flux, Aura, ElevenLabs `pcm_16000`, Deepgram-VA, Ambience, Rampen/DC-Blocker,
+`wav16`-Aufnahmen) leitet sich aus `AUDIO_SAMPLE_RATE` ab; Tests gegen lokale `.env`
+abgeschirmt. **Blocker:** Der AudioSocket-Treiber von Asterisk ≤ 22.6 (Appliance: 20.6)
+überträgt IMMER slin@8k — `format=slin16` setzt nur NativeFormats, 16-kHz-Audio läuft
+halb so schnell („Murmelstimmen", live erlebt). Boot-Guard warnt seit 0.6.25.
+- **Weg A (empfohlener Spike, 1–2 h):** RTP-Transport — `chan_rtp` kann `slin16` schon
+  in 20.6. Danach Playout-Engine (Takt/Rampen/DC/Noise/pendingMs/Ambience) zwischen
+  AudioSocket- und RTP-Pfad teilen (~1 Tag). Risiko zu prüfen: Opus↔slin16-Transcode im
+  Widget (Community-Berichte über Probleme in anderer Konstellation).
+- **Weg B:** Asterisk ≥ 22.7 selbst bauen (Multi-Format-AudioSocket, Message-Typen
+  0x11–0x18 → auch unser Server braucht die neuen Typen). Falle: Opus-Codec ist im
+  Vanilla-Source NICHT enthalten (Ubuntu patcht `codec_opus_open_source` ein) — ohne
+  Opus-Patch wäre das Widget auf G.711/8k gezwungen und der 16k-Gewinn dahin. 1–2 Tage.
+- **Weg C (passiv):** Distro abwarten — Ubuntu 25.10/26.04 liefern erst 22.5.2, keine
+  planbare Option.
+- **Nutzen unverändert:** primär Web-Widget (Breitband Ende-zu-Ende); Trunk bleibt 8 kHz.
 
 ### 7. ✅ Umgesetzt in 0.6.3/0.6.4 (2026-07-20): Live-Call-Ansicht + Latenz-Metriken (v1)
 Tab „Live" (laufende Anrufe, tickende Dauer, 3-s-Polling; Partial-Index auf `in_progress`),
