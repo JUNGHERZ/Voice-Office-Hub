@@ -90,6 +90,10 @@ const RAMP_SAMPLES = Math.max(16, Math.round(config.audio.sampleRate / 200));
 // Komfortrauschen im Leerlauf (~±12 ≈ −65 dBFS): reine digitale Nullen klingen nach „toter
 // Leitung" und machen jede Mikro-Kante hörbar; ein hauchleiser Rauschteppich maskiert beides.
 const NOISE_AMP = 12;
+// DC-Blocker (Ein-Pol-Hochpass, fc ≈ 6 Hz): Aura-Sprache sitzt auf einem DC-Sockel bis
+// −1600 — die Nulllinien-Verschiebung an Äußerungsgrenzen bleibt sonst als leiser
+// „Bums" hörbar (und wandert im Widget-Pfad ungefiltert bis in den Browser-Lautsprecher).
+const DC_ALPHA = 1 - 40 / config.audio.sampleRate;
 
 export interface MediaSessionEvents {
   audio: (pcm: Buffer) => void;
@@ -111,6 +115,9 @@ export class MediaSession extends EventEmitter {
   private leadIn = true; // erster Ton der Session bekommt eine Stille-Anlaufzeit
   private rampNext = true; // nächstes TTS-Frame einblenden (Burst-Anfang nach Leerlauf)
   private noiseState = 0x9e3779b9; // LCG-Zustand fürs Komfortrauschen (pro Session)
+  // DC-Blocker-Zustand (x[n-1], y[n-1]) — läuft über Frame-Grenzen hinweg weiter.
+  private dcPrevIn = 0;
+  private dcPrevOut = 0;
   private rawEcho = false;
   private closed = false;
   private ambiencePaused = false;
@@ -201,6 +208,7 @@ export class MediaSession extends EventEmitter {
     const frame = this.playQueue.shift();
     const ambience = this.ambiencePaused ? undefined : this.ambience;
     if (frame) {
+      this.dcBlock(frame);
       // Stille-Frames (Lead-in) verbrauchen die Einblende nicht — erst echtes Signal rampt.
       if (this.rampNext && !isSilent(frame)) {
         fadeIn(frame);
@@ -218,6 +226,21 @@ export class MediaSession extends EventEmitter {
     }
     this.nextSendTime += FRAME_MS;
     this.scheduleTick();
+  }
+
+  /** Ein-Pol-Hochpass in place: y[n] = x[n] − x[n−1] + a·y[n−1] (entfernt den DC-Sockel). */
+  private dcBlock(frame: Buffer): void {
+    let xPrev = this.dcPrevIn;
+    let yPrev = this.dcPrevOut;
+    for (let i = 0; i < frame.length; i += 2) {
+      const xn = frame.readInt16LE(i);
+      const yn = xn - xPrev + DC_ALPHA * yPrev;
+      xPrev = xn;
+      yPrev = yn;
+      frame.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(yn))), i);
+    }
+    this.dcPrevIn = xPrev;
+    this.dcPrevOut = yPrev;
   }
 
   /** Hauchleises Rauschen (±NOISE_AMP) für den Leerlauf — klingt nach lebendiger Leitung. */

@@ -6,6 +6,17 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.23] – 2026-07-23
+
+### Fixed
+- **Rest-Wahrnehmung an Äußerungsgrenzen („fast unsichtbar") beseitigt:** Aura-Sprache
+  sitzt auf einem DC-Sockel (bis −1600) — die Nulllinien-Verschiebung beim Übergang
+  Rauschen ↔ Sprache blieb trotz Rampen als leiser „Bums" wahrnehmbar (und DC wandert
+  im Widget-Pfad ungefiltert bis in den Browser-Lautsprecher). Der Playout filtert
+  TTS-Frames jetzt durch einen Ein-Pol-DC-Blocker (Hochpass fc ≈ 6 Hz, Telefonie-
+  Standard; Zustand läuft über Frame-Grenzen). Aufnahme-Analyse nach 0.6.22 belegte:
+  Rampen wirken (Greeting-Onset-Sprung 67 statt >600), der Sockel war der Rest.
+
 ## [0.6.22] – 2026-07-23
 
 ### Fixed

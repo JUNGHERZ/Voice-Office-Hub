@@ -2,13 +2,13 @@
 
 [🇬🇧 English](README.md) · **🇩🇪 Deutsch**
 
-[![Version](https://img.shields.io/badge/version-0.6.22-f5a623)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.23-f5a623)](CHANGELOG.md)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-success)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
-[![Changelog](https://img.shields.io/badge/changelog-0.6.22-blue)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-0.6.23-blue)](CHANGELOG.md)
 
 > **VOH-Appliance** — Voice-Office-Hub. Teil der **„*-Office-Hub"**-Produktfamilie
 > (Schwesterprojekt: Message-Office-Hub für Chat/E-Mail/WhatsApp/SMS).

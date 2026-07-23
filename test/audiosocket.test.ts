@@ -165,12 +165,14 @@ test("Ambience: TTS wird gemischt, flush() stoppt die Ambience nicht", async () 
   const collector = await connectCollector(port, uuid);
 
   await until(() => collector.frames.length >= 3);
+  // TTS mit Wechselanteil (±500 alternierend): reine Konstantwerte wären DC und würden
+  // vom DC-Blocker (0.6.23) korrekt entfernt. Gemessen in der Frame-Mitte, weil
+  // Burst-Grenzen seit 0.6.22 ein-/ausgeblendet werden.
   const tts = Buffer.alloc(320);
-  for (let i = 0; i < 160; i++) tts.writeInt16LE(500, i * 2);
+  for (let i = 0; i < 160; i++) tts.writeInt16LE(i % 2 ? -500 : 500, i * 2);
   session.sendAudio(tts);
-  // Gemischtes Frame = TTS (500) + Ambience (1000) — in der Frame-Mitte gemessen,
-  // weil Burst-Grenzen seit 0.6.22 ein-/ausgeblendet werden.
-  await until(() => collector.frames.some((f) => f.readInt16LE(160) === 1500));
+  // Gemischtes Frame = TTS (±500) + Ambience (1000) → Mitte weicht deutlich von 1000 ab.
+  await until(() => collector.frames.some((f) => Math.abs(f.readInt16LE(160) - 1000) > 400));
 
   const before = collector.frames.length;
   session.flush(); // Barge-in: TTS weg, Takt läuft weiter
@@ -224,15 +226,16 @@ test("Playout ohne Ambience: Takt läuft nach dem Äußerungsende weiter (Klick-
   // Schon vor jedem TTS fließt Komfortrauschen (Takt startet mit attach()).
   await until(() => collector.frames.length >= 3);
 
+  // TTS mit Wechselanteil (±700 alternierend, überlebt den DC-Blocker); Frame-Mitte
+  // prüfen, weil Burst-Grenzen seit 0.6.22 ein-/ausgeblendet werden.
   const tts = Buffer.alloc(320);
-  for (let i = 0; i < 160; i++) tts.writeInt16LE(700, i * 2);
+  for (let i = 0; i < 160; i++) tts.writeInt16LE(i % 2 ? -700 : 700, i * 2);
   session.sendAudio(tts);
-  // Frame-Mitte prüfen: Burst-Grenzen sind seit 0.6.22 ein-/ausgeblendet.
-  await until(() => collector.frames.some((f) => f.readInt16LE(160) === 700));
+  await until(() => collector.frames.some((f) => Math.abs(f.readInt16LE(160)) > 600));
 
-  // Onset-Rampe: das erste (und hier einzige) Burst-Frame startet bei ~0 statt hart auf 700,
+  // Onset-Rampe: das erste (und hier einzige) Burst-Frame startet bei ~0 statt hart auf ±700,
   // und läuft am Ende wieder auf 0 aus (Aura-DC-Sprung → Klick-Fix).
-  const burst = collector.frames.find((f) => f.readInt16LE(160) === 700)!;
+  const burst = collector.frames.find((f) => Math.abs(f.readInt16LE(160)) > 600)!;
   assert.ok(Math.abs(burst.readInt16LE(0)) < 100, "Burst-Anfang eingeblendet");
   assert.equal(burst.readInt16LE(318), 0, "Burst-Ende exakt auf 0 ausgeblendet");
 
@@ -249,6 +252,35 @@ test("Playout ohne Ambience: Takt läuft nach dem Äußerungsende weiter (Klick-
   assert.ok(idleSamples.every((v) => Math.abs(v) <= 12), "im Leerlauf fließt leises Komfortrauschen");
   assert.ok(idleSamples.some((v) => v !== 0), "Rauschen ist nicht digital tot");
   assert.equal(session.pendingMs(), 0, "Rauschen zählt nicht als TTS-Backlog");
+
+  collector.close();
+  session.close();
+  await server.stop();
+});
+
+test("DC-Blocker: Gleichspannungs-Sockel wird entfernt (Klick-Fix 0.6.23)", async () => {
+  const server = new AudioSocketServer();
+  const port = 18105;
+  await server.start(port);
+  const uuid = randomUUID();
+  const session = server.register(uuid, "dc-1"); // ohne Ambience
+  const collector = await connectCollector(port, uuid);
+  await until(() => collector.frames.length >= 2);
+
+  // 3 Frames reine Gleichspannung (konstant 700) — wie der Aura-DC-Sockel.
+  const dc = Buffer.alloc(960);
+  for (let i = 0; i < 480; i++) dc.writeInt16LE(700, i * 2);
+  session.sendAudio(dc);
+  await until(() => collector.frames.some((f) => Math.abs(f.readInt16LE(160)) > 300));
+
+  // Der Einschalt-Transient darf durch (erste ms), aber die Gleichspannung selbst
+  // klingt ab — kein Frame trägt den vollen 700er-Sockel in der Mitte.
+  await until(() => {
+    const mids = collector.frames.map((f) => Math.abs(f.readInt16LE(160)));
+    return mids.some((v) => v > 300) && mids.some((v) => v > 12 && v < 120);
+  });
+  const mids = collector.frames.map((f) => Math.abs(f.readInt16LE(160)));
+  assert.ok(!mids.some((v) => v > 640), `DC-Sockel wird abgebaut (max Mitte=${Math.max(...mids)})`);
 
   collector.close();
   session.close();
