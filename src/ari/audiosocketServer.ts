@@ -58,7 +58,6 @@ const FRAME_MS = 20;
 const FRAME_BYTES = (config.audio.sampleRate * 2 * FRAME_MS) / 1000;
 const PREBUFFER_MS = 80; // Jitter-Puffer vor Start des Playouts (absorbiert Deepgram-Bursts → weniger Underruns/Knacken)
 const LEAD_IN_MS = 240; // einmalige Stille vor dem allerersten Ton (Greeting), bis die Medienstrecke „warm" ist
-const MAX_UNDERRUN_FRAMES = 50; // nach ~1 s Stille Playout pausieren (Sprechpause)
 const SILENCE_FRAME = Buffer.alloc(FRAME_BYTES);
 
 export interface MediaSessionEvents {
@@ -78,7 +77,6 @@ export class MediaSession extends EventEmitter {
   private playTimer?: NodeJS.Timeout;
   private playing = false;
   private nextSendTime = 0; // absolute Soll-Zeit des nächsten Frames (driftfreier Takt)
-  private underruns = 0;
   private leadIn = true; // erster Ton der Session bekommt eine Stille-Anlaufzeit
   private rawEcho = false;
   private closed = false;
@@ -106,9 +104,10 @@ export class MediaSession extends EventEmitter {
   attach(socket: net.Socket): void {
     this.socket = socket;
     this.log.info("AudioSocket-Verbindung zugeordnet");
-    // Greeting-Race: Audio, das vor dem Verbindungsaufbau kam, wartet in der Queue → jetzt abspielen.
-    // Mit Ambience läuft der Takt ab jetzt durchgehend (Atmosphäre auch vor dem Greeting).
-    if (this.playQueue.length || this.ambience) this.ensurePlayout();
+    // Der Takt läuft ab jetzt DURCHGEHEND bis close() — auch ohne Ambience wird in
+    // Sprechpausen Stille gesendet. Ein abreißender Audiostrom erzeugt auf Endgeräten
+    // hörbare Klick-Artefakte (Jitter-Buffer kippt in den Leerlauf; 0.6.21-Fix).
+    this.ensurePlayout();
   }
 
   /** Vom Server pro empfangenem Audio-Frame aufgerufen. */
@@ -146,7 +145,6 @@ export class MediaSession extends EventEmitter {
     // Erst starten, wenn die Verbindung steht — sonst würden frühe Frames (Greeting) verworfen.
     if (this.playing || !this.socket) return;
     this.playing = true;
-    this.underruns = 0;
     this.nextSendTime = Date.now() + PREBUFFER_MS;
     this.scheduleTick();
   }
@@ -158,10 +156,10 @@ export class MediaSession extends EventEmitter {
   }
 
   /**
-   * Ein Tick = genau ein 20-ms-Frame. Bei kurzer Sprechlücke wird Stille gesendet (Takt bleibt
-   * erhalten → keine Mini-Aussetzer); nach ~1 s Stille wird pausiert (Ende der Äußerung).
-   * Mit aktiver Ambience läuft der Takt dauerhaft: In Sprechpausen wird die Atmosphäre
-   * statt Stille gesendet (kein Underrun-Stopp), TTS-Frames bekommen sie untergemischt.
+   * Ein Tick = genau ein 20-ms-Frame, durchgehend von attach() bis close(): TTS-Frame,
+   * sonst Ambience, sonst Stille. Der kontinuierliche Strom hält Jitter-Buffer und
+   * Bridge stabil — der frühere Underrun-Stopp (~1 s nach Äußerungsende) erzeugte auf
+   * den Endgeräten ein hörbares Klicken beim Übergang „Stille-Strom → kein Strom".
    */
   private tick(): void {
     if (this.closed || !this.playing) return;
@@ -169,44 +167,30 @@ export class MediaSession extends EventEmitter {
     const ambience = this.ambiencePaused ? undefined : this.ambience;
     if (frame) {
       this.writeAudio(ambience ? ambience.mix(frame) : frame);
-      this.underruns = 0;
     } else if (ambience) {
       this.writeAudio(ambience.mix(null));
     } else {
-      if (++this.underruns > MAX_UNDERRUN_FRAMES) {
-        this.playing = false;
-        this.playTimer = undefined;
-        return;
-      }
       this.writeAudio(SILENCE_FRAME);
     }
     this.nextSendTime += FRAME_MS;
     this.scheduleTick();
   }
 
-  /** Ausgabe verwerfen (Barge-in): Restpuffer + Queue leeren, Takt stoppen. */
   /** Noch nicht ausgespielte Audiozeit in ms (für sauberes Auflegen nach dem Abschied). */
   pendingMs(): number {
     return this.playQueue.length * FRAME_MS;
   }
 
   flush(): void {
+    // Barge-in/Transfer verwirft nur das gepufferte TTS — der Takt läuft nahtlos weiter
+    // (Ambience bzw. Stille), damit der Audiostrom zum Endgerät nie abreißt.
     this.sendBuffer = Buffer.alloc(0);
     this.playQueue.length = 0;
-    // Barge-in verwirft nur TTS — die Ambience (und ihr Takt) läuft nahtlos weiter.
-    if (this.ambience && !this.ambiencePaused && this.playing) return;
-    this.playing = false;
-    if (this.playTimer) {
-      clearTimeout(this.playTimer);
-      this.playTimer = undefined;
-    }
   }
 
   /** Ambience stummschalten/fortsetzen (Transfer an einen Menschen: volle Stille im Gespräch). */
   setAmbiencePaused(paused: boolean): void {
     this.ambiencePaused = paused;
-    // Nach einer Pause kann der Takt per Underrun-Logik gestoppt sein → neu anwerfen.
-    if (!paused && this.ambience) this.ensurePlayout();
   }
 
   private writeAudio(payload: Buffer): void {

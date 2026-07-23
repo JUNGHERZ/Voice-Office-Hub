@@ -216,7 +216,8 @@ export const config: Config = {
     elevenUrl: opt("NATIVE_TTS_ELEVEN_URL", "wss://api.elevenlabs.io/v1"),
     minSentenceChars: int("NATIVE_MIN_SENTENCE_CHARS", 12),
     eagerEot: bool("NATIVE_EAGER_EOT", false),
-    ...(process.env.NATIVE_EAGER_EOT_THRESHOLD !== undefined &&
+    // Leerer String zählt als "nicht gesetzt" (ENV-Pinning der Tests nutzt das).
+    ...(process.env.NATIVE_EAGER_EOT_THRESHOLD &&
     Number.isFinite(Number(process.env.NATIVE_EAGER_EOT_THRESHOLD))
       ? { eagerEotThreshold: Number(process.env.NATIVE_EAGER_EOT_THRESHOLD) }
       : {}),

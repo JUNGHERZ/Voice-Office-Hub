@@ -6,6 +6,18 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.21] – 2026-07-23
+
+### Fixed
+- **Klickgeräusch am Ende jeder Agent-Äußerung (ohne Ambience).** Ursache war nicht
+  die TTS (Aura-Streamenden klingen bei 8/16/24 kHz nachweislich sauber aus), sondern
+  der Underrun-Stopp des Playout-Takts ~1 s nach dem Äußerungsende: Der Übergang
+  „aktiver Stille-Strom → gar kein Strom" kippt den Jitter-Buffer der Endgeräte hörbar
+  in den Leerlauf (Telefon wie Web-Widget; im Ambience-Modus nie aufgetreten, weil der
+  Takt dort durchläuft). Der Playout-Takt läuft jetzt immer von attach() bis close()
+  und sendet im Leerlauf Stille (~16 kB/s pro aktivem Anruf). end_call-Drain
+  (`pendingMs()`) und Barge-in-Verhalten bleiben unverändert.
+
 ## [0.6.20] – 2026-07-23
 
 ### Fixed

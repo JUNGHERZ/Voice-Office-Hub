@@ -182,7 +182,7 @@ test("Ambience: TTS wird gemischt, flush() stoppt die Ambience nicht", async () 
   await server.stop();
 });
 
-test("Ambience: Pause → Stille → Takt-Stopp; Resume startet den Takt neu", async () => {
+test("Ambience: Pause → Stille-Frames laufen weiter; Resume liefert wieder Atmosphäre", async () => {
   const server = new AudioSocketServer();
   const port = 18103;
   await server.start(port);
@@ -192,16 +192,57 @@ test("Ambience: Pause → Stille → Takt-Stopp; Resume startet den Takt neu", a
 
   await until(() => collector.frames.length >= 3);
   session.setAmbiencePaused(true);
-  // Legacy-Verhalten greift: erst Stille-Frames, nach ~1 s (50 Underruns) stoppt der Takt.
+  // Dauertakt (0.6.21): kein Underrun-Stopp mehr — es fließt Stille statt gar nichts
+  // (ein abreißender Strom erzeugte auf Endgeräten ein hörbares Klicken).
   await until(() => collector.frames.some((f) => f.readInt16LE(0) === 0));
-  await sleep(1400);
-  const stopped = collector.frames.length;
-  await sleep(350);
-  assert.equal(collector.frames.length, stopped, "Takt steht nach der Underrun-Grenze");
+  const atPause = collector.frames.length;
+  await until(() => collector.frames.length > atPause + 5);
+  assert.equal(
+    collector.frames[collector.frames.length - 1]!.readInt16LE(0),
+    0,
+    "während der Pause fließen Stille-Frames",
+  );
 
   session.setAmbiencePaused(false);
-  await until(() => collector.frames.length > stopped + 3);
-  assert.equal(collector.frames[collector.frames.length - 1]!.readInt16LE(0), 1000, "Ambience läuft wieder");
+  await until(() =>
+    collector.frames.length > 0 && collector.frames[collector.frames.length - 1]!.readInt16LE(0) === 1000,
+  );
+
+  collector.close();
+  session.close();
+  await server.stop();
+});
+
+test("Playout ohne Ambience: Takt läuft nach dem Äußerungsende weiter (Klick-Fix 0.6.21)", async () => {
+  const server = new AudioSocketServer();
+  const port = 18104;
+  await server.start(port);
+  const uuid = randomUUID();
+  const session = server.register(uuid, "click-1"); // KEINE Ambience
+  const collector = await connectCollector(port, uuid);
+
+  // Schon vor jedem TTS fließt Stille (Takt startet mit attach()).
+  await until(() => collector.frames.length >= 3);
+
+  const tts = Buffer.alloc(320);
+  for (let i = 0; i < 160; i++) tts.writeInt16LE(700, i * 2);
+  session.sendAudio(tts);
+  await until(() => collector.frames.some((f) => f.readInt16LE(0) === 700));
+
+  // Früher stoppte der Takt ~1 s (50 Frames) nach dem letzten TTS-Frame → Klick beim
+  // Endgerät. Jetzt: deutlich über die alte Grenze hinaus warten — der Strom reißt nie ab.
+  const afterTts = collector.frames.length;
+  await sleep(1400);
+  assert.ok(
+    collector.frames.length > afterTts + 55,
+    `Takt läuft über die alte Underrun-Grenze hinaus (${collector.frames.length - afterTts} Frames seit TTS-Ende)`,
+  );
+  assert.equal(
+    collector.frames[collector.frames.length - 1]!.readInt16LE(0),
+    0,
+    "im Leerlauf fließt Stille",
+  );
+  assert.equal(session.pendingMs(), 0, "Stille zählt nicht als TTS-Backlog");
 
   collector.close();
   session.close();

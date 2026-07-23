@@ -8,3 +8,6 @@ process.env.CALL_DEDUP_WINDOW_MS = "4000";
 process.env.SUMMARY_ENABLED = "false";
 process.env.ECHO_TEST = "false";
 process.env.LOG_LEVEL = process.env.TEST_LOG_LEVEL ?? "error";
+// EagerEOT: Tests steuern das Flag selbst (withEagerEot); leerer String = Threshold unset.
+process.env.NATIVE_EAGER_EOT = "false";
+process.env.NATIVE_EAGER_EOT_THRESHOLD = "";
