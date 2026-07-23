@@ -46,6 +46,32 @@ export function parseFrames(buf: Buffer): { frames: AudioSocketFrame[]; rest: Bu
   return { frames, rest: offset > 0 ? buf.subarray(offset) : buf };
 }
 
+/** Komplett stilles Frame? (Lead-in-Stille darf die Burst-Einblende nicht verbrauchen.) */
+function isSilent(frame: Buffer): boolean {
+  for (let i = 0; i < frame.length; i += 2) {
+    if (frame.readInt16LE(i) !== 0) return false;
+  }
+  return true;
+}
+
+/** Lineare Einblende über die ersten RAMP_SAMPLES eines 16-bit-Frames (in place). */
+function fadeIn(frame: Buffer): void {
+  const n = Math.min(RAMP_SAMPLES, frame.length / 2);
+  for (let i = 0; i < n; i++) {
+    frame.writeInt16LE(Math.round(frame.readInt16LE(i * 2) * (i / n)), i * 2);
+  }
+}
+
+/** Lineare Ausblende über die letzten RAMP_SAMPLES (endet exakt auf 0, in place). */
+function fadeOut(frame: Buffer): void {
+  const total = frame.length / 2;
+  const n = Math.min(RAMP_SAMPLES, total);
+  for (let i = 0; i < n; i++) {
+    const idx = total - n + i;
+    frame.writeInt16LE(Math.round(frame.readInt16LE(idx * 2) * (1 - (i + 1) / n)), idx * 2);
+  }
+}
+
 /** Baut eine AudioSocket-Audio-Nachricht (0x10) inkl. Header. */
 export function buildAudioFrame(payload: Buffer): Buffer {
   const header = Buffer.alloc(HEADER_BYTES);
@@ -58,7 +84,12 @@ const FRAME_MS = 20;
 const FRAME_BYTES = (config.audio.sampleRate * 2 * FRAME_MS) / 1000;
 const PREBUFFER_MS = 80; // Jitter-Puffer vor Start des Playouts (absorbiert Deepgram-Bursts → weniger Underruns/Knacken)
 const LEAD_IN_MS = 240; // einmalige Stille vor dem allerersten Ton (Greeting), bis die Medienstrecke „warm" ist
-const SILENCE_FRAME = Buffer.alloc(FRAME_BYTES);
+// Burst-Grenzen-Rampe (~5 ms): Aura-Streams starten mit hartem DC-Sprung (gemessen 2026-07-23:
+// erstes Sample −388…−627, DC-Sockel bis −1600) — ohne Fade klickt jeder Äußerungsbeginn.
+const RAMP_SAMPLES = Math.max(16, Math.round(config.audio.sampleRate / 200));
+// Komfortrauschen im Leerlauf (~±12 ≈ −65 dBFS): reine digitale Nullen klingen nach „toter
+// Leitung" und machen jede Mikro-Kante hörbar; ein hauchleiser Rauschteppich maskiert beides.
+const NOISE_AMP = 12;
 
 export interface MediaSessionEvents {
   audio: (pcm: Buffer) => void;
@@ -78,6 +109,8 @@ export class MediaSession extends EventEmitter {
   private playing = false;
   private nextSendTime = 0; // absolute Soll-Zeit des nächsten Frames (driftfreier Takt)
   private leadIn = true; // erster Ton der Session bekommt eine Stille-Anlaufzeit
+  private rampNext = true; // nächstes TTS-Frame einblenden (Burst-Anfang nach Leerlauf)
+  private noiseState = 0x9e3779b9; // LCG-Zustand fürs Komfortrauschen (pro Session)
   private rawEcho = false;
   private closed = false;
   private ambiencePaused = false;
@@ -157,23 +190,46 @@ export class MediaSession extends EventEmitter {
 
   /**
    * Ein Tick = genau ein 20-ms-Frame, durchgehend von attach() bis close(): TTS-Frame,
-   * sonst Ambience, sonst Stille. Der kontinuierliche Strom hält Jitter-Buffer und
-   * Bridge stabil — der frühere Underrun-Stopp (~1 s nach Äußerungsende) erzeugte auf
-   * den Endgeräten ein hörbares Klicken beim Übergang „Stille-Strom → kein Strom".
+   * sonst Ambience, sonst Komfortrauschen. Der kontinuierliche Strom hält Jitter-Buffer
+   * und Bridge stabil — der frühere Underrun-Stopp (~1 s nach Äußerungsende) erzeugte
+   * auf den Endgeräten ein hörbares Klicken beim Übergang „Stille-Strom → kein Strom".
+   * TTS-Bursts werden an ihren Grenzen kurz ein-/ausgeblendet (RAMP_SAMPLES): Aura
+   * startet mit hartem DC-Sprung, der sonst als Klick am Äußerungsbeginn hörbar ist.
    */
   private tick(): void {
     if (this.closed || !this.playing) return;
     const frame = this.playQueue.shift();
     const ambience = this.ambiencePaused ? undefined : this.ambience;
     if (frame) {
+      // Stille-Frames (Lead-in) verbrauchen die Einblende nicht — erst echtes Signal rampt.
+      if (this.rampNext && !isSilent(frame)) {
+        fadeIn(frame);
+        this.rampNext = false;
+      }
+      if (this.playQueue.length === 0) {
+        // Vorerst letztes Frame des Bursts → ausblenden; der nächste blendet wieder ein.
+        fadeOut(frame);
+        this.rampNext = true;
+      }
       this.writeAudio(ambience ? ambience.mix(frame) : frame);
-    } else if (ambience) {
-      this.writeAudio(ambience.mix(null));
     } else {
-      this.writeAudio(SILENCE_FRAME);
+      this.rampNext = true;
+      this.writeAudio(ambience ? ambience.mix(null) : this.nextNoiseFrame());
     }
     this.nextSendTime += FRAME_MS;
     this.scheduleTick();
+  }
+
+  /** Hauchleises Rauschen (±NOISE_AMP) für den Leerlauf — klingt nach lebendiger Leitung. */
+  private nextNoiseFrame(): Buffer {
+    const frame = Buffer.alloc(FRAME_BYTES);
+    let s = this.noiseState;
+    for (let i = 0; i < FRAME_BYTES; i += 2) {
+      s = (s * 1664525 + 1013904223) >>> 0; // LCG (Numerical Recipes)
+      frame.writeInt16LE((s % (2 * NOISE_AMP + 1)) - NOISE_AMP, i);
+    }
+    this.noiseState = s;
+    return frame;
   }
 
   /** Noch nicht ausgespielte Audiozeit in ms (für sauberes Auflegen nach dem Abschied). */

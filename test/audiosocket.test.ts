@@ -168,8 +168,9 @@ test("Ambience: TTS wird gemischt, flush() stoppt die Ambience nicht", async () 
   const tts = Buffer.alloc(320);
   for (let i = 0; i < 160; i++) tts.writeInt16LE(500, i * 2);
   session.sendAudio(tts);
-  // Gemischtes Frame = TTS (500) + Ambience (1000).
-  await until(() => collector.frames.some((f) => f.readInt16LE(0) === 1500));
+  // Gemischtes Frame = TTS (500) + Ambience (1000) — in der Frame-Mitte gemessen,
+  // weil Burst-Grenzen seit 0.6.22 ein-/ausgeblendet werden.
+  await until(() => collector.frames.some((f) => f.readInt16LE(160) === 1500));
 
   const before = collector.frames.length;
   session.flush(); // Barge-in: TTS weg, Takt läuft weiter
@@ -192,15 +193,14 @@ test("Ambience: Pause → Stille-Frames laufen weiter; Resume liefert wieder Atm
 
   await until(() => collector.frames.length >= 3);
   session.setAmbiencePaused(true);
-  // Dauertakt (0.6.21): kein Underrun-Stopp mehr — es fließt Stille statt gar nichts
-  // (ein abreißender Strom erzeugte auf Endgeräten ein hörbares Klicken).
-  await until(() => collector.frames.some((f) => f.readInt16LE(0) === 0));
+  // Dauertakt (0.6.21): kein Underrun-Stopp mehr — statt gar nichts fließt hauchleises
+  // Komfortrauschen (ein abreißender Strom erzeugte auf Endgeräten ein hörbares Klicken).
+  await until(() => collector.frames.some((f) => Math.abs(f.readInt16LE(0)) <= 12 && f.readInt16LE(0) !== 1000));
   const atPause = collector.frames.length;
   await until(() => collector.frames.length > atPause + 5);
-  assert.equal(
-    collector.frames[collector.frames.length - 1]!.readInt16LE(0),
-    0,
-    "während der Pause fließen Stille-Frames",
+  assert.ok(
+    Math.abs(collector.frames[collector.frames.length - 1]!.readInt16LE(0)) <= 12,
+    "während der Pause fließt leises Komfortrauschen",
   );
 
   session.setAmbiencePaused(false);
@@ -221,13 +221,20 @@ test("Playout ohne Ambience: Takt läuft nach dem Äußerungsende weiter (Klick-
   const session = server.register(uuid, "click-1"); // KEINE Ambience
   const collector = await connectCollector(port, uuid);
 
-  // Schon vor jedem TTS fließt Stille (Takt startet mit attach()).
+  // Schon vor jedem TTS fließt Komfortrauschen (Takt startet mit attach()).
   await until(() => collector.frames.length >= 3);
 
   const tts = Buffer.alloc(320);
   for (let i = 0; i < 160; i++) tts.writeInt16LE(700, i * 2);
   session.sendAudio(tts);
-  await until(() => collector.frames.some((f) => f.readInt16LE(0) === 700));
+  // Frame-Mitte prüfen: Burst-Grenzen sind seit 0.6.22 ein-/ausgeblendet.
+  await until(() => collector.frames.some((f) => f.readInt16LE(160) === 700));
+
+  // Onset-Rampe: das erste (und hier einzige) Burst-Frame startet bei ~0 statt hart auf 700,
+  // und läuft am Ende wieder auf 0 aus (Aura-DC-Sprung → Klick-Fix).
+  const burst = collector.frames.find((f) => f.readInt16LE(160) === 700)!;
+  assert.ok(Math.abs(burst.readInt16LE(0)) < 100, "Burst-Anfang eingeblendet");
+  assert.equal(burst.readInt16LE(318), 0, "Burst-Ende exakt auf 0 ausgeblendet");
 
   // Früher stoppte der Takt ~1 s (50 Frames) nach dem letzten TTS-Frame → Klick beim
   // Endgerät. Jetzt: deutlich über die alte Grenze hinaus warten — der Strom reißt nie ab.
@@ -237,12 +244,11 @@ test("Playout ohne Ambience: Takt läuft nach dem Äußerungsende weiter (Klick-
     collector.frames.length > afterTts + 55,
     `Takt läuft über die alte Underrun-Grenze hinaus (${collector.frames.length - afterTts} Frames seit TTS-Ende)`,
   );
-  assert.equal(
-    collector.frames[collector.frames.length - 1]!.readInt16LE(0),
-    0,
-    "im Leerlauf fließt Stille",
-  );
-  assert.equal(session.pendingMs(), 0, "Stille zählt nicht als TTS-Backlog");
+  const idle = collector.frames[collector.frames.length - 1]!;
+  const idleSamples = [0, 80, 159].map((i) => idle.readInt16LE(i * 2));
+  assert.ok(idleSamples.every((v) => Math.abs(v) <= 12), "im Leerlauf fließt leises Komfortrauschen");
+  assert.ok(idleSamples.some((v) => v !== 0), "Rauschen ist nicht digital tot");
+  assert.equal(session.pendingMs(), 0, "Rauschen zählt nicht als TTS-Backlog");
 
   collector.close();
   session.close();

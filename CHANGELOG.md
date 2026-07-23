@@ -6,6 +6,18 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.22] – 2026-07-23
+
+### Fixed
+- **Klick jetzt am Äußerungs-ANFANG (Folgefehler des 0.6.21-Dauertakts).** Messung
+  gegen die echte Aura-API: Streams beginnen mit hartem DC-Sprung (erstes Sample
+  −388…−627, Sockel bis −1600) — vor totenstiller Leitung als Klick am Sprechbeginn
+  hörbar (die Sample-Rate ist unschuldig; der Sprung existiert bei 8/16/24 kHz).
+  Zwei Playout-Bausteine: (1) ~5-ms-Ein-/Ausblende an TTS-Burst-Grenzen (Lead-in-
+  Stille verbraucht die Einblende nicht — auch das Greeting startet gerampt);
+  (2) hauchleises Komfortrauschen (±12 ≈ −65 dBFS) statt digitaler Nullen im
+  Leerlauf — maskiert Mikro-Kanten und beseitigt das „tote Leitung"-Gefühl.
+
 ## [0.6.21] – 2026-07-23
 
 ### Fixed
