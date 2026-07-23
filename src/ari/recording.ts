@@ -10,6 +10,7 @@ import path from "node:path";
 
 import type { AriBridge } from "ari-client";
 
+import { config } from "../config.js";
 import { logger } from "../util/logger.js";
 
 const SPOOL_DIR = "/var/spool/asterisk/recording";
@@ -24,18 +25,21 @@ export interface ActiveRecording {
 
 export async function startBridgeRecording(bridge: AriBridge, callId: string): Promise<ActiveRecording | null> {
   const name = `rec-${callId}`;
+  // Bei 16-kHz-Pipeline in Asterisks "wav16" aufnehmen (sonst rechnete Asterisk auf
+  // 8 kHz herunter); Dateiendung folgt dem Formatnamen, der Inhalt ist normales RIFF-WAV.
+  const format = config.audio.sampleRate >= 16000 ? "wav16" : "wav";
   try {
     const live = await bridge.record({
       name,
-      format: "wav",
+      format,
       ifExists: "overwrite",
       beep: false,
       terminateOn: "none",
     });
-    log.info("Bridge-Aufnahme gestartet", { name });
+    log.info("Bridge-Aufnahme gestartet", { name, format });
     return {
       name,
-      filePath: path.join(SPOOL_DIR, `${name}.wav`),
+      filePath: path.join(SPOOL_DIR, `${name}.${format}`),
       async stop() {
         try {
           await live.stop();
@@ -52,8 +56,8 @@ export async function startBridgeRecording(bridge: AriBridge, callId: string): P
 
 /**
  * Dauer einer (kanonischen) WAV-Datei in Sekunden, aus dem Header berechnet:
- * (Dateigröße − 44-Byte-Header) / byteRate. Für die Asterisk-Aufnahmen (slin, 8 kHz,
- * mono, 16-bit) ausreichend genau; bei Problemen 0.
+ * (Dateigröße − 44-Byte-Header) / byteRate. Für die Asterisk-Aufnahmen (slin mono
+ * 16-bit, 8 wie 16 kHz — byteRate steht im Header) ausreichend genau; bei Problemen 0.
  */
 export async function wavDurationSec(filePath: string): Promise<number> {
   const fh = await open(filePath, "r");

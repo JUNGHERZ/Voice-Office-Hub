@@ -1,3 +1,5 @@
+import "./helpers/env.js"; // MUSS erster Import bleiben (ENV-Pinning vor config-Load)
+
 /** Auto-Vergabe der Widget-Pseudo-Durchwahl (reine Logik, ohne DB). */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";

@@ -1,3 +1,5 @@
+import "./helpers/env.js"; // MUSS erster Import bleiben (ENV-Pinning vor config-Load)
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

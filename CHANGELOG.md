@@ -6,6 +6,27 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.24] – 2026-07-23
+
+### Added
+- **16-kHz-Audio-Pipeline (opt-in per ENV):** `AUDIO_SAMPLE_RATE=16000` +
+  `EXTERNAL_MEDIA_FORMAT=slin16` schalten die gesamte Kette auf HD-Audio —
+  AudioSocket-Framing, Flux-STT, Aura/ElevenLabs-TTS (`pcm_16000`), Deepgram-VA,
+  Ambience, Rampen und DC-Blocker leiten sich bereits aus der Config ab. Größter
+  Gewinn im Web-Widget (Breitband Ende-zu-Ende: bessere STT-Genauigkeit, brillantere
+  Stimmen); zum G.711-Trunk transkodiert Asterisk (bleibt dort 8 kHz). Neu dafür:
+  Bridge-Aufnahmen entstehen bei 16 kHz als Asterisk-`wav16` (Dateiendung folgt dem
+  Format, Inhalt ist normales RIFF-WAV). Default bleibt 8 kHz — bestehende
+  Deployments unverändert. Lokal Ende-zu-Ende verifiziert (Aufnahme-Header 16 kHz,
+  DC ≈ 0, keine harten Kanten).
+
+### Fixed
+- **Testsuite gegen lokale `.env` abgeschirmt:** fünf Testdateien luden die Config
+  ohne ENV-Pinning (`helpers/env`) — eine lokale 16-kHz-`.env` ließ die
+  Frame-Größen-Tests scheitern und den Playout-Timer leaken (hängende Suite).
+  Pinning jetzt in allen Testdateien; `AUDIO_SAMPLE_RATE`/`EXTERNAL_MEDIA_FORMAT`
+  werden für Tests auf 8 kHz/slin fixiert.
+
 ## [0.6.23] – 2026-07-23
 
 ### Fixed
