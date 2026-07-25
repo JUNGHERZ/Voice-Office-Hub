@@ -92,6 +92,7 @@ export function defaultAgent(): ResolvedAgent {
       model: config.summary.model,
     },
     ambience: { enabled: false, preset: "office", volume: 0.25 },
+    fillers: { enabled: false, delayMs: config.native.fillerDelayMs, phrases: [] },
     tags: [],
     mip_opt_out: false,
   };
@@ -156,6 +157,7 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
         timeoutMs: t.endpoint?.timeoutMs ?? 8000,
       },
       enabled: t.enabled ?? true,
+      fillerPhrase: t.fillerPhrase || undefined,
     })),
     mcpServers: (doc.mcpServers ?? []).map((s: Record<string, any>) => ({
       name: String(s.name ?? ""),
@@ -175,6 +177,12 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
       preset: doc.ambience?.preset ?? "office",
       volume: doc.ambience?.volume ?? 0.25,
     },
+    fillers: {
+      enabled: doc.fillers?.enabled ?? false,
+      delayMs: doc.fillers?.delayMs ?? config.native.fillerDelayMs,
+      phrases: Array.isArray(doc.fillers?.phrases) ? doc.fillers.phrases.map(String) : [],
+    },
+    transferFailedAnnouncement: doc.transferFailedAnnouncement || undefined,
     tags: doc.tags ?? [],
     mip_opt_out: doc.mip_opt_out ?? false,
   };

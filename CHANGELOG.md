@@ -6,6 +6,58 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.26] – 2026-07-25
+
+### Added
+- **Timer-Filler bei Tool-Wartezeiten (nur native).** Ruft das LLM ein langsames
+  customTool oder MCP-Tool auf, droht bis zur Antwort (plus TTFT der Folgerunde)
+  hörbare Stille — und wer in die Stille „Hallo?" fragt, löst ein Barge-in aus und
+  bricht die laufende Tool-Fortsetzung ab. Die NativeSession spricht jetzt nach einer
+  konfigurierbaren Verzögerung eine kurze Ansage aus einem rotierenden Pool. Bewusst
+  NICHT bei `end_call` (Runde wird nie beantwortet — sonst Filler über dem Abschied)
+  und `transfer_call` (das Modell kündigt selbst an, die Bridge ist gated). Ein
+  eventuell vom Modell gesprochener Ansage-Text verschiebt den Filler-Start um dessen
+  geschätzte Sprechdauer (Anti-Doppelung). Der Filler läuft über dieselben
+  Generations-Rails wie der übrige Turn (Barge-in/close brechen ihn ab) und geht ins
+  Transkript, aber NICHT in die LLM-Historie (eine assistant-Message zwischen
+  `tool_calls` und den `tool`-Antworten wäre ein OpenAI-400). Opt-in pro Agent
+  (`fillers.enabled`, `delayMs`, `phrases[]`), optionale Per-Tool-Phrase am customTool.
+- **Laufzeit-Lokalisierung fest hinterlegter Ansagen (beide Provider).** Fährt ein
+  Agent mehrsprachige STT (`language: "multi"`) und der Anrufer spricht eine andere
+  Sprache, werden Filler-Ansagen und die Transfer-Fehlschlag-Ansage per LLM-One-Shot
+  in die Anrufersprache übersetzt — inklusive der im Gespräch verwendeten Anrede-/
+  Höflichkeitsform (Sie/du, vous/tu, …). Der Betreiber pflegt jede Ansage nur EINMAL
+  in der Standardsprache; auch Sprachen, die niemand vorgesehen hat, funktionieren.
+  Erkennung läuft eager im Hintergrund nach dem ersten inhaltlichen Anrufer-Turn und
+  passt sich bei einem Sprachwechsel mitten im Gespräch an (Stopwort-Scorer als
+  Verdachtsmelder → erneuter LLM-Lauf; frühere Sprachen kommen aus dem Per-Call-Cache).
+  Der Übersetzungs-Prompt arbeitet dafür in zwei Schritten: das Modell muss die erkannte
+  Anredeform erst als eigenes Feld (`formality`) benennen und dann übersetzen. Diese
+  erzwungene Zwischenentscheidung war nötig — mit einer bloßen „übernimm die Anrede"-
+  Anweisung kippte das Register je nach Katalog-Umfang und Modell (real gegen Requesty
+  gemessen: 1–3 von 4 Fällen richtig); mit dem `formality`-Schritt waren es 24 von 24
+  über zwei Modelle, zwei Katalog-Größen und Wiederholungen. Zusätzlich wahrt der Prompt
+  die Sprecher-Perspektive (1. Person bleibt 1. Person — vorher wurde aus „Ich werfe einen
+  Blick" schon mal die Aufforderung „Wirf einen Blick").
+  Fällt die Erkennung aus oder ist noch nicht fertig, gilt die Standardsprache — eine
+  Ansage beschädigt nie ein Gespräch. Neue Bausteine `src/llm/localize.ts`,
+  `languageScorer.ts`, `callLocalizer.ts`; eigenes günstiges Modell `LOCALIZE_MODEL`
+  (Default `openai/gpt-4.1-mini`). Der Ansagen-Katalog ist pool-generisch angelegt, so
+  dass künftige Ansagen-Pools (z. B. Stille-Reengagement) ohne Umbau andocken.
+- **Erkannte Gesprächssprache im Anruf.** Die erkannte Anrufersprache landet in
+  `request.language` und erscheint als Badge in der Anrufliste.
+- **Transfer-Fehlschlag-Ansage pro Agent konfigurierbar** (`transferFailedAnnouncement`,
+  vorher fest verdrahtet) — inklusive Admin-Formularfeld; wird ebenfalls lokalisiert.
+
+### Notes
+- Die übersetzte Ansage spricht die Stimme des Anrufs: eine rein deutsche Aura-Stimme
+  sagt „One moment, please" mit Akzent (wie schon bei den normalen fremdsprachigen
+  Antworten). Akzentfrei wird es mit einer mehrsprachigen Stimme (ElevenLabs; ggf.
+  eine mehrsprachige Aura-Generation) — reine `speak.provider`-Frage, keine Engine-Änderung.
+- Das Greeting bleibt in der Standardsprache (es wird gesprochen, bevor der Anrufer ein
+  Wort gesagt hat — es gibt keine Sprachevidenz). Wer international erreichbar ist,
+  textet es zweisprachig.
+
 ## [0.6.25] – 2026-07-23
 
 ### Fixed

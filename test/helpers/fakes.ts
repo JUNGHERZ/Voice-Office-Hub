@@ -14,6 +14,7 @@ import type {
   NewRequestInput,
   TranscriptTurn,
 } from "../../src/db/repository.js";
+import type { CallLocalizerLike } from "../../src/llm/callLocalizer.js";
 import type { ResolvedAgent } from "../../src/types.js";
 import type { VoiceAgentSession, VoiceFunctionCall } from "../../src/voice/types.js";
 
@@ -192,6 +193,7 @@ export class FakeRepo implements CallRepo {
   transfers: Array<{ attempted: boolean; target?: string; connected?: boolean }> = [];
   finalized: Array<{ id: string; status: "completed" | "failed" }> = [];
   metrics: CallMetrics | undefined;
+  languages: Array<{ id: string; language: string }> = [];
   requestId = "req-1";
 
   createRequest = async (input: NewRequestInput): Promise<string> => {
@@ -211,6 +213,9 @@ export class FakeRepo implements CallRepo {
     this.transfers.push(transfer);
   };
   setRecording = async (): Promise<void> => {};
+  setLanguage = async (id: string, language: string): Promise<void> => {
+    this.languages.push({ id, language });
+  };
   finalizeRequest = async (
     id: string,
     status: "completed" | "failed",
@@ -241,8 +246,33 @@ export function testAgent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent
     mcpServers: [],
     summary: { enabled: false, prompt: "", model: "openai/gpt-4.1-mini" },
     ambience: { enabled: false, preset: "office", volume: 0.25 },
+    fillers: { enabled: false, delayMs: 2000, phrases: [] },
     tags: [],
     mip_opt_out: false,
     ...overrides,
   };
+}
+
+// ── Localizer ──────────────────────────────────────────────────────────────────
+
+/** Fake-CallLocalizer: zeichnet observeTurn auf; resolve() liefert konfigurierbare Werte. */
+export class FakeLocalizer implements CallLocalizerLike {
+  observed: Array<{ speaker: string; text: string }> = [];
+  closed = false;
+  /** key → Rückgabewert von resolve(); fehlt ein Key, kommt der Key selbst zurück. */
+  phrases: Record<string, string> = {};
+  language?: string;
+
+  observeTurn(speaker: string, text: string): void {
+    this.observed.push({ speaker, text });
+  }
+  resolve(key: string, _index?: number): string {
+    return this.phrases[key] ?? key;
+  }
+  getLanguage(): string | undefined {
+    return this.language;
+  }
+  close(): void {
+    this.closed = true;
+  }
 }

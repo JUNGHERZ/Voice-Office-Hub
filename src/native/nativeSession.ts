@@ -27,6 +27,7 @@ import { randomUUID } from "node:crypto";
 
 import { config } from "../config.js";
 import { modelSupportsTemperature } from "../llm/models.js";
+import { BUILTIN_TOOL_NAMES } from "../tools/names.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
 import type {
@@ -49,6 +50,13 @@ export interface NativeSessionDeps {
   /** TTS-Provider-Matrix: Auswahl anhand agent.speak.provider (Aura oder ElevenLabs). */
   createTts: (agent: ResolvedAgent, callId: string) => TtsStreamLike;
   streamLlm: typeof streamChatCompletion;
+  /** One-shot Timer für den Filler (injizierbar: Fake-Clock statt Wall-Clock); gibt Canceler zurück. */
+  setTimer: (fn: () => void, ms: number) => () => void;
+}
+
+/** Minimaler Localizer-Vertrag für den Filler (CallLocalizer erfüllt ihn strukturell; Tests: Fake). */
+export interface FillerLocalizer {
+  resolve(key: string, index?: number): string;
 }
 
 /**
@@ -107,6 +115,11 @@ const defaultDeps: NativeSessionDeps = {
   createStt: (opts, callId) => new FluxSttStream(opts, callId),
   createTts: buildNativeTts,
   streamLlm: streamChatCompletion,
+  setTimer: (fn, ms) => {
+    const h = setTimeout(fn, ms);
+    h.unref?.(); // ein vergessener Filler-Timer darf die Test-Suite/Event-Loop nie aufhalten
+    return () => clearTimeout(h);
+  },
 };
 
 interface ToolRound {
@@ -175,11 +188,17 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   private startedSpeakingEmitted = false;
   private llmDone = false;
 
+  // Timer-Filler bei Tool-Wartezeiten (0.6.26).
+  private fillerIndex = 0;
+  private toolWaitSpoken = false;
+  private cancelFillerTimer?: () => void;
+
   constructor(
     private readonly agent: ResolvedAgent,
     functions: FunctionDefinition[],
     private readonly callId: string,
     depsOverride?: Partial<NativeSessionDeps>,
+    private readonly localizer?: FillerLocalizer,
   ) {
     super();
     this.deps = { ...defaultDeps, ...depsOverride };
@@ -429,9 +448,85 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
 
   private speak(text: string, gen: number): void {
     if (gen !== this.generation || this.closed) return;
+    this.toolWaitSpoken = true; // die (Folge-)Runde spricht → ein wartender Filler ist unnötig
     if (!this.firstSentenceAt) this.firstSentenceAt = Date.now();
     this.ttsGen = gen;
     this.tts.sendText(text);
+  }
+
+  // ── Timer-Filler (Tool-Wartezeiten) ─────────────────────────────────────────
+
+  /** Fillbar = mindestens ein customTool/MCP-Tool und KEIN end_call/transfer_call in der Runde. */
+  private isFillableRound(calls: Array<{ function: { name: string } }>): boolean {
+    const names = calls.map((c) => c.function.name);
+    if (names.some((n) => n === "end_call" || n === "transfer_call")) return false;
+    return names.some((n) => !(BUILTIN_TOOL_NAMES as readonly string[]).includes(n));
+  }
+
+  private armFiller(
+    gen: number,
+    round: ToolRound,
+    calls: Array<{ function: { name: string } }>,
+    announceText: string,
+  ): void {
+    // Ein Ansage-Text der Runde (falls das Modell etwas sagte) verschiebt den Filler um dessen
+    // geschätzte Sprechdauer (~14 Zeichen/s) → eine echte Ansage verdrängt den Filler natürlich.
+    const extraMs = Math.ceil(((announceText?.length ?? 0) / 14) * 1000);
+    const names = calls.map((c) => c.function.name);
+    this.cancelFillerTimer = this.deps.setTimer(
+      () => this.fireFiller(gen, round, names, 1),
+      this.agent.fillers.delayMs + extraMs,
+    );
+  }
+
+  private fireFiller(gen: number, round: ToolRound, names: string[], repeatsLeft: number): void {
+    this.cancelFillerTimer = undefined;
+    if (this.closed || gen !== this.generation) return; // Barge-in/close
+    if (this.toolRound !== round) return; // Runde schon aufgelöst — Antwort ist unterwegs
+    if (this.toolWaitSpoken) return; // Folgerunde sprach bereits
+    const phrase = this.resolveFillerPhrase(names);
+    if (!phrase.trim()) return;
+    this.speakFiller(phrase, gen);
+    if (repeatsLeft > 0) {
+      this.cancelFillerTimer = this.deps.setTimer(
+        () => this.fireFiller(gen, round, names, repeatsLeft - 1),
+        6000,
+      );
+    }
+  }
+
+  /** Per-Tool-Ansage (falls definiert) vor rotierendem Pool — beides über den Localizer (lokalisiert). */
+  private resolveFillerPhrase(names: string[]): string {
+    for (const name of names) {
+      const tool = this.agent.customTools.find(
+        (t) => t.name === name && t.enabled && t.fillerPhrase?.trim(),
+      );
+      if (tool) return this.localizer?.resolve(`tool.${name}`) ?? tool.fillerPhrase!.trim();
+    }
+    if (this.localizer) return this.localizer.resolve("filler", this.fillerIndex++);
+    // Fallback ohne injizierten Localizer (z. B. Tests): direkter Pool-Zugriff.
+    const phrases = this.agent.fillers.phrases;
+    return phrases.length ? (phrases[this.fillerIndex++ % phrases.length] ?? "") : "";
+  }
+
+  /**
+   * Filler sprechen — bewusst NICHT über speak(): setzt kein toolWaitSpoken (sonst würde der
+   * Filler seine eigene Wiederholung abwürgen) und geht NICHT in die LLM-Historie (eine
+   * assistant-Message zwischen tool_calls und tool-Antworten wäre ein OpenAI-400). Nur ins Transkript.
+   */
+  private speakFiller(text: string, gen: number): void {
+    if (gen !== this.generation || this.closed) return;
+    this.ttsGen = gen; // Audio-Gate passieren lassen
+    // Filler ist nicht die substanzielle Antwort → aus dem Latenz-Emit heraushalten (A/B sauber).
+    this.startedSpeakingEmitted = true;
+    this.tts.sendText(text);
+    this.tts.flush();
+    this.emit("conversationText", { role: "assistant", content: text });
+  }
+
+  private clearFiller(): void {
+    this.cancelFillerTimer?.();
+    this.cancelFillerTimer = undefined;
   }
 
   // ── Assistant-Turn (LLM-Loop inkl. Tools) ───────────────────────────────────
@@ -447,6 +542,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     const round = this.toolRound;
     this.toolRound = undefined;
     round?.resolve(); // wartende Runde aufwecken — sie erkennt ihre stale Generation selbst
+    this.clearFiller(); // laufenden Filler-Timer abbrechen (Barge-in/injectMessage/close)
     this.tts.clear();
   }
 
@@ -544,10 +640,18 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
               clientSide: true,
             })),
           });
+          // Timer-Filler: droht während einer langsamen customTool/MCP-Runde Stille, spricht
+          // der Agent nach delayMs eine kurze (lokalisierte) Ansage. NICHT bei end_call
+          // (Runde nie beantwortet) / transfer_call (Modell kündigt selbst an).
+          this.toolWaitSpoken = false;
+          if (this.agent.fillers.enabled && this.isFillableRound(result.toolCalls)) {
+            this.armFiller(gen, this.toolRound!, result.toolCalls, result.content);
+          }
           // end_call-Muster: der callHandler beantwortet end_call bewusst NICHT —
           // die Runde bleibt offen, der Abschied ist bereits in der TTS, der Hangup
           // kommt drain-basiert. cancelActiveTurn()/close() weckt uns auf.
           await done;
+          this.clearFiller();
           if (gen !== this.generation || this.closed) return;
           continue;
         }
@@ -569,6 +673,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       this.log.warn("LLM-Turn fehlgeschlagen — zurück zu Listening", { err: String(err) });
       this.emit("error", `LLM: ${String(err)}`);
     } finally {
+      this.clearFiller(); // Absicherung: kein Filler-Timer überlebt das Turn-Ende
       if (this.activeAbort === abort) this.activeAbort = undefined;
     }
   }

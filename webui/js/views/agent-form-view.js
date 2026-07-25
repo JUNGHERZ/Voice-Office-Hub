@@ -1,8 +1,10 @@
 /*
  * Agent-Formular (Anlegen/Bearbeiten). Felder: name, targetNumbers (Komma→Array),
  * mode, voiceProvider, language, listen.model (nova-3/flux + eot-Felder), greeting,
- * prompt, speak.model, Tools (Built-in-Toggles + Custom-HTTP-Tools mit Modal-Editor),
- * summary.enabled, enabled. Speichern → POST/PATCH, Löschen → Bestätigung via <glk-modal>.
+ * prompt, speak.model, Tools (Built-in-Toggles + Custom-HTTP-Tools mit Modal-Editor,
+ * inkl. optionaler Per-Tool-Filler-Phrase), transferFailedAnnouncement, fillers (Timer-
+ * Filler bei Tool-Wartezeiten), summary.enabled, enabled. Speichern → POST/PATCH,
+ * Löschen → Bestätigung via <glk-modal>.
  *
  * Wichtig: PATCH ersetzt Subdokumente komplett ($set) — deshalb tragen _listen/_speak
  * das geladene Original-Subobjekt mit und toBody() schreibt es vollständig zurück
@@ -75,6 +77,10 @@ function emptyForm() {
     widgetEnabled: false,
     widgetOrigins: "",
     widgetShowTranscript: true,
+    transferFailedAnnouncement: "",
+    fillersEnabled: false,
+    fillersDelayMs: "2000",
+    fillersPhrases: "",
     tools: ["transfer_call", "end_call"],
     customTools: [],
     mcpServers: [],
@@ -86,6 +92,7 @@ function emptyForm() {
     _speak: {},
     _ambience: {},
     _widget: {},
+    _fillers: {},
   };
 }
 
@@ -94,6 +101,7 @@ function toForm(a) {
   const listen = a.listen || {};
   const ambience = a.ambience || {};
   const widget = a.widget || {};
+  const fillers = a.fillers || {};
   return {
     name: a.name || "",
     targetNumbers: (a.targetNumbers || []).join(", "),
@@ -128,6 +136,10 @@ function toForm(a) {
     widgetEnabled: !!widget.enabled,
     widgetOrigins: (widget.allowedOrigins || []).join("\n"),
     widgetShowTranscript: widget.showTranscript !== false,
+    transferFailedAnnouncement: a.transferFailedAnnouncement || "",
+    fillersEnabled: !!fillers.enabled,
+    fillersDelayMs: fillers.delayMs != null ? String(fillers.delayMs) : "2000",
+    fillersPhrases: (fillers.phrases || []).join("\n"),
     tools: a.tools && a.tools.length ? [...a.tools] : ["transfer_call", "end_call"],
     customTools: (a.customTools || []).map((t) => ({ ...t, endpoint: { ...(t.endpoint || {}) } })),
     mcpServers: (a.mcpServers || []).map((s) => ({ ...s })),
@@ -138,6 +150,7 @@ function toForm(a) {
     _speak: { ...(a.speak || {}) },
     _ambience: { ...ambience },
     _widget: { ...widget },
+    _fillers: { ...fillers },
   };
 }
 
@@ -205,6 +218,16 @@ function toBody(f) {
         .filter(Boolean),
       showTranscript: f.widgetShowTranscript,
     },
+    transferFailedAnnouncement: f.transferFailedAnnouncement.trim() || undefined,
+    fillers: {
+      ...f._fillers,
+      enabled: f.fillersEnabled,
+      delayMs: num(f.fillersDelayMs) ?? 2000,
+      phrases: f.fillersPhrases
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    },
     enabled: f.enabled,
   };
 }
@@ -262,6 +285,7 @@ function emptyToolDraft() {
     method: "POST",
     timeoutMs: "8000",
     enabled: true,
+    fillerPhrase: "",
     parametersText: '{\n  "type": "object",\n  "properties": {}\n}',
     headers: [], // [{k, v}] — Werte dürfen ${ENV:NAME}-Platzhalter enthalten
   };
@@ -279,6 +303,7 @@ function openToolEditor(host, index) {
         method: (t.endpoint && t.endpoint.method) || "POST",
         timeoutMs: String(t.endpoint && t.endpoint.timeoutMs != null ? t.endpoint.timeoutMs : 8000),
         enabled: t.enabled !== false,
+        fillerPhrase: t.fillerPhrase || "",
         parametersText: JSON.stringify(t.parameters || { type: "object", properties: {} }, null, 2),
         headers: Object.entries((t.endpoint && t.endpoint.headers) || {}).map(([k, v]) => ({ k, v })),
       }
@@ -354,6 +379,7 @@ function saveToolDraft(host) {
       timeoutMs: Number.isFinite(timeoutMs) ? Math.min(30000, Math.max(500, timeoutMs)) : 8000,
     },
     enabled: d.enabled,
+    fillerPhrase: (d.fillerPhrase || "").trim() || undefined,
   };
   const list = [...host.form.customTools];
   if (host.toolEditIndex >= 0) list[host.toolEditIndex] = tool;
@@ -752,6 +778,46 @@ export default define({
 
                 <glk-divider></glk-divider>
 
+                <glk-input
+                  label="Ansage bei fehlgeschlagener Weiterleitung"
+                  value="${f.transferFailedAnnouncement}"
+                  placeholder="Ich konnte leider niemanden erreichen. Wir machen zusammen weiter."
+                  onglk-input="${(host, e) => setField(host, "transferFailedAnnouncement", e.detail.value)}"
+                ></glk-input>
+                <div class="empty-hint">
+                  Wird gesprochen, wenn eine Weiterleitung niemanden erreicht. Leer = Standardtext. Bei
+                  mehrsprachigen Agenten (STT „multi") automatisch in die Anrufersprache übersetzt.
+                </div>
+
+                <glk-toggle
+                  label="Filler-Ansagen bei Tool-Wartezeiten (nur native)"
+                  checked="${f.fillersEnabled}"
+                  onglk-change="${(host, e) => setField(host, "fillersEnabled", e.detail.checked)}"
+                ></glk-toggle>
+                ${f.fillersEnabled &&
+                html`
+                  <glk-input
+                    label="Verzögerung bis zur Ansage (ms)"
+                    type="number"
+                    value="${f.fillersDelayMs}"
+                    onglk-input="${(host, e) => setField(host, "fillersDelayMs", e.detail.value)}"
+                  ></glk-input>
+                  <glk-textarea
+                    label="Filler-Ansagen (eine pro Zeile)"
+                    rows="3"
+                    value="${f.fillersPhrases}"
+                    placeholder="Einen Moment bitte."
+                    onglk-input="${(host, e) => setField(host, "fillersPhrases", e.detail.value)}"
+                  ></glk-textarea>
+                  <div class="empty-hint">
+                    Kurze Ansage, wenn ein langsames Tool (z. B. CRM-Abfrage) sonst zu Stille führt —
+                    rotierend aus dem Pool, nicht bei Auflegen/Weiterleitung. Nur in der Standardsprache
+                    pflegen; die Übersetzung in die Anrufersprache passiert automatisch zur Laufzeit.
+                  </div>
+                `}
+
+                <glk-divider></glk-divider>
+
                 <glk-toggle
                   label="Web-Widget (einbettbares Browser-Softphone)"
                   checked="${f.widgetEnabled}"
@@ -1065,6 +1131,14 @@ export default define({
                       value="${toolDraft.parametersText}"
                       onglk-input="${(host, e) => setDraft(host, "parametersText", e.detail.value)}"
                     ></glk-textarea>
+
+                    <glk-input
+                      label="Filler-Ansage (optional, nur native)"
+                      value="${toolDraft.fillerPhrase}"
+                      placeholder="Ich werfe einen Blick in den Kalender…"
+                      hint="Wird gesprochen, wenn dieses Tool länger braucht; zur Laufzeit übersetzt. Leer = allgemeiner Filler-Pool."
+                      onglk-input="${(host, e) => setDraft(host, "fillerPhrase", e.detail.value)}"
+                    ></glk-input>
 
                     <glk-toggle
                       label="Aktiv"

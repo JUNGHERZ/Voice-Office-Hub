@@ -9,6 +9,7 @@ import type { ResolvedAgent } from "../src/types.js";
 import {
   FakeChannel,
   FakeClient,
+  FakeLocalizer,
   FakeMedia,
   FakeRepo,
   FakeVoiceAgentSession,
@@ -397,4 +398,38 @@ test("Metriken: TTS-Verbrauch (Zeichen/Credits) landet im finalizeRequest", asyn
   assert.equal(m?.ttsModel, "eleven_flash_v2_5");
   assert.equal(m?.ttsCharacters, 4714);
   assert.equal(m?.ttsCredits, 2357);
+});
+
+// 18 ─ Lokalisierung: Transfer-Fehlschlag-Ansage kommt aus dem Localizer (beide Provider).
+test("Lokalisierung: Transfer-Ansage über localizer.resolve", async () => {
+  const localizer = new FakeLocalizer();
+  localizer.phrases.transferFailed = "Could not reach anyone.";
+  const s = makeCall({ deps: { createLocalizer: () => localizer } });
+  await s.start();
+  await s.session.emitFunctionCall([
+    { id: "t1", name: "transfer_call", argumentsJson: JSON.stringify({ target: "101" }) },
+  ]);
+  assert.equal(s.session.injectedMessages[0], "Could not reach anyone.", "lokalisierte Ansage");
+});
+
+// 19 ─ Lokalisierung: conversationText füttert observeTurn (beide Rollen), close im Teardown.
+test("Lokalisierung: observeTurn wird gefüttert, close beim Teardown", async () => {
+  const localizer = new FakeLocalizer();
+  const s = makeCall({ deps: { createLocalizer: () => localizer } });
+  await s.start();
+  s.session.emitConversationText("assistant", "Hallo!");
+  s.session.emitConversationText("user", "Guten Tag, ich brauche Hilfe.");
+  await settle();
+  assert.deepEqual(
+    localizer.observed,
+    [
+      { speaker: "agent", text: "Hallo!" },
+      { speaker: "caller", text: "Guten Tag, ich brauche Hilfe." },
+    ],
+    "beide Rollen mit gemappten Sprechern",
+  );
+
+  s.client.emitStasisEnd(s.channel);
+  await waitFor(() => s.repo.finalized.length === 1);
+  assert.equal(localizer.closed, true, "Localizer wird im Teardown geschlossen");
 });

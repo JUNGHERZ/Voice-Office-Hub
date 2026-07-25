@@ -45,3 +45,20 @@ test("Factory: native + eleven_labs → NativeSession (TTS-Matrix, kein Throw)",
   assert.ok(session instanceof NativeSession);
   session.close();
 });
+
+test("Factory: native erhält opts.localizer; Deepgram ignoriert ihn", () => {
+  const localizer = { resolve: () => "x" };
+  const native = createVoiceAgentSession(
+    testAgent({
+      voiceProvider: "native",
+      listen: { model: "flux-general-multi", language_hints: ["de"], keyterms: [], smart_format: true },
+    }),
+    { callId: "call-1", functions: [], localizer },
+  );
+  assert.ok(native instanceof NativeSession);
+  native.close();
+
+  // Deepgram bekommt den Localizer ebenfalls in den opts, nutzt ihn aber nicht (kein Throw).
+  const deepgram = createVoiceAgentSession(testAgent(), { callId: "call-2", functions: [], localizer });
+  assert.ok(deepgram instanceof AgentSession);
+});

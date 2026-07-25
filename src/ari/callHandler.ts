@@ -14,6 +14,7 @@ import { createAmbienceMixer } from "../audio/ambience.js";
 import { config } from "../config.js";
 import * as repo from "../db/repository.js";
 import { uploadRecording } from "../db/gridfs.js";
+import { CallLocalizer, type CallLocalizerLike } from "../llm/callLocalizer.js";
 import { runPostCallSummary } from "../llm/summarize.js";
 import { buildCallToolset, type CallToolset, type ToolContext } from "../tools/index.js";
 import type { ResolvedAgent, ResolvedAmbience } from "../types.js";
@@ -58,7 +59,13 @@ export function resetCallDedup(): void {
 /** Der vom callHandler genutzte Ausschnitt der Repository-API (Fake-freundlich). */
 export type CallRepo = Pick<
   typeof repo,
-  "createRequest" | "appendTranscript" | "appendFunctionCall" | "setTransfer" | "setRecording" | "finalizeRequest"
+  | "createRequest"
+  | "appendTranscript"
+  | "appendFunctionCall"
+  | "setTransfer"
+  | "setRecording"
+  | "setLanguage"
+  | "finalizeRequest"
 >;
 
 /**
@@ -71,6 +78,7 @@ export interface CallHandlerDeps {
   handlePassthrough: typeof handlePassthrough;
   createMedia: (callId: string, uuid: string, ambience?: ResolvedAmbience) => CallMedia;
   createSession: typeof createVoiceAgentSession;
+  createLocalizer: (agent: ResolvedAgent, requestId: string) => CallLocalizerLike;
   buildCallToolset: typeof buildCallToolset;
   repo: CallRepo;
   startBridgeRecording: typeof startBridgeRecording;
@@ -87,6 +95,7 @@ export const defaultDeps: CallHandlerDeps = {
   handlePassthrough,
   createMedia,
   createSession: createVoiceAgentSession,
+  createLocalizer: (agent, requestId) => new CallLocalizer(agent, requestId),
   buildCallToolset,
   repo,
   startBridgeRecording,
@@ -328,6 +337,10 @@ async function runAgentCall(
     ...(agent.id ? { agentId: agent.id as unknown as never } : {}),
   });
 
+  // Laufzeit-Lokalisierung der Filler-/System-Ansagen (aktiv nur bei mehrsprachigem Agent;
+  // sonst inert → Default-Sprache). Eigentümer des Anrufs, beide Provider.
+  const localizer = deps.createLocalizer(agent, requestId);
+
   let bridge: any;
   let externalChannel: any;
   let media: CallMedia | undefined;
@@ -381,6 +394,7 @@ async function runAgentCall(
       if (usage.ttsCredits !== undefined) metrics.ttsCredits = usage.ttsCredits;
     }
     session?.close();
+    localizer.close(); // laufende Sprach-Erkennung abbrechen, späte Ergebnisse verwerfen
     media?.close();
     try { await toolset?.close(); } catch { /* ignore */ }
     // Beide Beine + Medienkanal beenden (durchgeschaltete Beendigung).
@@ -429,7 +443,11 @@ async function runAgentCall(
 
     // Voice-Session aufbauen (Provider laut agent.voiceProvider; Settings baut der Adapter).
     // Konstruktion ist inert — verbunden wird erst per session.start() nach der Verdrahtung.
-    session = deps.createSession(agent, { callId: channel.id, functions: callToolset.definitions });
+    session = deps.createSession(agent, {
+      callId: channel.id,
+      functions: callToolset.definitions,
+      localizer,
+    });
 
     const toolCtx: ToolContext = {
       callId: requestId,
@@ -461,7 +479,8 @@ async function runAgentCall(
           client.on("ChannelDestroyed", onCalleeGone);
         } else {
           // Niemand erreichbar → Agent ist wieder voll aktiv und setzt den Kontext fort.
-          session?.injectMessage("Ich konnte leider niemanden erreichen. Wir machen zusammen weiter.");
+          // Ansage in der Anrufersprache (Fallback: Config-Default in der Standardsprache).
+          session?.injectMessage(localizer.resolve("transferFailed"));
         }
         return result;
       },
@@ -518,6 +537,8 @@ async function runAgentCall(
     session.on("conversationText", (ev) => {
       const speaker = ev.role === "assistant" ? "agent" : "caller";
       void deps.repo.appendTranscript(requestId, { t: elapsed(), speaker, text: ev.content });
+      // Sprach-/Register-Erkennung füttern (beide Rollen; Caller treibt Trigger, Agent = Register-Kontext).
+      localizer.observeTurn(speaker, ev.content);
     });
     session.on("agentStartedSpeaking", (lat) => log.debug("AgentStartedSpeaking", { ...lat }));
     session.on("functionCallRequest", async (ev) => {

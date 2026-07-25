@@ -7,7 +7,7 @@
  */
 import { AgentSession } from "../deepgram/agentSession.js";
 import { buildSettings } from "../deepgram/settings.js";
-import { NativeSession } from "../native/nativeSession.js";
+import { NativeSession, type FillerLocalizer } from "../native/nativeSession.js";
 import type { ResolvedAgent } from "../types.js";
 import type { FunctionDefinition, VoiceAgentSession } from "./types.js";
 
@@ -16,6 +16,8 @@ export interface VoiceSessionOptions {
   callId: string;
   /** Für den Think-Schritt verfügbare Tools. */
   functions: FunctionDefinition[];
+  /** Laufzeit-Lokalisierung der Filler-Ansagen (nur native genutzt; Deepgram ignoriert ihn). */
+  localizer?: FillerLocalizer;
 }
 
 export function createVoiceAgentSession(
@@ -28,7 +30,7 @@ export function createVoiceAgentSession(
     case "native":
       // Eigene STT→LLM→TTS-Kaskade: Flux + Requesty + TTS-Matrix (Aura oder ElevenLabs
       // je nach agent.speak.provider — Auswahl/Fallback in native/nativeSession.ts).
-      return new NativeSession(agent, opts.functions, opts.callId);
+      return new NativeSession(agent, opts.functions, opts.callId, undefined, opts.localizer);
     // Geplante Adapter — Enum im Agent-Schema erst bei Implementierung freischalten:
     case "elevenlabs":
     case "openai-realtime":

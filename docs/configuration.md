@@ -41,6 +41,9 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `NATIVE_STT_URL` / `NATIVE_TTS_URL` / `NATIVE_TTS_ELEVEN_URL` *(0.6.10)* | Deepgram/ElevenLabs-Produktiv-URLs | Endpoints der **NativeSession**-Bausteine (Flux-v2-Listen, Aura-Speak-WS, ElevenLabs-`stream-input`-Basis). Keys kommen aus `DEEPGRAM_API_KEY` bzw. `ELEVENLABS_API_KEY`. |
 | `NATIVE_MIN_SENTENCE_CHARS` / `NATIVE_CONTEXT_CHARS` *(0.6.10)* | `12` / `16000` | Satz-Chunker-Mindestlänge (LLM→TTS-Overlap), Zeichenbudget der Konversationshistorie. |
 | `NATIVE_EAGER_EOT` / `NATIVE_EAGER_EOT_THRESHOLD` *(0.6.17)* | `false` / `0.5` | Spekulativer LLM-Start auf das vorläufige Flux-Turn-Ende (EagerEndOfTurn): spart typ. 200–500 ms Antwortzeit; Audio/Historie/Tool-Calls warten hinter einem Gate bis zum bestätigten EndOfTurn — Fehlspekulationen (TurnResumed/abweichendes Transkript) sind unhörbar und kosten nur LLM-Input-Tokens. Die Schwelle (0.3–0.9) wird bei aktivem Flag immer mitgesendet — ohne sie deaktiviert Flux den Eager-Modus komplett; niedriger = früher spekulieren, höher = konservativer. |
+| `NATIVE_FILLER_DELAY_MS` *(0.6.26)* | `2000` | Default-Verzögerung (ms) für den **Timer-Filler** bei Tool-Wartezeiten (nur native), falls `agent.fillers.delayMs` fehlt. Aktivierung/Phrasen pro Agent (`agents.fillers`). |
+| `LOCALIZE_MODEL` *(0.6.26)* | `openai/gpt-4.1-mini` | Modell für die **Ansagen-Lokalisierung** (Requesty-One-Shot: Sprach-/Registererkennung + Übersetzung des Ansagen-Katalogs), unabhängig vom Konversations-LLM. Aktiv nur bei mehrsprachigen Agenten (`language: "multi"`). |
+| `TRANSFER_FAILED_ANNOUNCEMENT` *(0.6.26)* | „Ich konnte leider niemanden erreichen. …" | Standardtext der Ansage bei fehlgeschlagener Weiterleitung (pro Agent via `agents.transferFailedAnnouncement` überschreibbar; wird bei mehrsprachigen Agenten lokalisiert). |
 | `EXTERNAL_MEDIA_FORMAT` | `slin` | Asterisk-Format des externalMedia-Kanals (`slin`=8 kHz, `slin16`=16 kHz signed linear) — muss zu `AUDIO_SAMPLE_RATE` passen. |
 | `EXTERNAL_MEDIA_HOST` / `EXTERNAL_MEDIA_PORT` | `127.0.0.1` / `8090` | Adresse, zu der sich Asterisks AudioSocket verbindet (extern: erreichbare Host-Adresse). |
 | `UNKNOWN_NUMBER_BEHAVIOR` | `reject` | Verhalten bei Anruf an eine DDI **ohne** zugeordneten Agent: `reject` (vor Answer mit 404 ablehnen → Netz-Standardansage, 0 Kosten, kein Logeintrag), `announce` (Ansage abspielen + auflegen, kein LLM) oder `agent` (Default-Agent beantwortet — nur Dev). Siehe [Unbekannte Rufnummer](#unbekannte-rufnummer-kein-agent). |
@@ -139,10 +142,12 @@ Mongoose (Fehler → HTTP 400). Die wichtigsten Felder:
 | `ambience.enabled` / `preset` / `volume` *(0.6.8)* | **Hintergrundatmosphäre**: leise Dauerschleife im Anruf (auch in Sprechpausen). Presets eingebaut & lizenzfrei (prozedural): `office` / `room` / `rain`; `volume` 0..1 (UI: 0–100 %). Nur `MEDIA_TRANSPORT=audiosocket`; landet mit in der Aufnahme; pausiert bei Übergabe an einen Menschen. Eigene Loops: `AMBIENCE_DIR`. |
 | `widget.enabled` / `exten` / `allowedOrigins` / `showTranscript` *(0.6.9, exten auto seit 0.6.12)* | **Web-Widget** (einbettbares Browser-Softphone): `exten` = 3-stellige Pseudo-Durchwahl — wird beim Aktivieren **server-seitig automatisch vergeben** und in `targetNumbers` ergänzt (API-Clients dürfen sie weiterhin explizit setzen). `allowedOrigins` = Websites, die einbetten dürfen (CSP frame-ancestors), `showTranscript` = Live-Transkript im Widget. Der Embed-`key` ist server-verwaltet (rotierbar). Setzt `WEBRTC_ENABLED=true` voraus — Details in [docs/webrtc.md](webrtc.md). |
 | `tools[]` | Aktivierte **eingebaute** Tools (UI: Toggle-Liste, Quelle `GET /api/tools`). |
-| `customTools[]` *(0.6.1)* | **Eigene HTTP-Tools** (Name, Beschreibung, JSON-Schema, Endpoint mit Methode/Headern/Timeout, `${ENV:}`-Secrets) — Kontrakt in [docs/tools.md](tools.md). |
+| `customTools[]` *(0.6.1)* | **Eigene HTTP-Tools** (Name, Beschreibung, JSON-Schema, Endpoint mit Methode/Headern/Timeout, `${ENV:}`-Secrets; optional `fillerPhrase` = eigene Warte-Ansage, nur native — s. `fillers`) — Kontrakt in [docs/tools.md](tools.md). |
 | `mcpServers[]` *(0.6.5)* | **MCP-Server** als Tool-Quellen (Streamable HTTP; Tools präfixiert `<server>_<tool>`, optional `toolFilter`) — siehe [docs/tools.md](tools.md). |
 | `useTransferCallerId` | Original-Anrufernummer als Absender bei externem Transfer (setzt `TRUNK_CLIP_NO_SCREENING=true` voraus). |
 | `summary.enabled` / `prompt` / `model` | Post-Call-Summary pro Agent (Override der `SUMMARY_*`-ENV). |
+| `transferFailedAnnouncement` *(0.6.26)* | Ansage bei fehlgeschlagener Weiterleitung (leer = `TRANSFER_FAILED_ANNOUNCEMENT`). Beide Provider; bei mehrsprachigen Agenten in die Anrufersprache übersetzt. |
+| `fillers.enabled` / `delayMs` / `phrases[]` *(0.6.26)* | **Timer-Filler** bei Tool-Wartezeiten (**nur native**): kurze Ansage aus `phrases` (rotierend) nach `delayMs` ms, wenn ein langsames customTool/MCP sonst zu Stille führt. NICHT bei `end_call`/`transfer_call`. Phrasen nur in der Standardsprache pflegen — die Übersetzung in die Anrufersprache passiert zur Laufzeit. Per-Tool-Override: `customTools[].fillerPhrase`. |
 | `tags[]` / `mip_opt_out` | Deepgram-Request-Tags / Model-Improvement-Opt-out. |
 
 #### NativeSession (`voiceProvider: "native"`, 0.6.10)
@@ -161,6 +166,25 @@ teils mit eigener Semantik:
 Latenz-Transparenz: Jeder Assistant-Turn loggt `Turn-Latenz` (`total` = Sprechende→erstes
 Audio, `ttt` = LLM-First-Token, `tts` = TTS-Anlauf) — der größte Hebel ist ein schnelles
 `think.model`.
+
+### Ansagen-Lokalisierung (0.6.26)
+
+Fest hinterlegte Ansagen (die **Filler-Phrasen** und die **Transfer-Fehlschlag-Ansage**) pflegt
+der Betreiber nur **einmal** in seiner Standardsprache. Fährt der Agent mehrsprachige STT
+(`language: "multi"`) und der Anrufer spricht eine andere Sprache, übersetzt ein LLM-One-Shot
+([localize.ts](../src/llm/localize.ts), Modell `LOCALIZE_MODEL`) den kompletten Ansagen-Katalog in
+die Anrufersprache — inklusive der im Gespräch verwendeten Anrede-/Höflichkeitsform (Sie/du …).
+Die Erkennung läuft eager im Hintergrund nach dem ersten inhaltlichen Anrufer-Turn und passt sich
+einem Sprachwechsel mitten im Gespräch an (Ergebnis pro Sprache gecacht). Gilt für **beide**
+Provider (die Transfer-Ansage über den callHandler; der Filler nur native). Fällt die Erkennung
+aus oder ist noch nicht fertig, gilt die Standardsprache — eine Ansage beschädigt nie ein Gespräch.
+Die erkannte Sprache landet in `request.language` (Badge in der Anrufliste).
+
+Grenzen (bewusst): Die übersetzte Ansage spricht die **Stimme des Anrufs** — eine rein deutsche
+Aura-Stimme klingt bei „One moment, please" akzentbehaftet (wie schon bei fremdsprachigen
+LLM-Antworten); akzentfrei wird es mit einer mehrsprachigen Stimme (`speak.provider`). Das
+**Greeting** bleibt in der Standardsprache (es wird vor jeder Sprachevidenz gesprochen) — wer
+international erreichbar ist, textet es zweisprachig.
 
 ### Unbekannte Rufnummer (kein Agent)
 

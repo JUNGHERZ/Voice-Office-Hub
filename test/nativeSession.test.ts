@@ -86,15 +86,30 @@ const FUNCTIONS: FunctionDefinition[] = [
   { name: "get_weather", description: "Wetter", parameters: { type: "object", properties: {} } },
 ];
 
-function makeSession(script: LlmHandler[], greeting = "Hallo!") {
+interface FakeTimerEntry {
+  ms: number;
+  fn: () => void;
+  cancelled: boolean;
+}
+
+function makeSession(
+  script: LlmHandler[],
+  greeting = "Hallo!",
+  opts: {
+    agent?: Parameters<typeof testAgent>[0];
+    localizer?: { resolve(key: string, index?: number): string };
+  } = {},
+) {
   const stt = new FakeStt();
   const tts = new FakeTts();
   const llmCalls: ChatStreamRequest[] = [];
+  const timers: FakeTimerEntry[] = [];
   const session = new NativeSession(
     testAgent({
       voiceProvider: "native",
       greeting,
       listen: { model: "flux-general-multi", language_hints: ["de"], keyterms: [], smart_format: true },
+      ...opts.agent,
     }),
     FUNCTIONS,
     "call-native",
@@ -107,7 +122,15 @@ function makeSession(script: LlmHandler[], greeting = "Hallo!") {
         if (!handler) throw new Error("LLM-Skript erschöpft");
         return handler(req, onDelta);
       },
+      setTimer: (fn, ms) => {
+        const entry: FakeTimerEntry = { ms, fn, cancelled: false };
+        timers.push(entry);
+        return () => {
+          entry.cancelled = true;
+        };
+      },
     },
+    opts.localizer,
   );
 
   const events: Array<[string, unknown?]> = [];
@@ -126,7 +149,12 @@ function makeSession(script: LlmHandler[], greeting = "Hallo!") {
   }
   const audio: Buffer[] = [];
   session.on("audio", (b) => audio.push(b));
-  return { session, stt, tts, llmCalls, events, audio };
+  return { session, stt, tts, llmCalls, events, audio, timers };
+}
+
+/** Feuert einen (auch „abgebrochenen") Fake-Timer; default: den zuletzt geplanten. */
+function fireTimer(timers: FakeTimerEntry[], index = timers.length - 1): void {
+  timers[index]?.fn();
 }
 
 const toolCall = (id: string, name: string, args: string) => ({
@@ -585,4 +613,212 @@ test("NativeSession: EagerEOT sendet Default-Threshold an Flux", async () => {
     build(); // Flag an, kein expliziter Wert → Default 0.5
     assert.equal(captured[1]!.eagerEotThreshold, 0.5);
   });
+});
+
+// ── Timer-Filler (0.6.26) ────────────────────────────────────────────────────
+
+const fillerAgent = (over: Parameters<typeof testAgent>[0] = {}) => ({
+  fillers: { enabled: true, delayMs: 2000, phrases: ["Einen Moment bitte."] },
+  ...over,
+});
+
+const customTool = (name: string, fillerPhrase?: string) => ({
+  name,
+  description: "",
+  parameters: { type: "object", properties: {} },
+  endpoint: { url: "https://x.test", method: "POST" as const, headers: {}, timeoutMs: 8000 },
+  enabled: true,
+  ...(fillerPhrase ? { fillerPhrase } : {}),
+});
+
+async function driveToolRound(s: ReturnType<typeof makeSession>, transcript = "Bitte nachsehen."): Promise<void> {
+  await s.session.start();
+  s.stt.turn(transcript);
+  await waitFor(() => s.events.some(([e]) => e === "functionCallRequest"));
+  await settle();
+}
+
+// F1 ─ Filler feuert bei customTool-Runde; landet im Transkript, aber NICHT in der LLM-Historie.
+test("Filler: feuert bei customTool-Runde, nur ins Transkript (nicht in die Historie)", async () => {
+  let round2: ChatMessage[] = [];
+  const s = makeSession(
+    [
+      async () => ({ content: "", toolCalls: [toolCall("t1", "crm_lookup", "{}")] }),
+      async (req) => {
+        round2 = req.messages;
+        return { content: "Fertig.", toolCalls: [] };
+      },
+    ],
+    "Hallo!",
+    { agent: fillerAgent() },
+  );
+  await driveToolRound(s, "Schau bitte im CRM nach.");
+
+  assert.equal(s.timers.length, 1, "genau ein Filler-Timer für die Runde");
+  fireTimer(s.timers);
+  assert.ok(s.tts.texts.includes("Einen Moment bitte."), "Filler wird gesprochen");
+  assert.ok(
+    s.events.some(
+      ([e, v]) => e === "conversationText" && (v as { content: string }).content === "Einen Moment bitte.",
+    ),
+    "Filler erscheint im Transkript",
+  );
+
+  s.session.sendFunctionResponse("t1", "crm_lookup", { ok: true });
+  await waitFor(() => s.llmCalls.length === 2);
+  assert.ok(
+    !round2.some((m) => m.role === "assistant" && m.content === "Einen Moment bitte."),
+    "Filler steht NICHT in der LLM-Historie (kein OpenAI-400)",
+  );
+  s.session.close();
+});
+
+// F2 ─ Kein Filler bei end_call / transfer_call / reinem get_weather.
+test("Filler: kein Timer bei end_call / transfer_call / reinem get_weather", async () => {
+  for (const name of ["end_call", "transfer_call", "get_weather"]) {
+    const s = makeSession(
+      [async () => ({ content: "", toolCalls: [toolCall("t1", name, "{}")] })],
+      "Hallo!",
+      { agent: fillerAgent() },
+    );
+    await driveToolRound(s, "Mach das bitte.");
+    assert.equal(s.timers.length, 0, `${name}: kein Filler-Timer`);
+    s.session.close();
+  }
+});
+
+// F3 ─ MCP-Runde (<server>_<tool>, kein Builtin) ist fillbar.
+test("Filler: MCP-Runde ist fillbar", async () => {
+  const s = makeSession(
+    [async () => ({ content: "", toolCalls: [toolCall("t1", "crm_server_lookup", "{}")] })],
+    "Hallo!",
+    { agent: fillerAgent() },
+  );
+  await driveToolRound(s);
+  assert.equal(s.timers.length, 1);
+  fireTimer(s.timers);
+  assert.ok(s.tts.texts.includes("Einen Moment bitte."));
+  s.session.close();
+});
+
+// F4 ─ Per-Tool-Phrase hat Vorrang vor dem Pool.
+test("Filler: Per-Tool-Phrase hat Vorrang vor dem Pool", async () => {
+  const s = makeSession(
+    [async () => ({ content: "", toolCalls: [toolCall("t1", "crm_lookup", "{}")] })],
+    "Hallo!",
+    { agent: fillerAgent({ customTools: [customTool("crm_lookup", "Ich sehe im CRM nach…")] }) },
+  );
+  await driveToolRound(s, "Schau im CRM.");
+  fireTimer(s.timers);
+  assert.ok(s.tts.texts.includes("Ich sehe im CRM nach…"), "Per-Tool-Phrase gesprochen");
+  assert.ok(!s.tts.texts.includes("Einen Moment bitte."), "Pool-Phrase nicht genutzt");
+  s.session.close();
+});
+
+// F5 ─ Ansage-Text der Runde verlängert den Delay (Anti-Doppelung).
+test("Filler: Ansage-Text der Runde verlängert den Delay", async () => {
+  const content = "Ich schaue kurz nach.";
+  const s = makeSession(
+    [async () => ({ content, toolCalls: [toolCall("t1", "crm_lookup", "{}")] })],
+    "Hallo!",
+    { agent: fillerAgent() },
+  );
+  await driveToolRound(s, "Bitte prüfen.");
+  assert.equal(s.timers.length, 1);
+  assert.equal(s.timers[0]!.ms, 2000 + Math.ceil((content.length / 14) * 1000));
+  s.session.close();
+});
+
+// F6 ─ Barge-in verhindert den Filler (Generation-Rail).
+test("Filler: Barge-in verhindert den Filler", async () => {
+  const s = makeSession(
+    [async () => ({ content: "", toolCalls: [toolCall("t1", "crm_lookup", "{}")] })],
+    "Hallo!",
+    { agent: fillerAgent() },
+  );
+  await driveToolRound(s);
+  assert.equal(s.timers.length, 1);
+  s.stt.speech(); // Barge-in → generation++, clearFiller
+  fireTimer(s.timers); // verspäteter Timer
+  assert.ok(!s.tts.texts.includes("Einen Moment bitte."), "kein Filler nach Barge-in");
+  s.session.close();
+});
+
+// F7 ─ Antwort der Folgerunde verdrängt den wartenden Filler.
+test("Filler: Antwort der Folgerunde verdrängt den wartenden Filler", async () => {
+  const s = makeSession(
+    [
+      async () => ({ content: "", toolCalls: [toolCall("t1", "crm_lookup", "{}")] }),
+      async (_req, onDelta) => {
+        onDelta("Hier ist das Ergebnis.");
+        return { content: "Hier ist das Ergebnis.", toolCalls: [] };
+      },
+    ],
+    "Hallo!",
+    { agent: fillerAgent() },
+  );
+  await driveToolRound(s);
+  s.session.sendFunctionResponse("t1", "crm_lookup", { ok: true });
+  await waitFor(() => s.llmCalls.length === 2);
+  await settle();
+  fireTimer(s.timers); // Timer feuert (zu) spät
+  assert.ok(!s.tts.texts.includes("Einen Moment bitte."), "kein Filler mehr nach der Antwort");
+  assert.ok(s.tts.texts.includes("Hier ist das Ergebnis."));
+  s.session.close();
+});
+
+// F8 ─ Genau eine Wiederholung; Pool rotiert.
+test("Filler: genau eine Wiederholung, Pool rotiert", async () => {
+  const s = makeSession(
+    [async () => ({ content: "", toolCalls: [toolCall("t1", "crm_lookup", "{}")] })],
+    "Hallo!",
+    { agent: fillerAgent({ fillers: { enabled: true, delayMs: 2000, phrases: ["Eins.", "Zwei."] } }) },
+  );
+  await driveToolRound(s);
+  fireTimer(s.timers); // erster Filler
+  assert.deepEqual(s.tts.texts.filter((t) => ["Eins.", "Zwei."].includes(t)), ["Eins."]);
+  assert.equal(s.timers.length, 2, "Wiederholungs-Timer geplant");
+  assert.equal(s.timers[1]!.ms, 6000);
+  fireTimer(s.timers, 1); // Wiederholung
+  assert.deepEqual(
+    s.tts.texts.filter((t) => ["Eins.", "Zwei."].includes(t)),
+    ["Eins.", "Zwei."],
+    "Pool rotiert bei der Wiederholung",
+  );
+  assert.equal(s.timers.length, 2, "keine zweite Wiederholung");
+  s.session.close();
+});
+
+// F9 ─ Parallele Tool-Calls → genau ein Timer pro Runde.
+test("Filler: parallele Tool-Calls → ein Timer", async () => {
+  const s = makeSession(
+    [async () => ({ content: "", toolCalls: [toolCall("t1", "crm_a", "{}"), toolCall("t2", "crm_b", "{}")] })],
+    "Hallo!",
+    { agent: fillerAgent() },
+  );
+  await driveToolRound(s, "Beides bitte.");
+  assert.equal(s.timers.length, 1, "ein Timer pro Runde, nicht pro Tool");
+  s.session.close();
+});
+
+// F10 ─ Deaktiviert (Default) → kein Timer trotz customTool-Runde.
+test("Filler: deaktiviert → kein Timer", async () => {
+  const s = makeSession([async () => ({ content: "", toolCalls: [toolCall("t1", "crm_lookup", "{}")] })]);
+  await driveToolRound(s);
+  assert.equal(s.timers.length, 0);
+  s.session.close();
+});
+
+// F11 ─ Ansage kommt über den Localizer (lokalisiert).
+test("Filler: Ansage kommt über den Localizer", async () => {
+  const localizer = { resolve: (key: string) => (key === "filler" ? "One moment, please." : key) };
+  const s = makeSession(
+    [async () => ({ content: "", toolCalls: [toolCall("t1", "crm_lookup", "{}")] })],
+    "Hallo!",
+    { agent: fillerAgent(), localizer },
+  );
+  await driveToolRound(s, "Please check.");
+  fireTimer(s.timers);
+  assert.ok(s.tts.texts.includes("One moment, please."), "Localizer-Übersetzung gesprochen");
+  s.session.close();
 });

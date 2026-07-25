@@ -95,6 +95,8 @@ const CustomToolSchema = new Schema(
     parameters: { type: Schema.Types.Mixed, default: () => ({ type: "object", properties: {} }) },
     endpoint: { type: CustomToolEndpointSchema, required: true },
     enabled: { type: Boolean, default: true },
+    // Optionale eigene Filler-Ansage bei Wartezeit auf dieses Tool (Standardsprache; wird lokalisiert).
+    fillerPhrase: { type: String },
   },
   { _id: false },
 );
@@ -142,6 +144,20 @@ const AmbienceSchema = new Schema(
     preset: { type: String, enum: AMBIENCE_PRESET_IDS, default: "office" },
     // Linearer Pegel 0..1 (0.25 = dezent hörbar).
     volume: { type: Number, default: 0.25, min: 0, max: 1 },
+  },
+  { _id: false },
+);
+
+/**
+ * Timer-Filler bei Tool-Wartezeiten (nur native): Droht während eines langsamen Tool-Calls
+ * Stille, spricht der Agent nach `delayMs` eine kurze Ansage aus `phrases` (rotierend,
+ * zur Laufzeit in die Anrufersprache übersetzt). Nicht bei end_call/transfer_call.
+ */
+const FillersSchema = new Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    delayMs: { type: Number, default: 2000, min: 0 },
+    phrases: { type: [String], default: [] },
   },
   { _id: false },
 );
@@ -198,6 +214,9 @@ const AgentSchema = new Schema(
     language: { type: String },
     greeting: { type: String },
     prompt: { type: String },
+    // Ansage bei fehlgeschlagenem Transfer (Standardsprache; wird zur Laufzeit lokalisiert).
+    // Leer = Config-Default (config.announcements.transferFailed).
+    transferFailedAnnouncement: { type: String },
 
     listen: { type: ListenSchema, default: () => ({}) },
     think: { type: ThinkSchema, default: () => ({}) },
@@ -226,6 +245,7 @@ const AgentSchema = new Schema(
     },
     summary: { type: SummarySchema, default: () => ({}) },
     ambience: { type: AmbienceSchema, default: () => ({}) },
+    fillers: { type: FillersSchema, default: () => ({}) },
     widget: { type: WidgetSchema, default: () => ({}) },
     tags: { type: [String], default: [] },
     mip_opt_out: { type: Boolean, default: false },

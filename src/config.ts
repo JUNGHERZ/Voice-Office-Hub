@@ -86,6 +86,8 @@ export interface Config {
     eagerEotThreshold?: number;
     /** Zeichenbudget der Konversationshistorie (Fallback, wenn agent.think.context_length fehlt). */
     contextChars: number;
+    /** Default-Verzögerung (ms) für den Timer-Filler, wenn agent.fillers.delayMs fehlt. */
+    fillerDelayMs: number;
   };
   /** WebRTC-Web-Widget (0.6.9): Browser-Softphone über Asterisk chan_pjsip/WS. */
   widget: {
@@ -119,6 +121,14 @@ export interface Config {
     enabled: boolean;
     prompt: string;
     model: string;
+  };
+  /** Laufzeit-Lokalisierung fest hinterlegter Ansagen (One-Shot, eigenes günstiges Modell). */
+  localize: {
+    model: string;
+  };
+  /** Default-Texte für System-Ansagen (Standardsprache; werden zur Laufzeit lokalisiert). */
+  announcements: {
+    transferFailed: string;
   };
   transfer: {
     passthroughTarget: string;
@@ -222,6 +232,7 @@ export const config: Config = {
       ? { eagerEotThreshold: Number(process.env.NATIVE_EAGER_EOT_THRESHOLD) }
       : {}),
     contextChars: int("NATIVE_CONTEXT_CHARS", 16000),
+    fillerDelayMs: int("NATIVE_FILLER_DELAY_MS", 2000),
   },
   widget: {
     enabled: bool("WEBRTC_ENABLED", false),
@@ -254,6 +265,16 @@ export const config: Config = {
     ),
     // Eigenes Summary-Modell über Requesty (unabhängig vom Konversations-Modell).
     model: opt("SUMMARY_MODEL", "openai/gpt-4.1-mini"),
+  },
+  localize: {
+    // Erkennung + Übersetzung der Ansagen (günstig, temperature 0; unabhängig vom Konversations-LLM).
+    model: opt("LOCALIZE_MODEL", "openai/gpt-4.1-mini"),
+  },
+  announcements: {
+    transferFailed: opt(
+      "TRANSFER_FAILED_ANNOUNCEMENT",
+      "Ich konnte leider niemanden erreichen. Wir machen zusammen weiter.",
+    ),
   },
   transfer: {
     passthroughTarget: opt("PASSTHROUGH_TARGET", ""),

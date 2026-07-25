@@ -54,6 +54,8 @@ export interface ResolvedCustomTool {
   parameters: Record<string, unknown>;
   endpoint: ResolvedCustomToolEndpoint;
   enabled: boolean;
+  /** Optionale eigene Filler-Ansage für dieses Tool (Standardsprache; wird zur Laufzeit lokalisiert). */
+  fillerPhrase?: string;
 }
 
 /** Am Agent hinterlegter MCP-Server als Tool-Quelle (Streamable HTTP, statische Header). */
@@ -85,6 +87,15 @@ export interface ResolvedAmbience {
   volume: number;
 }
 
+/** Timer-Filler bei Tool-Wartezeiten (native): kurze Ansage aus dem Pool, wenn Stille droht. */
+export interface ResolvedFillers {
+  enabled: boolean;
+  /** Verzögerung (ms), bevor der Filler spricht — sofern die Folgerunde nicht vorher antwortet. */
+  delayMs: number;
+  /** Pool von Ansagen (Standardsprache; werden zur Laufzeit lokalisiert und rotiert). */
+  phrases: string[];
+}
+
 export interface ResolvedAgent {
   id?: string;
   name: string;
@@ -108,6 +119,9 @@ export interface ResolvedAgent {
   mcpServers: ResolvedMcpServer[];
   summary: ResolvedSummary;
   ambience: ResolvedAmbience;
+  fillers: ResolvedFillers;
+  /** Ansage bei fehlgeschlagenem Transfer (Standardsprache; wird lokalisiert). Leer = Config-Default. */
+  transferFailedAnnouncement?: string;
   tags: string[];
   mip_opt_out: boolean;
 }
