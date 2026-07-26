@@ -6,6 +6,35 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.28] – 2026-07-26
+
+### Fixed
+- **Ansagen blieben bei englischen Anrufern deutsch.** Im Live-Test antwortete das
+  Lokalisierungs-Modell mit `{"language":"en"}` **ohne** `phrases` — Sprache erkannt,
+  Übersetzung verweigert. Ursache war der Prompt selbst: Er bot mit „spricht der Anrufer
+  dieselbe Sprache wie der Katalog, antworte NUR mit dem Code" eine billige Abkürzung an,
+  und gpt-4.1-mini nahm sie bei englischen Anrufern reproduzierbar auch dann, wenn der
+  Katalog deutsch war. Bemerkenswert: Bei **Spanisch** übersetzte derselbe Prompt im selben
+  Lauf korrekt — die Abkürzung wird also sprachabhängig falsch genommen, was sich nicht
+  herleiten, sondern nur messen lässt.
+- **Der naheliegende Gegenentwurf war schlechter.** „phrases immer zurückgeben, unverändert
+  wenn es schon passt" lieferte bei **Italienisch** zweimal von zwei Läufen die deutschen
+  Originale und bei Französisch einmal von zwei — dieselbe Verweigerung in anderer
+  Verkleidung. Nebenbefund: Auch bei `temperature: 0` unterscheiden sich Läufe gelegentlich,
+  Einzelmessungen taugen hier nichts.
+- **Behoben, indem dem Modell die Entscheidung genommen wird.** Der Prompt kennt keinen Weg
+  mehr, die Formulierung zu überspringen; stattdessen benennt das Modell in einem neuen
+  Pflichtfeld `catalogLanguage` erst die Ausgangssprache und formuliert dann bedingungslos
+  jeden Katalog-Wert. Dieselbe Mechanik wie beim `formality`-Feld aus 0.6.26: erst benennen
+  lassen, dann handeln lassen. Gemessen 15/15 über fünf Sprachfälle × drei Wiederholungen.
+- **Nebeneffekt, der bleiben darf:** Da nicht mehr abgekürzt wird, zieht das Modell die
+  Anredeform jetzt auch **innerhalb derselben Sprache** nach — duzt der Anrufer auf Deutsch,
+  wird aus „Sind Sie noch da?" ein „Bist du noch da?". Passt schon alles, kommen die
+  Originaltexte zeichengleich zurück (gemessen 7/7).
+- **Diagnose im eigenen Log:** Der CallLocalizer protokolliert jetzt `language`,
+  `catalogLanguage`, `formality` und die Anzahl gelieferter Ansagen. Der Fehler oben war
+  ausschließlich im Requesty-Dashboard sichtbar.
+
 ## [0.6.27] – 2026-07-26
 
 ### Added

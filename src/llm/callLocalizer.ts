@@ -214,6 +214,15 @@ export class CallLocalizer implements CallLocalizerLike {
   private applyResult(myGen: number, res: LocalizeResult): void {
     if (this.closed || myGen !== this.gen) return; // veraltet (close / erneut geändert)
     const lang = res.language;
+    // Diagnose: Fehlt phrases bei abweichender Sprache, verweigert das Modell die Übersetzung
+    // (siehe localize.ts) — das war 0.6.27 live nur im Requesty-Dashboard sichtbar.
+    this.log.info("Ansagen lokalisiert", {
+      language: lang,
+      ...(res.catalogLanguage ? { catalogLanguage: res.catalogLanguage } : {}),
+      ...(res.formality ? { formality: res.formality } : {}),
+      phrases: res.phrases ? Object.keys(res.phrases).length : 0,
+      catalog: Object.keys(this.defaults).length,
+    });
     if (res.phrases && Object.keys(res.phrases).length) {
       this.cache.set(lang, { ...(this.cache.get(lang) ?? {}), ...res.phrases });
     } else if (!this.cache.has(lang)) {

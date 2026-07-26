@@ -11,9 +11,17 @@ const CATALOG = { transferFailed: "Ich konnte niemanden erreichen.", "filler.0":
 
 // ── Reines Parsen/Validieren (parseLocalizeResponse) ─────────────────────────
 
-test("parse: gleiche Sprache → nur language, keine phrases", () => {
+test("parse: nur language (kein phrases-Feld) bleibt gültig — Defaults greifen dann", () => {
   const r = parseLocalizeResponse('{"language":"de"}', CATALOG);
   assert.deepEqual(r, { language: "de" });
+});
+
+test("parse: catalogLanguage wird übernommen (nur plausible Codes)", () => {
+  const r = parseLocalizeResponse('{"catalogLanguage":"DE","language":"en","phrases":{}}', CATALOG);
+  assert.equal(r.catalogLanguage, "de", "wird kleingeschrieben");
+  assert.equal(parseLocalizeResponse('{"language":"en"}', CATALOG).catalogLanguage, undefined);
+  const junk = '{"catalogLanguage":"viel_zu_lang","language":"en"}';
+  assert.equal(parseLocalizeResponse(junk, CATALOG).catalogLanguage, undefined);
 });
 
 test("parse: Übersetzung → Keys erhalten", () => {
@@ -124,7 +132,23 @@ test("detectAndLocalize: Body korrekt (temperature 0, Modell, caller-only + Regi
   assert.match(system, /caller:/, "Prompt bestimmt die Sprache aus den caller-Zeilen");
   assert.match(system, /Anrede|Höflichkeitsform/, "Prompt enthält die Register-Instruktion");
   assert.match(system, /Person|Perspektive/, "Prompt wahrt Sprecher-Perspektive (1. Person)");
+  assert.match(system, /catalogLanguage/, "Modell muss die Ausgangssprache benennen");
   assert.match(messages[1]!.content, /CATALOG/, "Katalog geht als JSON in den User-Turn");
+});
+
+// Regression 0.6.28: Der Prompt darf dem Modell KEINEN Weg lassen, die Übersetzung auszulassen.
+// Genau daran ist 0.6.27 live gescheitert (gpt-4.1-mini lieferte bei englischen Anrufern
+// reproduzierbar nur {"language":"en"} ohne phrases).
+test("Prompt: keine Erlaubnis, phrases wegzulassen oder unverändert zurückzugeben", async () => {
+  await detectAndLocalize("caller: Hello there", CATALOG);
+  const messages = lastBody.messages as Array<{ role: string; content: string }>;
+  const system = messages[0]!.content;
+  assert.match(system, /IMMER alle vier Felder/, "phrases sind bedingungslos Pflicht");
+  assert.doesNotMatch(
+    system,
+    /ohne phrases|darfst du phrases weglassen|unverändert zurück/,
+    "keine Abkürzung und keine 'lass es wie es ist'-Erlaubnis im Prompt",
+  );
 });
 
 test("detectAndLocalize: HTTP 400 → wirft", async () => {
