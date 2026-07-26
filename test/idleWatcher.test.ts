@@ -18,6 +18,8 @@ const cfg = (over: Partial<ResolvedIdlePrompts> = {}): ResolvedIdlePrompts => ({
 interface Harness {
   watcher: IdleWatcher;
   spoken: string[];
+  /** Mitgelieferte Eskalationsstufe je Ansage (fürs Logging im callHandler). */
+  stages: number[];
   hangups: number;
   audible: boolean;
   blocked: boolean;
@@ -28,6 +30,7 @@ function makeWatcher(over: Partial<ResolvedIdlePrompts> = {}, random = () => 0):
   const h: Harness = {
     watcher: undefined as unknown as IdleWatcher,
     spoken: [],
+    stages: [],
     hangups: 0,
     audible: false,
     blocked: false,
@@ -37,7 +40,10 @@ function makeWatcher(over: Partial<ResolvedIdlePrompts> = {}, random = () => 0):
     isAgentAudible: () => h.audible,
     isBlocked: () => h.blocked,
     phrase: (stage) => phrases[stage] ?? "",
-    speak: (text) => h.spoken.push(text),
+    speak: (text, stage) => {
+      h.spoken.push(text);
+      h.stages.push(stage);
+    },
     hangup: () => { h.hangups += 1; },
   };
   h.watcher = new IdleWatcher(cfg(over), hooks, random);
@@ -137,6 +143,18 @@ test("IdleWatcher: Backoff — Stufe 2 wartet 1,5×, die Gnadenfrist 2×", () =>
   assert.equal(h.hangups, 0, "Gnadenfrist ist 2 × 8000 = 16 s");
   h.watcher.tick(36_000);
   assert.equal(h.hangups, 1);
+});
+
+test("IdleWatcher: speak() bekommt die Eskalationsstufe mitgeliefert", () => {
+  const h = makeWatcher();
+  h.watcher.noteCallerActivity(0);
+  h.watcher.tick(8000);
+  h.watcher.tick(20_000); // Stufe 2 nach 1,5 × 8000
+  assert.deepEqual(h.stages, [0, 1], "0-basiert und aufsteigend");
+
+  h.watcher.noteCallerActivity(21_000); // neue Episode → Zähler beginnt wieder bei 0
+  h.watcher.tick(29_000);
+  assert.deepEqual(h.stages, [0, 1, 0]);
 });
 
 test("IdleWatcher: Jitter streckt nur nach oben, nie darunter", () => {

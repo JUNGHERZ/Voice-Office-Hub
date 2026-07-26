@@ -26,8 +26,8 @@ export interface IdleWatcherHooks {
   isBlocked(): boolean;
   /** Ansage der Stufe `stage` (0-basiert); "" wenn keine gepflegt ist. */
   phrase(stage: number): string;
-  /** Ansage sprechen (injectMessage) und zählen. */
-  speak(text: string): void;
+  /** Ansage sprechen (injectMessage) und zählen; `stage` ist die 0-basierte Eskalationsstufe. */
+  speak(text: string, stage: number): void;
   /** Leiter erschöpft + hangupAfter: Abschied sprechen und auflegen (Text löst der Aufrufer auf). */
   hangup(): void;
 }
@@ -77,11 +77,12 @@ export class IdleWatcher {
 
     if (this.stage < this.cfg.maxPrompts) {
       // Leere Phrase (Pool kürzer als maxPrompts o. ä.): Stufe läuft weiter, es wird nur nichts gesprochen.
-      const text = this.hooks.phrase(this.stage);
+      const stage = this.stage;
+      const text = this.hooks.phrase(stage);
       this.stage += 1;
       this.anchor = now;
       this.deadline = undefined;
-      if (text) this.hooks.speak(text);
+      if (text) this.hooks.speak(text, stage);
       return;
     }
 

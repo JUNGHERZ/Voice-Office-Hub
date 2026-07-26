@@ -559,8 +559,12 @@ async function runAgentCall(
         isBlocked: () =>
           transferActive || transferRinging || endRequested || cleaned || toolsInFlight > 0 || !session,
         phrase: (stage) => localizer.resolve("idle", stage),
-        speak: (text) => {
-          log.info("Stille-Ansage", { text });
+        speak: (text, stage) => {
+          // stage 0-basiert → 1-basiert loggen, damit "1/2" ohne Umrechnen lesbar ist.
+          log.info("Stille-Ansage", {
+            stage: `${stage + 1}/${agent.idlePrompts.maxPrompts}`,
+            text,
+          });
           metrics.idlePrompts = (metrics.idlePrompts ?? 0) + 1;
           session?.injectMessage(text);
         },
@@ -634,6 +638,13 @@ async function runAgentCall(
         }
         metrics.toolCalls += 1;
         if (!ok) metrics.toolErrors += 1;
+        // Die Dauer ist die Größe, an der fillers.delayMs ausgerichtet wird — ohne sie steht im
+        // Log nur der Start und man rät, wie lange der Anrufer tatsächlich gewartet hat.
+        log.info("FunctionCall fertig", {
+          name: fn.name,
+          ok,
+          ms: Date.now() - requestedAt.getTime(),
+        });
         // Bei end_call (setzt endRequested) KEINE FunctionCallResponse senden — sonst startet
         // der Provider eine zweite Abschiedsrunde (doppeltes "Auf Wiederhören"). Der Abschied ist
         // bereits vor dem Tool-Aufruf gesprochen worden; danach wird aufgelegt.

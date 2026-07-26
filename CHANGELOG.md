@@ -6,6 +6,19 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.29] – 2026-07-26
+
+### Changed
+- **Der Timer-Filler wird jetzt geloggt** (`Filler-Ansage` mit Text, auslösenden Tools und
+  Wiederholungs-Flag). Bisher war ausgerechnet das schwerer zu beobachtende der beiden
+  Ansagen-Features nur im Transkript sichtbar, während die Stille-Ansage protokolliert wurde.
+- **`Stille-Ansage` nennt die Eskalationsstufe** (`stage: "1/2"`). Aus dem Log allein war
+  vorher nicht erkennbar, welche Stufe gerade lief — nötig, um `idlePrompts.timeoutMs`
+  sinnvoll einzustellen.
+- **Tool-Aufrufe loggen ihr Ende mit Dauer** (`FunctionCall fertig` mit `ok` und `ms`). Die
+  Tool-Dauer ist die Größe, an der `fillers.delayMs` ausgerichtet wird; bisher stand nur der
+  Start im Log.
+
 ## [0.6.28] – 2026-07-26
 
 ### Fixed

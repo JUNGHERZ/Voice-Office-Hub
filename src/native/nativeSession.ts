@@ -486,6 +486,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     if (this.toolWaitSpoken) return; // Folgerunde sprach bereits
     const phrase = this.resolveFillerPhrase(names);
     if (!phrase.trim()) return;
+    // Symmetrisch zur "Stille-Ansage" im callHandler: ohne diese Zeile ist der Filler nur im
+    // Transkript sichtbar, nicht im Log — und damit im Betrieb kaum zu diagnostizieren.
+    this.log.info("Filler-Ansage", { text: phrase, tools: names, repeat: repeatsLeft === 0 });
     this.speakFiller(phrase, gen);
     if (repeatsLeft > 0) {
       this.cancelFillerTimer = this.deps.setTimer(
