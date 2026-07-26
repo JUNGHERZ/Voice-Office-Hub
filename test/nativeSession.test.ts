@@ -673,6 +673,39 @@ test("Filler: feuert bei customTool-Runde, nur ins Transkript (nicht in die Hist
   s.session.close();
 });
 
+// F1b ─ Der Filler selbst löst keine Latenzmessung aus, die Tool-Fortsetzung danach schon.
+// Ohne das bleiben ausgerechnet die langsamen Runden (die mit Filler) ungemessen.
+test("Filler: unterdrückt die Latenzmessung nur für sich, nicht für die Fortsetzung", async () => {
+  const s = makeSession(
+    [
+      async () => ({ content: "", toolCalls: [toolCall("t1", "crm_lookup", "{}")] }),
+      async (_req, onDelta) => {
+        onDelta("Der Vorgang ist in Bearbeitung.");
+        return { content: "Der Vorgang ist in Bearbeitung.", toolCalls: [] };
+      },
+    ],
+    "Hallo!",
+    { agent: fillerAgent() },
+  );
+  await driveToolRound(s, "Schau bitte im CRM nach.");
+
+  fireTimer(s.timers);
+  s.tts.emitAudio(); // Audio des Fillers
+  assert.ok(
+    !s.events.some(([e]) => e === "agentStartedSpeaking"),
+    "der Filler selbst zählt nicht als Antwortbeginn (A/B bleibt sauber)",
+  );
+
+  s.session.sendFunctionResponse("t1", "crm_lookup", { ok: true });
+  await waitFor(() => s.tts.texts.includes("Der Vorgang ist in Bearbeitung."));
+  s.tts.emitAudio(); // erstes Audio der eigentlichen Antwort
+  assert.ok(
+    s.events.some(([e]) => e === "agentStartedSpeaking"),
+    "die Fortsetzung nach der Tool-Antwort wird wieder gemessen",
+  );
+  s.session.close();
+});
+
 // F2 ─ Kein Filler bei end_call / transfer_call / reinem get_weather.
 test("Filler: kein Timer bei end_call / transfer_call / reinem get_weather", async () => {
   for (const name of ["end_call", "transfer_call", "get_weather"]) {

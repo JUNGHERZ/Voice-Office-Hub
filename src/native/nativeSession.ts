@@ -192,6 +192,13 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   private fillerIndex = 0;
   private toolWaitSpoken = false;
   private cancelFillerTimer?: () => void;
+  /**
+   * Lief in diesem Turn ein Filler? Der Filler selbst darf die Latenzmessung nicht auslösen
+   * (er ist nicht die Antwort), die Tool-Fortsetzung danach aber schon — sonst bleiben
+   * ausgerechnet die langsamen Runden ungemessen. Markiert die Messung als `afterFiller`,
+   * weil sie die Tool-Wartezeit enthält und nicht mit normalen Turns vergleichbar ist.
+   */
+  private fillerSpokenThisTurn = false;
 
   constructor(
     private readonly agent: ResolvedAgent,
@@ -426,6 +433,8 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
         this.log.info("Turn-Latenz", {
           ...latency,
           ...(this.eagerOutcome ? { eager: this.eagerOutcome } : {}),
+          // Enthält die Tool-Wartezeit → beim A/B-Vergleich getrennt auswerten.
+          ...(this.fillerSpokenThisTurn ? { afterFiller: true } : {}),
         });
       }
       this.emit("audio", chunk);
@@ -521,7 +530,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     if (gen !== this.generation || this.closed) return;
     this.ttsGen = gen; // Audio-Gate passieren lassen
     // Filler ist nicht die substanzielle Antwort → aus dem Latenz-Emit heraushalten (A/B sauber).
+    // Die Fortsetzung nach der Tool-Antwort wird dafür neu scharf geschaltet (s. runAssistantTurn).
     this.startedSpeakingEmitted = true;
+    this.fillerSpokenThisTurn = true;
     this.tts.sendText(text);
     this.tts.flush();
     this.emit("conversationText", { role: "assistant", content: text });
@@ -575,6 +586,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.firstTokenAt = 0;
     this.firstSentenceAt = 0;
     this.startedSpeakingEmitted = false;
+    this.fillerSpokenThisTurn = false;
     this.llmDone = false;
 
     const abort = new AbortController();
@@ -656,6 +668,14 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
           await done;
           this.clearFiller();
           if (gen !== this.generation || this.closed) return;
+          if (this.fillerSpokenThisTurn) {
+            // Messung für die Fortsetzung neu scharf schalten. `eotAt` bleibt stehen — `total`
+            // ist bewusst die volle Wartezeit des Anrufers inklusive Tool; ttt/tts der ersten
+            // Runde wären hier veraltet und werden ab dieser Runde neu genommen.
+            this.startedSpeakingEmitted = false;
+            this.firstTokenAt = 0;
+            this.firstSentenceAt = 0;
+          }
           continue;
         }
 

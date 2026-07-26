@@ -6,6 +6,19 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.30] – 2026-07-26
+
+### Fixed
+- **Tool-Fortsetzungen nach einem Filler wurden nicht mehr latenzgemessen.** `speakFiller`
+  unterdrückt den `agentStartedSpeaking`-Emit, damit die Filler-Ansage die A/B-Latenzzahlen
+  nicht verfälscht — das galt bisher aber für den Rest des Turns, sodass ausgerechnet die
+  langsamen Runden (die mit Filler) gar keine Messung mehr hatten. Die Messung wird jetzt
+  nach der Tool-Antwort neu scharf geschaltet: `total` bleibt bewusst die volle Wartezeit
+  des Anrufers ab seinem Sprechende (inklusive Tool), `ttt`/`tts` werden für die
+  Fortsetzungsrunde neu genommen statt veraltete Werte der ersten Runde zu zeigen. Die
+  Log-Zeile trägt dann `afterFiller: true`, damit diese Turns beim A/B-Vergleich getrennt
+  ausgewertet werden können.
+
 ## [0.6.29] – 2026-07-26
 
 ### Changed
