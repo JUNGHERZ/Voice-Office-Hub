@@ -29,6 +29,23 @@ Wie bei uns?
      senken — konservativ einstellen.
 - **Aufwand:** RNNoise-Integration ~1–2 Tage; Krisp je nach Lizenz mehr.
 
+### 2b. Kontextuelle Stille-Nachfrage (LLM statt fester Phrasen)
+**Nutzer-Wunsch (2026-07-26): „definitiv in einer späteren Version".** Ergänzung zum in 0.6.27
+gebauten Stille-Reengagement (`agent.idlePrompts`, fester Phrasen-Pool je Eskalationsstufe).
+
+- **Idee:** Statt einer hinterlegten Zeile bekommt das Modell bei Stille einen System-Nudge
+  („Der Anrufer schweigt seit 8 s — frag kurz nach") und formuliert die Nachfrage selbst,
+  bezogen auf die zuletzt gestellte Frage: „Ich hatte gefragt, ob Dienstag passt — passt der?"
+  Deutlich natürlicher als eine generische Ansage.
+- **Kosten der Natürlichkeit:** LLM-Latenz genau im ungünstigsten Moment (die Stille wird erst
+  noch länger), Kosten pro Vorfall, nicht vorab übersetzbar (der Pool geht heute gratis durch den
+  Lokalisierungs-One-Shot mit) und unvorhersagbar — ein Betreiber kann nicht mehr garantieren,
+  was der Agent sagt.
+- **Umsetzung:** additiv als `idlePrompts.mode: "phrases" | "llm"` neben dem Pool; der
+  `IdleWatcher` ([src/ari/idleWatcher.ts](../src/ari/idleWatcher.ts)) bliebe unverändert, nur der
+  `speak`-Hook im callHandler würde im LLM-Modus statt `injectMessage` einen Turn anstoßen.
+  Sinnvoll erst mit Messwerten aus `metrics.idlePrompts` (wie oft greift das überhaupt?).
+
 ## STT / Modelle
 
 ### 3. Flux als listen-Modell evaluieren (Turn-Detection)

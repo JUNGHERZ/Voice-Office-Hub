@@ -93,6 +93,13 @@ export function defaultAgent(): ResolvedAgent {
     },
     ambience: { enabled: false, preset: "office", volume: 0.25 },
     fillers: { enabled: false, delayMs: config.native.fillerDelayMs, phrases: [] },
+    idlePrompts: {
+      enabled: false,
+      timeoutMs: config.idle.timeoutMs,
+      maxPrompts: 2,
+      phrases: [],
+      hangupAfter: false,
+    },
     tags: [],
     mip_opt_out: false,
   };
@@ -181,6 +188,14 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
       enabled: doc.fillers?.enabled ?? false,
       delayMs: doc.fillers?.delayMs ?? config.native.fillerDelayMs,
       phrases: Array.isArray(doc.fillers?.phrases) ? doc.fillers.phrases.map(String) : [],
+    },
+    idlePrompts: {
+      enabled: doc.idlePrompts?.enabled ?? false,
+      timeoutMs: doc.idlePrompts?.timeoutMs ?? config.idle.timeoutMs,
+      maxPrompts: doc.idlePrompts?.maxPrompts ?? 2,
+      phrases: Array.isArray(doc.idlePrompts?.phrases) ? doc.idlePrompts.phrases.map(String) : [],
+      hangupAfter: doc.idlePrompts?.hangupAfter ?? false,
+      hangupAnnouncement: doc.idlePrompts?.hangupAnnouncement || undefined,
     },
     transferFailedAnnouncement: doc.transferFailedAnnouncement || undefined,
     tags: doc.tags ?? [],

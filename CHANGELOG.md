@@ -6,6 +6,57 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.27] – 2026-07-26
+
+### Added
+- **Stille-Reengagement: Nachfassen, wenn der Anrufer schweigt (beide Provider).**
+  Schweigt der Anrufer länger als `idlePrompts.timeoutMs`, spricht der Agent eine
+  Ansage aus einem Pool. Die **Zeilenreihenfolge ist die Eskalationsstufe** (Zeile 1 =
+  sanfte Nachfrage, Zeile 2 = konkretes Angebot) — kein Rotieren, damit der Betreiber
+  die Leiter selbst schreibt. Nach `maxPrompts` Ansagen endet sie, mit `hangupAfter`
+  im Auflegen: Der Abschied wird über dieselbe Drain-Logik wie `end_call` zu Ende
+  gesprochen, bevor die Leitung fällt. Opt-in pro Agent, Default aus.
+  Deckt mehr ab als „der Anrufer zögert": das **Dead Air nach einem abgebrochenen
+  Barge-in** (Anrufer sagt „äh—", das Final-Transkript ist leer, es startet kein neuer
+  Turn — bisher konnte nur der Anrufer das auflösen), **einseitige Audiostrecken**
+  (stummes Headset, Handy in der Tasche) und **liegengelassene Anrufe**, die sonst
+  STT-, TTS- und SIP-Minuten verbrauchen, bis die Gegenseite auflegt.
+- **Wachsende Abstände statt festem Takt.** Die Wartezeit steigt je Stufe (1× / 1,5× /
+  2× `timeoutMs`) plus 0–20 % Jitter. Der Jitter wirkt **ausschließlich nach oben** —
+  der konfigurierte Wert bleibt damit eine Zusage („nie vor 8 Sekunden"), denn zu früh
+  ins Nachdenken des Anrufers zu reden ist der teurere Fehler. Für den Betreiber bleibt
+  es ein einziges Feld; Backoff und Jitter sind Verhalten, keine Knöpfe.
+- **Neue Metriken** `metrics.idlePrompts` und `metrics.idleHangup` im Request-Dokument
+  — ohne sie lässt sich `timeoutMs` nicht sinnvoll einstellen.
+- **Stille-Ansagen und ihr Abschied hängen im Lokalisierungs-Katalog** (0.6.26) und
+  werden damit automatisch in die Anrufersprache übersetzt, inklusive Anredeform. Der
+  `idle`-Pool war als reine Datenerweiterung vorgesehen — weder `localize.ts` noch der
+  Localizer-Kern mussten angefasst werden.
+
+### Changed
+- **Der Stille-Detektor sitzt im callHandler, nicht in der Session.** Zwei Gründe: Nur
+  der callHandler kennt das echte Playout-Ende (`media.pendingMs()`) — `agentAudioDone`
+  feuert bereits, wenn der TTS-Stream geflusht ist, während der Anrufer noch mehrere
+  Sekunden zuhört. Und über `injectMessage` funktioniert der Wächter so für **beide**
+  Provider statt nur native. Die Logik selbst liegt in `src/ari/idleWatcher.ts` als
+  reine Zustandsmaschine ohne eigenen Timer (der callHandler taktet sie), damit sie
+  ohne Fake-Timer testbar bleibt.
+- **`requestHangup` ist nicht mehr an `end_call` gebunden** und nimmt einen Grund
+  entgegen — Tool und Stille-Wächter teilen sich dieselbe Abschieds-Drain-Logik.
+- **Ansage-Sperren:** Der Wächter schweigt während laufender Tool-Dispatches (die
+  Wartezeit gehört dem Filler), in der Transfer-Klingelphase, bei durchgestelltem
+  Gespräch und nach angefordertem Auflegen. Dafür zählt der callHandler laufende
+  Tool-Aufrufe jetzt mit (`toolsInFlight`).
+- **Sprechdauer-Boden für Transporte ohne Playout-Puffer.** `MediaBridge` (RTP) sendet
+  alle Frames sofort und führt kein `pendingMs()` — dort würde der letzte Audio-Zeitpunkt
+  veralten, während der Anrufer noch hört. Die geschätzte Sprechdauer des letzten
+  Agent-Turns (14 Zeichen/s, derselbe Schätzer wie beim Timer-Filler) dient deshalb als
+  zusätzliche Untergrenze; sie kann die Ansage nur verzögern, nie verfrühen.
+
+### Fixed
+- README.md und README.de.md trugen noch die Versions-Badges von 0.6.25; das Nachziehen
+  der Badges ist jetzt Teil der Release-Routine.
+
 ## [0.6.26] – 2026-07-25
 
 ### Added

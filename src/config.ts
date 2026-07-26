@@ -126,9 +126,16 @@ export interface Config {
   localize: {
     model: string;
   };
+  /** Stille-Reengagement (0.6.27): Nachfassen, wenn der Anrufer schweigt. */
+  idle: {
+    /** Default-Stille (ms) bis zur ersten Ansage, wenn agent.idlePrompts.timeoutMs fehlt. */
+    timeoutMs: number;
+  };
   /** Default-Texte für System-Ansagen (Standardsprache; werden zur Laufzeit lokalisiert). */
   announcements: {
     transferFailed: string;
+    /** Abschied vor dem Auflegen wegen Stille (nur bei idlePrompts.hangupAfter). */
+    idleHangup: string;
   };
   transfer: {
     passthroughTarget: string;
@@ -270,10 +277,17 @@ export const config: Config = {
     // Erkennung + Übersetzung der Ansagen (günstig, temperature 0; unabhängig vom Konversations-LLM).
     model: opt("LOCALIZE_MODEL", "openai/gpt-4.1-mini"),
   },
+  idle: {
+    timeoutMs: int("IDLE_PROMPT_TIMEOUT_MS", 8000),
+  },
   announcements: {
     transferFailed: opt(
       "TRANSFER_FAILED_ANNOUNCEMENT",
       "Ich konnte leider niemanden erreichen. Wir machen zusammen weiter.",
+    ),
+    idleHangup: opt(
+      "IDLE_HANGUP_ANNOUNCEMENT",
+      "Ich melde mich dann ab. Rufen Sie gern noch einmal an.",
     ),
   },
   transfer: {

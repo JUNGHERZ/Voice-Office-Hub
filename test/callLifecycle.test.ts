@@ -433,3 +433,217 @@ test("Lokalisierung: observeTurn wird gefüttert, close beim Teardown", async ()
   await waitFor(() => s.repo.finalized.length === 1);
   assert.equal(localizer.closed, true, "Localizer wird im Teardown geschlossen");
 });
+
+// ── Stille-Reengagement (0.6.27) ─────────────────────────────────────────────
+// Alle Tests hier mit Mock-Timern: der Wächter wird vom callHandler alle 250 ms getaktet.
+//
+// WICHTIG zum Verständnis der Zahlen: Node-Mock-Timer bündeln. Innerhalb eines `tick(ms)`
+// sieht JEDER Interval-Callback bereits `Date.now()` = Ende des Fensters. Die effektive
+// Auflösung ist also der tick()-Aufruf, nicht der 250-ms-Takt — deshalb wird hier bewusst in
+// Etappen getickt, und `startIdleCall` setzt mit einem ersten Mini-Tick den Stille-Anker.
+
+const idleAgent = (over: Partial<ResolvedAgent["idlePrompts"]> = {}) =>
+  testAgent({
+    idlePrompts: {
+      enabled: true,
+      timeoutMs: 8000,
+      maxPrompts: 2,
+      phrases: ["Sind Sie noch da?", "Soll ich Sie verbinden?"],
+      hangupAfter: false,
+      ...over,
+    },
+  });
+
+/** Localizer-Fake, der den idle-Pool nach Stufe bedient (wie der echte über resolve(key, index)). */
+function idleLocalizer(phrases: string[], farewell = "Auf Wiederhören."): FakeLocalizer {
+  const loc = new FakeLocalizer();
+  loc.resolve = (key: string, index?: number) => {
+    if (key === "idle") return phrases[(index ?? 0) % Math.max(phrases.length, 1)] ?? "";
+    if (key === "idleHangup") return farewell;
+    return key;
+  };
+  return loc;
+}
+
+type TimerCtx = {
+  mock: { timers: { enable(o: { apis: string[]; now: number }): void; tick(ms: number): void } };
+};
+
+/**
+ * Startet einen Anruf mit aktiven Mock-Timern und verankert die Stille mit einem ersten
+ * Mini-Tick. `random: () => 0` schaltet den Jitter aus → Fälligkeiten sind exakt rechenbar.
+ * Ab Rückkehr zählt die Stille bei 0.
+ */
+async function startIdleCall(
+  t: TimerCtx,
+  over: Partial<ResolvedAgent["idlePrompts"]> = {},
+  localizer: FakeLocalizer = idleLocalizer(["Sind Sie noch da?", "Soll ich Sie verbinden?"]),
+  depsOver: Partial<CallHandlerDeps> = {},
+) {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 100_000 });
+  const s = makeCall({
+    agent: idleAgent(over),
+    deps: { createLocalizer: () => localizer, random: () => 0, ...depsOver },
+  });
+  await s.start();
+  t.mock.timers.tick(250); // erster Tick: verankert den Stille-Beginn
+  await settle();
+  return s;
+}
+
+// 20 ─ Grundfall: nach timeoutMs Stille kommt die Ansage über injectMessage (providerneutral).
+test("Stille: Ansage nach timeoutMs, eskaliert mit wachsendem Abstand (Mock-Timer)", async (t) => {
+  const s = await startIdleCall(t);
+
+  t.mock.timers.tick(7_500);
+  await settle();
+  assert.deepEqual(s.session.injectedMessages, [], "vor Ablauf bleibt es still");
+
+  t.mock.timers.tick(500);
+  await settle();
+  assert.deepEqual(s.session.injectedMessages, ["Sind Sie noch da?"], "Stufe 1 nach 8 s");
+
+  // Stufe 2 wartet 1,5 × 8000 = 12 s (Backoff), nicht wieder 8 s.
+  t.mock.timers.tick(8_000);
+  await settle();
+  assert.equal(s.session.injectedMessages.length, 1, "nach weiteren 8 s noch nichts");
+  t.mock.timers.tick(4_000);
+  await settle();
+  assert.deepEqual(s.session.injectedMessages, ["Sind Sie noch da?", "Soll ich Sie verbinden?"]);
+
+  // Leiter erschöpft, ohne hangupAfter kehrt Ruhe ein.
+  t.mock.timers.tick(120_000);
+  await settle();
+  assert.equal(s.session.injectedMessages.length, 2, "kein Nörgeln nach der letzten Stufe");
+  assert.equal(s.channel.hangups.length, 0);
+});
+
+// 21 ─ Hörbarer Agent: der Playout-Puffer verhindert die Ansage (Kern der callHandler-Platzierung).
+test("Stille: laufendes Playout (pendingMs) unterdrückt die Ansage", async (t) => {
+  const s = await startIdleCall(t);
+  s.media.pending = 4_000; // Agent redet noch, obwohl kein TTS-Chunk mehr fließt
+
+  t.mock.timers.tick(30_000);
+  await settle();
+  assert.deepEqual(s.session.injectedMessages, [], "solange der Puffer spielt, gilt es nicht als Stille");
+
+  s.media.pending = 0;
+  t.mock.timers.tick(250); // Anker rückt auf den Moment, in dem der Puffer leer ist
+  await settle();
+  t.mock.timers.tick(8_000);
+  await settle();
+  assert.deepEqual(s.session.injectedMessages, ["Sind Sie noch da?"], "erst danach läuft die Uhr");
+});
+
+// 22 ─ Anrufer spricht → Leiter zurück auf Stufe 1.
+test("Stille: Anrufer-Aktivität setzt die Eskalation zurück", async (t) => {
+  const s = await startIdleCall(t);
+
+  t.mock.timers.tick(8_000);
+  await settle();
+  assert.deepEqual(s.session.injectedMessages, ["Sind Sie noch da?"]);
+
+  s.session.emitUserStartedSpeaking();
+  s.session.emitConversationText("user", "Ja, ich bin noch dran.");
+  await settle();
+
+  t.mock.timers.tick(8_000);
+  await settle();
+  assert.deepEqual(
+    s.session.injectedMessages,
+    ["Sind Sie noch da?", "Sind Sie noch da?"],
+    "neue Episode beginnt wieder bei Stufe 1",
+  );
+});
+
+// 23 ─ Während eines Tool-Dispatches schweigt der Wächter (die Wartezeit gehört dem Filler).
+test("Stille: keine Ansage während eines laufenden Tool-Calls", async (t) => {
+  let release!: () => void;
+  const gate = new Promise<void>((res) => { release = res; });
+  const s = await startIdleCall(t, {}, idleLocalizer(["Sind Sie noch da?"]), {
+    buildCallToolset: async () => ({
+      definitions: [],
+      dispatch: async () => { await gate; return { ok: true, result: { done: true } }; },
+      close: async () => {},
+    }),
+  });
+
+  void s.session.emitFunctionCall([{ id: "slow", name: "crm_lookup" }]);
+  await settle();
+  t.mock.timers.tick(30_000);
+  await settle();
+  assert.deepEqual(s.session.injectedMessages, [], "während das Tool läuft, schweigt der Wächter");
+
+  release();
+  await settle();
+  t.mock.timers.tick(250); // Anker rückt auf das Tool-Ende
+  await settle();
+  t.mock.timers.tick(8_000);
+  await settle();
+  assert.deepEqual(
+    s.session.injectedMessages,
+    ["Sind Sie noch da?"],
+    "nach dem Tool läuft die Stille-Uhr wieder",
+  );
+});
+
+// 24 ─ Klingelphase: der Anrufer hört das Freizeichen, nicht "Sind Sie noch da?".
+test("Stille: keine Ansage während der Transfer-Klingelphase", async (t) => {
+  let connect!: (v: { connected: boolean }) => void;
+  const ringing = new Promise<{ connected: boolean }>((res) => { connect = res; });
+  const s = await startIdleCall(t, {}, idleLocalizer(["Sind Sie noch da?"]), {
+    transferIntoBridge: () => ringing,
+  });
+
+  void s.session.emitFunctionCall([
+    { id: "t1", name: "transfer_call", argumentsJson: JSON.stringify({ target: "101" }) },
+  ]);
+  await settle();
+  t.mock.timers.tick(30_000);
+  await settle();
+  assert.deepEqual(s.session.injectedMessages, [], "während es klingelt, schweigt der Wächter");
+
+  connect({ connected: false });
+  await settle();
+});
+
+// 25 ─ hangupAfter: Abschied wird gesprochen, aufgelegt wird erst nach dem Drain.
+test("Stille: hangupAfter spricht den Abschied und legt nach dem Drain auf", async (t) => {
+  const s = await startIdleCall(t, { maxPrompts: 1, hangupAfter: true });
+
+  t.mock.timers.tick(8_000);
+  await settle();
+  assert.deepEqual(s.session.injectedMessages, ["Sind Sie noch da?"]);
+
+  // Gnadenfrist = 2 × 8000 = 16 s nach der letzten Ansage.
+  t.mock.timers.tick(16_000);
+  await settle();
+  assert.deepEqual(
+    s.session.injectedMessages,
+    ["Sind Sie noch da?", "Auf Wiederhören."],
+    "Abschied vor dem Auflegen",
+  );
+  assert.equal(s.channel.hangups.length, 0, "noch nicht aufgelegt — der Abschied läuft");
+
+  s.session.emitAudio(); // der Abschied fließt als TTS-Audio
+  s.media.pending = 0;
+  t.mock.timers.tick(1_100); // Drain: Puffer leer + >800 ms kein Audio
+  await settle();
+  assert.equal(s.channel.hangups.length, 1, "genau ein Hangup nach dem Drain");
+
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+  assert.equal(s.repo.metrics?.idlePrompts, 1);
+  assert.equal(s.repo.metrics?.idleHangup, true);
+});
+
+// 26 ─ Opt-in: ohne idlePrompts.enabled läuft gar kein Wächter.
+test("Stille: deaktiviert (Default) → keine Ansage, kein Auflegen", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 100_000 });
+  const s = makeCall({ deps: { createLocalizer: () => idleLocalizer(["Hallo?"]) } });
+  await s.start();
+  t.mock.timers.tick(300_000);
+  await settle();
+  assert.deepEqual(s.session.injectedMessages, []);
+  assert.equal(s.channel.hangups.length, 0);
+});

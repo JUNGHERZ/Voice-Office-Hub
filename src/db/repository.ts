@@ -102,6 +102,10 @@ export interface CallMetrics {
   ttsCharacters?: number;
   /** Nur ElevenLabs (Credit-Modell): Zeichen × Modell-Multiplikator (Flash/Turbo 0,5). */
   ttsCredits?: number;
+  /** Wie oft der Agent bei Stille nachgefasst hat (0.6.27) — Tuning-Basis für idlePrompts.timeoutMs. */
+  idlePrompts?: number;
+  /** Der Anruf endete, weil die Stille-Leiter erschöpft war (idlePrompts.hangupAfter). */
+  idleHangup?: boolean;
 }
 
 export async function finalizeRequest(

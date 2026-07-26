@@ -3,7 +3,8 @@
  * mode, voiceProvider, language, listen.model (nova-3/flux + eot-Felder), greeting,
  * prompt, speak.model, Tools (Built-in-Toggles + Custom-HTTP-Tools mit Modal-Editor,
  * inkl. optionaler Per-Tool-Filler-Phrase), transferFailedAnnouncement, fillers (Timer-
- * Filler bei Tool-Wartezeiten), summary.enabled, enabled. Speichern → POST/PATCH,
+ * Filler bei Tool-Wartezeiten), idlePrompts (Nachfassen bei Stille, optional mit
+ * Auflegen), summary.enabled, enabled. Speichern → POST/PATCH,
  * Löschen → Bestätigung via <glk-modal>.
  *
  * Wichtig: PATCH ersetzt Subdokumente komplett ($set) — deshalb tragen _listen/_speak
@@ -81,6 +82,12 @@ function emptyForm() {
     fillersEnabled: false,
     fillersDelayMs: "2000",
     fillersPhrases: "",
+    idleEnabled: false,
+    idleTimeoutMs: "8000",
+    idleMaxPrompts: "2",
+    idlePhrases: "",
+    idleHangupAfter: false,
+    idleHangupAnnouncement: "",
     tools: ["transfer_call", "end_call"],
     customTools: [],
     mcpServers: [],
@@ -93,6 +100,7 @@ function emptyForm() {
     _ambience: {},
     _widget: {},
     _fillers: {},
+    _idlePrompts: {},
   };
 }
 
@@ -102,6 +110,7 @@ function toForm(a) {
   const ambience = a.ambience || {};
   const widget = a.widget || {};
   const fillers = a.fillers || {};
+  const idle = a.idlePrompts || {};
   return {
     name: a.name || "",
     targetNumbers: (a.targetNumbers || []).join(", "),
@@ -140,6 +149,12 @@ function toForm(a) {
     fillersEnabled: !!fillers.enabled,
     fillersDelayMs: fillers.delayMs != null ? String(fillers.delayMs) : "2000",
     fillersPhrases: (fillers.phrases || []).join("\n"),
+    idleEnabled: !!idle.enabled,
+    idleTimeoutMs: idle.timeoutMs != null ? String(idle.timeoutMs) : "8000",
+    idleMaxPrompts: idle.maxPrompts != null ? String(idle.maxPrompts) : "2",
+    idlePhrases: (idle.phrases || []).join("\n"),
+    idleHangupAfter: !!idle.hangupAfter,
+    idleHangupAnnouncement: idle.hangupAnnouncement || "",
     tools: a.tools && a.tools.length ? [...a.tools] : ["transfer_call", "end_call"],
     customTools: (a.customTools || []).map((t) => ({ ...t, endpoint: { ...(t.endpoint || {}) } })),
     mcpServers: (a.mcpServers || []).map((s) => ({ ...s })),
@@ -151,6 +166,7 @@ function toForm(a) {
     _ambience: { ...ambience },
     _widget: { ...widget },
     _fillers: { ...fillers },
+    _idlePrompts: { ...idle },
   };
 }
 
@@ -227,6 +243,18 @@ function toBody(f) {
         .split("\n")
         .map((s) => s.trim())
         .filter(Boolean),
+    },
+    idlePrompts: {
+      ...f._idlePrompts,
+      enabled: f.idleEnabled,
+      timeoutMs: num(f.idleTimeoutMs) ?? 8000,
+      maxPrompts: num(f.idleMaxPrompts) ?? 2,
+      phrases: f.idlePhrases
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      hangupAfter: f.idleHangupAfter,
+      hangupAnnouncement: f.idleHangupAnnouncement.trim() || undefined,
     },
     enabled: f.enabled,
   };
@@ -814,6 +842,62 @@ export default define({
                     rotierend aus dem Pool, nicht bei Auflegen/Weiterleitung. Nur in der Standardsprache
                     pflegen; die Übersetzung in die Anrufersprache passiert automatisch zur Laufzeit.
                   </div>
+                `}
+
+                <glk-toggle
+                  label="Nachfassen, wenn der Anrufer schweigt"
+                  checked="${f.idleEnabled}"
+                  onglk-change="${(host, e) => setField(host, "idleEnabled", e.detail.checked)}"
+                ></glk-toggle>
+                ${f.idleEnabled &&
+                html`
+                  <glk-input
+                    label="Stille bis zur ersten Ansage (ms)"
+                    type="number"
+                    value="${f.idleTimeoutMs}"
+                    hint="3000–60000; spätere Stufen warten automatisch länger"
+                    onglk-input="${(host, e) => setField(host, "idleTimeoutMs", e.detail.value)}"
+                  ></glk-input>
+                  <glk-input
+                    label="Ansagen pro Stille-Phase"
+                    type="number"
+                    value="${f.idleMaxPrompts}"
+                    hint="1–5; spricht der Anrufer, beginnt die Leiter wieder von vorn"
+                    onglk-input="${(host, e) => setField(host, "idleMaxPrompts", e.detail.value)}"
+                  ></glk-input>
+                  <glk-textarea
+                    label="Stille-Ansagen (eine pro Zeile = Eskalationsstufe)"
+                    rows="3"
+                    value="${f.idlePhrases}"
+                    placeholder="Sind Sie noch da?"
+                    onglk-input="${(host, e) => setField(host, "idlePhrases", e.detail.value)}"
+                  ></glk-textarea>
+                  <div class="empty-hint">
+                    Zeile 1 ist die erste, sanfte Nachfrage, Zeile 2 die nächste Stufe usw. Die Abstände
+                    wachsen dabei automatisch. Schweigt während einer Tool-Wartezeit oder Weiterleitung.
+                    Nur in der Standardsprache pflegen; die Übersetzung in die Anrufersprache passiert
+                    automatisch zur Laufzeit.
+                  </div>
+                  <glk-toggle
+                    label="Nach der letzten Ansage auflegen"
+                    checked="${f.idleHangupAfter}"
+                    onglk-change="${(host, e) => setField(host, "idleHangupAfter", e.detail.checked)}"
+                  ></glk-toggle>
+                  ${f.idleHangupAfter &&
+                  html`
+                    <glk-input
+                      label="Abschiedsansage vor dem Auflegen"
+                      value="${f.idleHangupAnnouncement}"
+                      placeholder="Ich melde mich dann ab. Rufen Sie gern noch einmal an."
+                      hint="Leer = Standardtext; wird zu Ende gesprochen, bevor die Leitung fällt"
+                      onglk-input="${(host, e) =>
+                        setField(host, "idleHangupAnnouncement", e.detail.value)}"
+                    ></glk-input>
+                    <div class="empty-hint">
+                      Beendet liegengelassene Anrufe (stummes Headset, Handy in der Tasche) statt sie
+                      bis zum Auflegen der Gegenseite laufen zu lassen.
+                    </div>
+                  `}
                 `}
 
                 <glk-divider></glk-divider>

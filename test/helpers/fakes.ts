@@ -247,6 +247,13 @@ export function testAgent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent
     summary: { enabled: false, prompt: "", model: "openai/gpt-4.1-mini" },
     ambience: { enabled: false, preset: "office", volume: 0.25 },
     fillers: { enabled: false, delayMs: 2000, phrases: [] },
+    idlePrompts: {
+      enabled: false,
+      timeoutMs: 8000,
+      maxPrompts: 2,
+      phrases: [],
+      hangupAfter: false,
+    },
     tags: [],
     mip_opt_out: false,
     ...overrides,

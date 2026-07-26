@@ -163,6 +163,24 @@ const FillersSchema = new Schema(
 );
 
 /**
+ * Stille-Reengagement (0.6.27, beide Provider): Schweigt der Anrufer `timeoutMs`, spricht der
+ * Agent eine Ansage aus `phrases` — Zeilenreihenfolge = Eskalationsstufe, die Abstände wachsen
+ * je Stufe. Nach `maxPrompts` Ansagen endet die Leiter, mit `hangupAfter` im Auflegen.
+ * Untergrenze 3000 ms: darunter kollidiert die Ansage mit normalen Denkpausen.
+ */
+const IdlePromptsSchema = new Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    timeoutMs: { type: Number, default: 8000, min: 3000, max: 60000 },
+    maxPrompts: { type: Number, default: 2, min: 1, max: 5 },
+    phrases: { type: [String], default: [] },
+    hangupAfter: { type: Boolean, default: false },
+    hangupAnnouncement: { type: String },
+  },
+  { _id: false },
+);
+
+/**
  * Web-Widget (einbettbares Browser-Softphone, 0.6.9). `key` wird server-seitig
  * generiert (agents-Route) und nie vom Client übernommen; `exten` ist die 3-stellige
  * Pseudo-Durchwahl, die der Browser wählt — sie muss zusätzlich in `targetNumbers`
@@ -246,6 +264,7 @@ const AgentSchema = new Schema(
     summary: { type: SummarySchema, default: () => ({}) },
     ambience: { type: AmbienceSchema, default: () => ({}) },
     fillers: { type: FillersSchema, default: () => ({}) },
+    idlePrompts: { type: IdlePromptsSchema, default: () => ({}) },
     widget: { type: WidgetSchema, default: () => ({}) },
     tags: { type: [String], default: [] },
     mip_opt_out: { type: Boolean, default: false },

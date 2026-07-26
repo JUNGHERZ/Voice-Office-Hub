@@ -10,8 +10,9 @@
  *  - `resolve(key, index?)` liefert immer synchron eine Ansage (Übersetzung → Default → ""), wirft nie.
  *  - Eigentümer ist der callHandler (beide Provider); die NativeSession bekommt ihn injiziert (Filler).
  *
- * Der Katalog ist pool-generisch: `resolve("filler", i)` rotiert durch `filler.0…N`; ein neuer
- * Pool (z. B. `idle` für Stille-Ansagen) ist reine Daten im buildLocalizationCatalog.
+ * Der Katalog ist pool-generisch: `resolve("filler", i)` rotiert durch `filler.0…N`, `resolve("idle", stage)`
+ * adressiert die Stille-Ansagen nach Eskalationsstufe. Ein weiterer Pool ist reine Daten im
+ * buildLocalizationCatalog — weder localize.ts noch der Kern hier müssen ihn kennen.
  */
 import { config } from "../config.js";
 import * as repo from "../db/repository.js";
@@ -57,6 +58,18 @@ export function buildLocalizationCatalog(agent: ResolvedAgent): LocalizationCata
 
   for (const t of agent.customTools ?? []) {
     if (t.fillerPhrase && t.fillerPhrase.trim()) defaults[`tool.${t.name}`] = t.fillerPhrase.trim();
+  }
+
+  // Stille-Ansagen (0.6.27): Pool wie beim Filler, aber der Aufrufer indiziert mit der
+  // Eskalationsstufe statt zu rotieren (resolve("idle", stage)).
+  const idle = (agent.idlePrompts?.phrases ?? []).filter((p) => p && p.trim());
+  idle.forEach((p, i) => {
+    defaults[`idle.${i}`] = p;
+  });
+  if (idle.length) pools.idle = idle.length;
+  // Nur bei aktivem Auflegen in den Katalog — hält den Übersetzungs-Prompt klein.
+  if (agent.idlePrompts?.hangupAfter) {
+    defaults.idleHangup = agent.idlePrompts.hangupAnnouncement || config.announcements.idleHangup;
   }
 
   return { defaults, pools };

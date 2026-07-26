@@ -93,6 +93,57 @@ test("catalog: transferFailed fällt auf den Config-Default zurück", () => {
   assert.equal(defaults.transferFailed, config.announcements.transferFailed);
 });
 
+test("catalog: idle-Pool wird registriert; idleHangup nur bei hangupAfter", () => {
+  const idlePrompts = {
+    enabled: true,
+    timeoutMs: 8000,
+    maxPrompts: 2,
+    phrases: ["Sind Sie noch da?", "Soll ich verbinden?"],
+    hangupAfter: false,
+  };
+  const off = buildLocalizationCatalog(multiAgent({ idlePrompts }));
+  assert.equal(off.defaults["idle.0"], "Sind Sie noch da?");
+  assert.equal(off.defaults["idle.1"], "Soll ich verbinden?");
+  assert.equal(off.pools.idle, 2);
+  assert.equal(off.defaults.idleHangup, undefined, "ohne Auflegen bleibt der Katalog klein");
+
+  const on = buildLocalizationCatalog(
+    multiAgent({ idlePrompts: { ...idlePrompts, hangupAfter: true, hangupAnnouncement: "Tschüss." } }),
+  );
+  assert.equal(on.defaults.idleHangup, "Tschüss.");
+
+  const fallback = buildLocalizationCatalog(
+    multiAgent({ idlePrompts: { ...idlePrompts, hangupAfter: true } }),
+  );
+  assert.equal(fallback.defaults.idleHangup, config.announcements.idleHangup);
+});
+
+test("resolve('idle', stage): Zeilenreihenfolge = Eskalationsstufe, Cursor bleibt stehen", () => {
+  const { loc } = makeLocalizer({
+    idlePrompts: {
+      enabled: true,
+      timeoutMs: 8000,
+      maxPrompts: 3,
+      phrases: ["Stufe eins", "Stufe zwei"],
+      hangupAfter: false,
+    },
+  });
+  // Expliziter Index → deterministische Leiter (im Gegensatz zur Filler-Rotation).
+  assert.equal(loc.resolve("idle", 0), "Stufe eins");
+  assert.equal(loc.resolve("idle", 0), "Stufe eins", "wiederholter Abruf liefert dieselbe Stufe");
+  assert.equal(loc.resolve("idle", 1), "Stufe zwei");
+  assert.equal(loc.resolve("idle", 2), "Stufe eins", "mehr Stufen als Zeilen → Pool wickelt um");
+});
+
+test("resolve('idle'): ohne gepflegte Phrasen leer statt Absturz", () => {
+  const { loc } = makeLocalizer({
+    idlePrompts: {
+      enabled: true, timeoutMs: 8000, maxPrompts: 2, phrases: [], hangupAfter: false,
+    },
+  });
+  assert.equal(loc.resolve("idle", 0), "");
+});
+
 // ── Aktivierung / Inertheit ──────────────────────────────────────────────────
 
 test("inaktiv (nicht multi) → kein LLM, resolve liefert Defaults", async () => {

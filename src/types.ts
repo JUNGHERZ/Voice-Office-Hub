@@ -96,6 +96,25 @@ export interface ResolvedFillers {
   phrases: string[];
 }
 
+/**
+ * Stille-Reengagement (0.6.27, beide Provider): Schweigt der Anrufer, spricht der Agent eine
+ * Ansage aus `phrases` — die Reihenfolge der Zeilen ist die Eskalationsstufe. Die Abstände
+ * wachsen je Stufe (Backoff), optional endet die Leiter im Auflegen.
+ */
+export interface ResolvedIdlePrompts {
+  enabled: boolean;
+  /** Stille (ms) bis zur ersten Ansage. Spätere Stufen warten anteilig länger. */
+  timeoutMs: number;
+  /** Wie viele Ansagen pro Stille-Phase, bevor die Leiter endet. */
+  maxPrompts: number;
+  /** Pool von Ansagen (Standardsprache; werden zur Laufzeit lokalisiert). Index = Stufe. */
+  phrases: string[];
+  /** Nach der letzten Stufe auflegen (Abschied wird vorher gesprochen). */
+  hangupAfter: boolean;
+  /** Abschied vor dem Auflegen (Standardsprache; wird lokalisiert). Leer = Config-Default. */
+  hangupAnnouncement?: string;
+}
+
 export interface ResolvedAgent {
   id?: string;
   name: string;
@@ -120,6 +139,7 @@ export interface ResolvedAgent {
   summary: ResolvedSummary;
   ambience: ResolvedAmbience;
   fillers: ResolvedFillers;
+  idlePrompts: ResolvedIdlePrompts;
   /** Ansage bei fehlgeschlagenem Transfer (Standardsprache; wird lokalisiert). Leer = Config-Default. */
   transferFailedAnnouncement?: string;
   tags: string[];

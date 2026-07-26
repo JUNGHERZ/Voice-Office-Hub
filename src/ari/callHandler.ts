@@ -22,6 +22,7 @@ import { logger } from "../util/logger.js";
 import { createVoiceAgentSession } from "../voice/factory.js";
 import type { VoiceAgentSession } from "../voice/types.js";
 import { findAgent, defaultAgent } from "./agentResolver.js";
+import { IdleWatcher } from "./idleWatcher.js";
 import { MediaBridge } from "./media.js";
 import { audioSocketServer } from "./audiosocketServer.js";
 import { startBridgeRecording, wavDurationSec, type ActiveRecording } from "./recording.js";
@@ -35,6 +36,21 @@ import { handlePassthrough } from "./passthrough.js";
  * innerhalb des Fensters wird aufgelegt, bevor eine zweite Session entsteht.
  */
 const recentCalls = new Map<string, number>();
+
+/**
+ * Toleranz, innerhalb derer frisch geflossenes Agent-Audio noch als "hörbar" gilt — überbrückt
+ * die Lücken zwischen TTS-Chunks. Gilt für die Barge-in-Zählung und den Stille-Wächter.
+ */
+const AGENT_AUDIBLE_GRACE_MS = 1500;
+/** Takt des Stille-Wächters. Feiner als nötig, aber vernachlässigbar billig. */
+const IDLE_TICK_MS = 250;
+/** Grobe Sprechgeschwindigkeit (Zeichen/s) — dieselbe Schätzung wie beim Timer-Filler. */
+const SPEECH_CHARS_PER_SEC = 14;
+
+/** Geschätzte Sprechdauer eines Ansage-/Antworttexts in ms. */
+function estimateSpeechMs(text: string): number {
+  return Math.ceil((text.length / SPEECH_CHARS_PER_SEC) * 1000);
+}
 
 function isDuplicateCall(
   callerNumber: string | undefined,
@@ -87,6 +103,8 @@ export interface CallHandlerDeps {
   resolveOutboundTransfer: typeof resolveOutboundTransfer;
   transferIntoBridge: typeof transferIntoBridge;
   now: () => number;
+  /** Jitter-Quelle des Stille-Wächters (Tests reichen eine feste Zahl ein). */
+  random: () => number;
 }
 
 export const defaultDeps: CallHandlerDeps = {
@@ -104,6 +122,7 @@ export const defaultDeps: CallHandlerDeps = {
   resolveOutboundTransfer,
   transferIntoBridge,
   now: () => Date.now(),
+  random: () => Math.random(),
 };
 
 export async function handleStasisStart(
@@ -352,6 +371,11 @@ async function runAgentCall(
   let calleeChannel: any; // bei erfolgreichem Transfer: der durchverbundene Ziel-Kanal
   let endRequested = false;
   let lastAudioAt = 0; // Zeitpunkt des zuletzt empfangenen Agent-Audios (für Drain-Erkennung)
+  // Geschätztes Ende der Agent-Sprache aus der Textlänge. Nötig, weil nur der AudioSocket einen
+  // Playout-Puffer (pendingMs) führt — die RTP-Bridge feuert alles sofort raus (media.ts:sendAudio),
+  // dort wird lastAudioAt stale, während der Anrufer noch hört. Verzögert nur, verfrüht nie.
+  let agentSpeechUntil = 0;
+  let toolsInFlight = 0; // läuft gerade ein Tool-Dispatch? (Stille-Ansage muss dann schweigen)
   // Per-Call-Metriken — lokal gesammelt, EIN Write beim Finalisieren (cleanup).
   const metrics: repo.CallMetrics = {
     bargeIns: 0,
@@ -363,6 +387,7 @@ async function runAgentCall(
   let audioSinceEnd = false; // kam nach end_call noch Audio (der Abschied)?
   let drainInterval: NodeJS.Timeout | undefined;
   let hangupTimer: NodeJS.Timeout | undefined;
+  let idleInterval: NodeJS.Timeout | undefined;
   let cleaned = false;
 
   const onEnd = (_ev: unknown, ch: AriChannel) => {
@@ -380,6 +405,7 @@ async function runAgentCall(
     log.info("Teardown", { status });
     if (hangupTimer) clearTimeout(hangupTimer);
     if (drainInterval) clearInterval(drainInterval);
+    if (idleInterval) clearInterval(idleInterval);
     client.removeListener("StasisEnd", onEnd);
     client.removeListener("ChannelDestroyed", onCalleeGone);
     try {
@@ -449,6 +475,32 @@ async function runAgentCall(
       localizer,
     });
 
+    /**
+     * Abschied ausspielen lassen, dann auflegen. Nutzt end_call (Tool) genauso wie der
+     * Stille-Wächter — beide brauchen exakt dieselbe Drain-Logik, damit der letzte Satz
+     * nicht abgeschnitten wird. `endRequested` sperrt danach jede weitere Stille-Ansage.
+     */
+    const requestHangup = async (reason: string) => {
+      if (endRequested) return;
+      endRequested = true;
+      const startedAt = Date.now();
+      log.info("Auflegen angefordert — warte auf Ende des Abschieds", { reason });
+      // Datengetrieben: auflegen, sobald das Agent-Audio aufgehört hat zu fließen UND der
+      // Playout-Puffer leer ist. Der Abschied kann als TTS-Audio erst NACH dem (textbasierten)
+      // end_call eintreffen → wir geben ihm eine Anlaufzeit (Grace), falls noch nichts kam.
+      drainInterval = setInterval(() => {
+        if (cleaned) { if (drainInterval) clearInterval(drainInterval); return; }
+        const now = Date.now();
+        const pending = media?.pendingMs?.() ?? 0;
+        const idleAudio = now - lastAudioAt;
+        if (pending >= 120 || idleAudio <= 800) return; // spielt noch / Audio kam gerade
+        // Puffer leer und seit >800 ms kein Audio mehr:
+        if (audioSinceEnd || now - startedAt > 3_500) void hangup(); // Abschied gespielt ODER keiner kam
+      }, 150);
+      // Absolute Obergrenze.
+      hangupTimer = setTimeout(() => void hangup(), 20_000);
+    };
+
     const toolCtx: ToolContext = {
       callId: requestId,
       ...(meta.callerNumber ? { callerNumber: meta.callerNumber } : {}),
@@ -484,26 +536,7 @@ async function runAgentCall(
         }
         return result;
       },
-      requestHangup: async () => {
-        if (endRequested) return;
-        endRequested = true;
-        const startedAt = Date.now();
-        log.info("Auflegen angefordert (end_call) — warte auf Ende des Abschieds");
-        // Datengetrieben: auflegen, sobald das Agent-Audio aufgehört hat zu fließen UND der
-        // Playout-Puffer leer ist. Der Abschied kann als TTS-Audio erst NACH dem (textbasierten)
-        // end_call eintreffen → wir geben ihm eine Anlaufzeit (Grace), falls noch nichts kam.
-        drainInterval = setInterval(() => {
-          if (cleaned) { if (drainInterval) clearInterval(drainInterval); return; }
-          const now = Date.now();
-          const pending = media?.pendingMs?.() ?? 0;
-          const idleAudio = now - lastAudioAt;
-          if (pending >= 120 || idleAudio <= 800) return; // spielt noch / Audio kam gerade
-          // Puffer leer und seit >800 ms kein Audio mehr:
-          if (audioSinceEnd || now - startedAt > 3_500) void hangup(); // Abschied gespielt ODER keiner kam
-        }, 150);
-        // Absolute Obergrenze.
-        hangupTimer = setTimeout(() => void hangup(), 20_000);
-      },
+      requestHangup: () => requestHangup("end_call"),
     };
 
     const hangup = async () => {
@@ -511,6 +544,41 @@ async function runAgentCall(
       if (drainInterval) { clearInterval(drainInterval); drainInterval = undefined; }
       try { await channel.hangup(); } catch { /* ignore */ }
     };
+
+    // ── Stille-Wächter (0.6.27) ─────────────────────────────────────────────
+    // Der Detektor liegt hier und nicht in der Session: Nur der callHandler kennt das echte
+    // Playout-Ende (pendingMs) und alle Sperrzustände — und über injectMessage funktioniert
+    // er so für BEIDE Provider. Der Watcher selbst ist eine reine Zustandsmaschine.
+    const idleWatcher = new IdleWatcher(
+      agent.idlePrompts,
+      {
+        isAgentAudible: (now) =>
+          (media?.pendingMs?.() ?? 0) > 0 ||
+          now - lastAudioAt < AGENT_AUDIBLE_GRACE_MS ||
+          now < agentSpeechUntil,
+        isBlocked: () =>
+          transferActive || transferRinging || endRequested || cleaned || toolsInFlight > 0 || !session,
+        phrase: (stage) => localizer.resolve("idle", stage),
+        speak: (text) => {
+          log.info("Stille-Ansage", { text });
+          metrics.idlePrompts = (metrics.idlePrompts ?? 0) + 1;
+          session?.injectMessage(text);
+        },
+        hangup: () => {
+          metrics.idleHangup = true;
+          const farewell = localizer.resolve("idleHangup");
+          if (farewell) session?.injectMessage(farewell);
+          void requestHangup("idle");
+        },
+      },
+      deps.random,
+    );
+    if (agent.idlePrompts.enabled) {
+      idleInterval = setInterval(() => {
+        if (!cleaned) idleWatcher.tick(Date.now());
+      }, IDLE_TICK_MS);
+      idleInterval.unref?.();
+    }
 
     // ── Audio-Bridging ──────────────────────────────────────────────────────
     media.on("audio", (pcm) => {
@@ -530,15 +598,23 @@ async function runAgentCall(
     session.on("userStartedSpeaking", () => {
       // Barge-in nur zählen, wenn der Agent gerade hörbar war (Puffer spielt noch oder
       // Audio kam eben) — sonst ist es schlicht der nächste reguläre Nutzer-Turn.
-      const agentAudible = (media?.pendingMs?.() ?? 0) > 0 || Date.now() - lastAudioAt < 1500;
+      const agentAudible =
+        (media?.pendingMs?.() ?? 0) > 0 || Date.now() - lastAudioAt < AGENT_AUDIBLE_GRACE_MS;
       if (lastAudioAt > 0 && agentAudible) metrics.bargeIns += 1;
       media?.flush();
+      idleWatcher.noteCallerActivity(Date.now());
     });
     session.on("conversationText", (ev) => {
       const speaker = ev.role === "assistant" ? "agent" : "caller";
       void deps.repo.appendTranscript(requestId, { t: elapsed(), speaker, text: ev.content });
       // Sprach-/Register-Erkennung füttern (beide Rollen; Caller treibt Trigger, Agent = Register-Kontext).
       localizer.observeTurn(speaker, ev.content);
+      if (speaker === "caller") {
+        idleWatcher.noteCallerActivity(Date.now());
+      } else {
+        // Sprechdauer-Boden fortschreiben (deckt auch das Greeting ab, das als Assistant-Turn kommt).
+        agentSpeechUntil = Math.max(agentSpeechUntil, Date.now() + estimateSpeechMs(ev.content));
+      }
     });
     session.on("agentStartedSpeaking", (lat) => log.debug("AgentStartedSpeaking", { ...lat }));
     session.on("functionCallRequest", async (ev) => {
@@ -546,7 +622,16 @@ async function runAgentCall(
         if (!fn.clientSide) continue;
         log.info("FunctionCall", { name: fn.name, args: fn.argumentsJson });
         const requestedAt = new Date();
-        const { ok, result } = await callToolset.dispatch(fn.name, fn.argumentsJson, toolCtx);
+        // Während der Tool-Ausführung schweigt der Stille-Wächter — die Wartezeit gehört dem
+        // Filler, nicht einem "Sind Sie noch da?" mitten in die CRM-Abfrage.
+        toolsInFlight += 1;
+        let ok: boolean;
+        let result: unknown;
+        try {
+          ({ ok, result } = await callToolset.dispatch(fn.name, fn.argumentsJson, toolCtx));
+        } finally {
+          toolsInFlight -= 1;
+        }
         metrics.toolCalls += 1;
         if (!ok) metrics.toolErrors += 1;
         // Bei end_call (setzt endRequested) KEINE FunctionCallResponse senden — sonst startet

@@ -65,6 +65,9 @@ const MetricsSchema = new Schema(
     ttsModel: { type: String },
     ttsCharacters: { type: Number },
     ttsCredits: { type: Number },
+    // Stille-Reengagement (0.6.27): Nachfass-Ansagen und ob der Anruf daran endete.
+    idlePrompts: { type: Number },
+    idleHangup: { type: Boolean },
   },
   { _id: false },
 );

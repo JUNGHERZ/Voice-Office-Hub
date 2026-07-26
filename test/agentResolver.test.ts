@@ -23,4 +23,17 @@ test("resolveAgent: ohne DDI → Default-Agent aus Config", async () => {
   assert.equal(a.summary.prompt, config.summary.prompt);
   assert.equal(a.summary.model, config.summary.model);
   assert.deepEqual(a.ambience, { enabled: false, preset: "office", volume: 0.25 });
+  // Filler und Stille-Ansagen sind Opt-in: der Default-Agent bleibt in beidem stumm.
+  assert.deepEqual(a.fillers, {
+    enabled: false,
+    delayMs: config.native.fillerDelayMs,
+    phrases: [],
+  });
+  assert.deepEqual(a.idlePrompts, {
+    enabled: false,
+    timeoutMs: config.idle.timeoutMs,
+    maxPrompts: 2,
+    phrases: [],
+    hangupAfter: false,
+  });
 });

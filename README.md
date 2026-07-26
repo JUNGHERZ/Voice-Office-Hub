@@ -2,13 +2,13 @@
 
 **🇬🇧 English** · [🇩🇪 Deutsch](README.de.md)
 
-[![Version](https://img.shields.io/badge/version-0.6.25-f5a623)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.27-f5a623)](CHANGELOG.md)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-success)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
-[![Changelog](https://img.shields.io/badge/changelog-0.6.25-blue)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-0.6.27-blue)](CHANGELOG.md)
 
 > **VOH-Appliance** — Voice-Office-Hub. Part of the **"*-Office-Hub"** product family
 > (sister project: Message-Office-Hub for chat/email/WhatsApp/SMS).
@@ -35,6 +35,12 @@ data center**, in a **single** Docker container.
 - 🌐 **Embeddable web widget** — visitors call the agent right in the browser (one script
   tag; WebRTC via Asterisk, level-driven speaking animation, optional live transcript)
 - 🔀 **Transfer & hang-up** — warm transfer to humans, autonomous call ending
+- ⏳ **No dead air** — a short filler phrase while a slow tool is working; follow-up prompts when
+  the caller goes quiet (escalating, optionally ending in an automatic hang-up — abandoned calls
+  end instead of running up the line)
+- 🌍 **Announcements translated automatically** — you maintain each announcement **once** in your
+  own language; if the caller switches languages, the engine translates them at runtime — keeping
+  the level of formality used in the conversation
 - 🧩 **Tools / function calling** — per-agent HTTP endpoints for your business logic **plus
   MCP servers** as tool sources, both managed in the admin UI (`${ENV:}` secrets stay server-side)
 - 📡 **Live view & metrics** — running calls with live transcript; per-call time-to-first-answer,
