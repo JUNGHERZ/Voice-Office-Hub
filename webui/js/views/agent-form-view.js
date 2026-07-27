@@ -49,6 +49,21 @@ const FALLBACK_AMBIENCE = [
   { id: "rain", label: "Regen" },
 ];
 
+// Auswahl für „Sprache der Ansagen". Deckt die Sprachen ab, die der serverseitige
+// Stopwort-Scorer erkennt (src/llm/languageScorer.ts) — nur für die kann die automatische
+// Ermittlung überhaupt ein Ergebnis liefern.
+const CONTENT_LANGUAGES = [
+  { code: "de", label: "Deutsch" },
+  { code: "en", label: "Englisch" },
+  { code: "fr", label: "Französisch" },
+  { code: "es", label: "Spanisch" },
+  { code: "it", label: "Italienisch" },
+  { code: "nl", label: "Niederländisch" },
+  { code: "pt", label: "Portugiesisch" },
+  { code: "pl", label: "Polnisch" },
+  { code: "tr", label: "Türkisch" },
+];
+
 // Leeres Formularmodell (Defaults wie im Mongoose-Schema).
 function emptyForm() {
   return {
@@ -88,6 +103,9 @@ function emptyForm() {
     idlePhrases: "",
     idleHangupAfter: false,
     idleHangupAnnouncement: "",
+    // Leer = "Automatisch erkennen"; der Server trägt beim Speichern den erkannten Code ein.
+    contentLanguage: "",
+    callerMemoryLanguage: false,
     tools: ["transfer_call", "end_call"],
     customTools: [],
     mcpServers: [],
@@ -101,6 +119,7 @@ function emptyForm() {
     _widget: {},
     _fillers: {},
     _idlePrompts: {},
+    _callerMemory: {},
   };
 }
 
@@ -155,6 +174,8 @@ function toForm(a) {
     idlePhrases: (idle.phrases || []).join("\n"),
     idleHangupAfter: !!idle.hangupAfter,
     idleHangupAnnouncement: idle.hangupAnnouncement || "",
+    contentLanguage: a.contentLanguage || "",
+    callerMemoryLanguage: !!(a.callerMemory && a.callerMemory.language),
     tools: a.tools && a.tools.length ? [...a.tools] : ["transfer_call", "end_call"],
     customTools: (a.customTools || []).map((t) => ({ ...t, endpoint: { ...(t.endpoint || {}) } })),
     mcpServers: (a.mcpServers || []).map((s) => ({ ...s })),
@@ -167,6 +188,7 @@ function toForm(a) {
     _widget: { ...widget },
     _fillers: { ...fillers },
     _idlePrompts: { ...idle },
+    _callerMemory: { ...(a.callerMemory || {}) },
   };
 }
 
@@ -256,6 +278,9 @@ function toBody(f) {
       hangupAfter: f.idleHangupAfter,
       hangupAnnouncement: f.idleHangupAnnouncement.trim() || undefined,
     },
+    // Leer mitsenden ist Absicht: Der Server erkennt die Sprache dann neu aus Greeting/Prompt.
+    contentLanguage: f.contentLanguage.trim(),
+    callerMemory: { ...f._callerMemory, language: f.callerMemoryLanguage },
     enabled: f.enabled,
   };
 }
@@ -543,6 +568,108 @@ function voiceSettingsSummary(f) {
   return parts.length ? parts.join(" · ") : "Voice-Defaults aus dem ElevenLabs-Dashboard";
 }
 
+// ── Vorübersetzte Ansagen ────────────────────────────────────────────────────
+
+/**
+ * Zeile neben dem Modal-Button: welche Sprachen es gibt und ob sie zum aktuellen Original
+ * passen. „veraltet" erscheint, sobald jemand oben eine Ansage geändert hat, und verschwindet
+ * von selbst, wenn die Neuerzeugung durch ist.
+ */
+function translationSummary(agentId, translations) {
+  if (!agentId) return "verfügbar, sobald der Agent gespeichert ist";
+  if (!translations) return "noch nicht geladen";
+  const langs = translations.languages || [];
+  if (!langs.length) return "noch keine — entsteht nach dem ersten fremdsprachigen Anruf";
+  return langs
+    .map((l) => {
+      const stale = (l.entries || []).filter((e) => e.stale).length;
+      return stale ? `${l.lang.toUpperCase()} ⚠ ${stale} veraltet` : `${l.lang.toUpperCase()} ✓`;
+    })
+    .join(" · ");
+}
+
+/**
+ * Inhalt des Modals: Original und Übersetzung untereinander (Ansagen sind Sätze, keine
+ * Tabellenzellen). Ein FEHLENDER Eintrag wird als leeres Feld gezeigt statt weggelassen —
+ * ein Übersetzungs-Fehlschlag soll auffallen, statt lautlos zu verschwinden.
+ */
+function renderTranslations(translations, lang, f) {
+  if (!translations) return html`<div class="empty-hint">Wird geladen…</div>`;
+  const langs = translations.languages || [];
+  if (!langs.length) {
+    return html`<div class="empty-hint">
+      Für diesen Agenten gibt es noch keine Übersetzungen. Sie entstehen automatisch, sobald
+      jemand in einer anderen Sprache angerufen hat — ab dem nächsten Anruf derselben Nummer
+      begrüßt der Agent dann direkt in dieser Sprache.
+    </div>`;
+  }
+  const current = langs.find((l) => l.lang === lang) || langs[0];
+  const src = (translations.contentLanguage || f.contentLanguage || "de").toUpperCase();
+  return html`
+    <glk-select
+      id="translationLangSelect"
+      label="Sprache"
+      onglk-change="${(host, e) => {
+        host.translationLang = e.detail.value;
+      }}"
+    >
+      ${langs.map((l) => html`<option value="${l.lang}">${l.lang.toUpperCase()}</option>`)}
+    </glk-select>
+    ${(current.entries || []).map(
+      (e) => html`
+        <div class="tr-entry">
+          <div class="tr-head">
+            <strong>${e.label}</strong>
+            ${e.stale ? html`<span class="tr-stale">⚠ veraltet</span>` : ""}
+          </div>
+          <div class="tr-line"><span class="tr-lang">${src}</span> ${e.source}</div>
+          <div class="tr-line">
+            <span class="tr-lang">${current.lang.toUpperCase()}</span>
+            ${e.translation || html`<em class="tr-missing">— fehlt —</em>`}
+          </div>
+          ${e.stale
+            ? html`<div class="empty-hint">
+                Das Original wurde geändert. Bis zur Neuerzeugung spricht der Agent hier die
+                Standardsprache.
+              </div>`
+            : ""}
+        </div>
+      `,
+    )}
+  `;
+}
+
+async function loadTranslations(host) {
+  if (!host.agentId) return;
+  try {
+    const res = await api.getTranslations(host.agentId);
+    host.translations = res;
+    const langs = (res.languages || []).map((l) => l.lang);
+    // Gewählte Sprache halten, solange es sie noch gibt.
+    if (!langs.includes(host.translationLang)) host.translationLang = langs[0] || "";
+  } catch (err) {
+    host.error = String((err && err.message) || err);
+  }
+}
+
+async function openTranslations(host) {
+  host.translationsOpen = true;
+  await loadTranslations(host);
+}
+
+async function regenerateTranslation(host) {
+  if (host.translationsBusy || !host.translationLang) return;
+  host.translationsBusy = true;
+  try {
+    await api.regenerateTranslation(host.agentId, host.translationLang);
+    await loadTranslations(host);
+  } catch (err) {
+    host.error = String((err && err.message) || err);
+  } finally {
+    host.translationsBusy = false;
+  }
+}
+
 async function save(host) {
   if (host.busy) return;
   host.error = "";
@@ -616,8 +743,13 @@ export default define({
   mcpDraft: undefined,
   mcpError: "",
   voiceModalOpen: false,
+  // Vorübersetzte Ansagen: erst beim Öffnen geladen (eigener Endpoint, nicht Teil des Agenten).
+  translationsOpen: false,
+  translations: undefined,
+  translationLang: "",
+  translationsBusy: false,
   render: {
-    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, ambiencePresets, toolModalOpen, toolEditIndex, toolDraft, toolError, mcpModalOpen, mcpEditIndex, mcpDraft, mcpError, voiceModalOpen }) => {
+    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, ambiencePresets, toolModalOpen, toolEditIndex, toolDraft, toolError, mcpModalOpen, mcpEditIndex, mcpDraft, mcpError, voiceModalOpen, translationsOpen, translations, translationLang, translationsBusy }) => {
       const f = form || emptyForm();
       const title = agentId ? f.name || "Agent" : "Neuer Agent";
       return html`
@@ -718,6 +850,22 @@ export default define({
                   value="${f.greeting}"
                   onglk-input="${(host, e) => setField(host, "greeting", e.detail.value)}"
                 ></glk-input>
+
+                <glk-select
+                  id="contentLanguageSelect"
+                  label="Sprache der Ansagen"
+                  onglk-change="${(host, e) => setField(host, "contentLanguage", e.detail.value)}"
+                >
+                  <option value="">Automatisch erkennen</option>
+                  ${CONTENT_LANGUAGES.map(
+                    (l) => html`<option value="${l.code}">${l.label} (${l.code})</option>`,
+                  )}
+                </glk-select>
+                <div class="empty-hint">
+                  In welcher Sprache Begrüßung und Ansagen oben geschrieben sind — die
+                  Ausgangssprache jeder Übersetzung. „Automatisch erkennen" ermittelt sie beim
+                  Speichern aus Begrüßung und System-Prompt und trägt sie hier ein.
+                </div>
 
                 <glk-textarea
                   label="System-Prompt"
@@ -899,6 +1047,31 @@ export default define({
                     </div>
                   `}
                 `}
+
+                <glk-toggle
+                  label="Sprache des Anrufers merken"
+                  checked="${f.callerMemoryLanguage}"
+                  onglk-change="${(host, e) =>
+                    setField(host, "callerMemoryLanguage", e.detail.checked)}"
+                ></glk-toggle>
+                <div class="empty-hint">
+                  Hält nach dem Gespräch fest, welche Sprache der Anrufer gesprochen hat — beim
+                  nächsten Anruf derselben Nummer beginnt der Agent direkt in dieser Sprache. Die
+                  Rufnummer wird dabei nur pseudonymisiert abgelegt (Hash) und verfällt automatisch.
+                  Spricht der Anrufer wieder anders, gilt sofort die neue Sprache.
+                </div>
+
+                <div class="group-head">
+                  <glk-button
+                    size="sm"
+                    variant="secondary"
+                    disabled="${!agentId}"
+                    onclick="${(host) => openTranslations(host)}"
+                  >
+                    Übersetzte Ansagen ansehen…
+                  </glk-button>
+                  <span class="empty-hint">${translationSummary(agentId, translations)}</span>
+                </div>
 
                 <glk-divider></glk-divider>
 
@@ -1131,6 +1304,31 @@ export default define({
               </glk-modal>
 
               <glk-modal
+                title="Übersetzte Ansagen"
+                open="${translationsOpen}"
+                onglk-close="${(host) => {
+                  host.translationsOpen = false;
+                }}"
+              >
+                <div class="tool-form">
+                  ${renderTranslations(translations, translationLang, f)}
+                </div>
+                <div slot="actions">
+                  <button
+                    class="glass-modal__action"
+                    disabled="${translationsBusy || !translationLang}"
+                    onclick="${(host) => regenerateTranslation(host)}"
+                  >${translationsBusy ? "Erzeuge…" : "Neu erzeugen"}</button>
+                  <button
+                    class="glass-modal__action"
+                    onclick="${(host) => {
+                      host.translationsOpen = false;
+                    }}"
+                  >Schließen</button>
+                </div>
+              </glk-modal>
+
+              <glk-modal
                 title="${toolEditIndex >= 0 ? "HTTP-Tool bearbeiten" : "Neues HTTP-Tool"}"
                 open="${toolModalOpen}"
                 onglk-close="${(host) => {
@@ -1351,6 +1549,12 @@ export default define({
         .empty-hint { font-size: 13px; opacity: 0.55; }
         .tool-form { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; padding-right: 4px; }
         .hdr-row { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 8px; align-items: center; }
+        .tr-entry { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid rgba(128,128,128,.22); }
+        .tr-head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+        .tr-stale { font-size: 12px; opacity: .85; white-space: nowrap; }
+        .tr-line { display: flex; gap: 8px; align-items: baseline; line-height: 1.45; }
+        .tr-lang { flex: 0 0 auto; font-size: 11px; letter-spacing: .06em; opacity: .6; min-width: 2.2em; }
+        .tr-missing { opacity: .6; }
       `;
     },
     // Nach jedem Render die Selects imperativ auf den echten State setzen.
@@ -1366,6 +1570,7 @@ export default define({
         ["speakProviderSelect", host.form.speakProvider],
         ["ambiencePresetSelect", host.form.ambiencePreset],
         ["toolMethodSelect", host.toolDraft && host.toolDraft.method],
+        ["translationLangSelect", host.translationLang],
       ];
       for (const [id, value] of selects) {
         const sel = host.shadowRoot && host.shadowRoot.getElementById(id);
@@ -1373,6 +1578,11 @@ export default define({
         // wird auch von der initialen rAF-Option-Übernahme gelesen.
         if (sel && value) sel.setAttribute("value", value);
       }
+      // Sonderfall: Bei „Sprache der Ansagen" ist der LEERE Wert eine gültige Auswahl
+      // („Automatisch erkennen"). Ohne dieses Setzen bliebe beim Agentenwechsel der Code
+      // des vorherigen Agenten stehen und würde ungewollt mitgespeichert.
+      const langSel = host.shadowRoot && host.shadowRoot.getElementById("contentLanguageSelect");
+      if (langSel) langSel.setAttribute("value", host.form.contentLanguage || "");
     },
     connect: (host) => {
       load(host);

@@ -40,13 +40,35 @@ export interface CallLocalizerLike {
   observeTurn(speaker: string, text: string): void;
   resolve(key: string, index?: number): string;
   getLanguage(): string | undefined;
+  preload(lang: string, phrases: Record<string, string>): void;
+  getLanguageState(): LanguageState;
   close(): void;
 }
 
-/** Baut aus der Agent-Konfiguration den flachen Default-Katalog + die Pool-Registrierung. */
-export function buildLocalizationCatalog(agent: ResolvedAgent): LocalizationCatalog {
+/** Was am Ende des Anrufs über die Gesprächssprache bekannt ist (steuert das Anrufer-Profil). */
+export interface LanguageState {
+  /** Zuletzt gültige Sprache — auch dann gesetzt, wenn sie nur aus dem Prior stammt. */
+  lang?: string;
+  /** Per LLM bestätigt? Nur dann taugt sie, um künftige Begrüßungen zu steuern. */
+  confirmed: boolean;
+  /** Sprache, mit der der Anruf vorbelegt startete (aus dem Anrufer-Profil), falls vorhanden. */
+  priorLang?: string;
+}
+
+/**
+ * Baut aus der Agent-Konfiguration den flachen Default-Katalog + die Pool-Registrierung.
+ *
+ * `includeGreeting` nur für die Vorübersetzung (translationStore.ts): Zur Laufzeit ist die
+ * Begrüßung längst gesprochen, sie im Übersetzungs-Prompt mitzuschicken wäre verschwendeter Platz.
+ */
+export function buildLocalizationCatalog(
+  agent: ResolvedAgent,
+  opts?: { includeGreeting?: boolean },
+): LocalizationCatalog {
   const defaults: Record<string, string> = {};
   const pools: Record<string, number> = {};
+
+  if (opts?.includeGreeting && agent.greeting?.trim()) defaults.greeting = agent.greeting.trim();
 
   defaults.transferFailed = agent.transferFailedAnnouncement || config.announcements.transferFailed;
 
@@ -100,6 +122,13 @@ export class CallLocalizer implements CallLocalizerLike {
   private lastWritten?: string;
   private abortCtrl?: AbortController;
 
+  // Vorbelegung aus dem Anrufer-Profil: Ansagen sind ab Sekunde 0 da, die Erkennung steht aber
+  // noch aus. Solange das gilt, wird der Detect trotzdem ausgelöst (Bestätigung + Anredeform)
+  // und ein einzelner Scorer-Widerspruch schaltet sofort um, statt die Hysterese abzuwarten.
+  private provisional = false;
+  private priorLang?: string;
+  private confirmed = false;
+
   // Re-Detection-Hysterese
   private deviationLang?: string;
   private deviationStreak = 0;
@@ -130,9 +159,15 @@ export class CallLocalizer implements CallLocalizerLike {
     if (speaker !== "caller") return;
 
     this.callerTurns++;
-    if (!this.currentLang) {
+    if (!this.currentLang || this.provisional) {
       const words = text.trim().split(/\s+/).filter(Boolean).length;
       if (words >= DETECT_MIN_WORDS || this.callerTurns >= 2) this.triggerDetect();
+      // Vorbelegt und der Anrufer spricht hörbar anders: nicht auf das LLM warten. Ein einzelner
+      // klarer Widerspruch reicht, weil die Vorbelegung selbst nur eine Vermutung ist.
+      if (this.provisional) {
+        const guess = this.deps.scoreLanguage(text);
+        if (guess && guess.lang !== this.currentLang) this.switchTo(guess.lang);
+      }
       return;
     }
 
@@ -167,6 +202,29 @@ export class CallLocalizer implements CallLocalizerLike {
     return this.currentLang;
   }
 
+  /**
+   * Sprache und Ansagen aus dem Anrufer-Profil vorbelegen — noch vor dem ersten Wort, damit
+   * Begrüßung und erste Ansagen sitzen. Die Erkennung läuft trotzdem an: Sie bestätigt die
+   * Sprache und liefert die Anredeform, die eine statische Vorübersetzung nicht kennen kann.
+   */
+  preload(lang: string, phrases: Record<string, string>): void {
+    if (!lang || this.closed || this.currentLang) return;
+    this.priorLang = lang;
+    this.provisional = true;
+    if (Object.keys(phrases).length) this.cache.set(lang, { ...phrases });
+    // Direkt statt über switchTo: Eine Vermutung gehört noch nicht als Fakt ins Request-Dokument.
+    // `lastWritten` bleibt bewusst leer, damit die spätere Bestätigung den Write auslöst.
+    this.currentLang = lang;
+  }
+
+  getLanguageState(): LanguageState {
+    return {
+      lang: this.currentLang,
+      confirmed: this.confirmed,
+      ...(this.priorLang ? { priorLang: this.priorLang } : {}),
+    };
+  }
+
   close(): void {
     this.closed = true;
     this.gen++;
@@ -196,7 +254,10 @@ export class CallLocalizer implements CallLocalizerLike {
     const ctrl = new AbortController();
     this.abortCtrl = ctrl;
     void this.deps
-      .localize(sample, this.defaults, { signal: ctrl.signal })
+      .localize(sample, this.defaults, {
+        signal: ctrl.signal,
+        catalogLanguage: this.agent.contentLanguage,
+      })
       .then((res) => this.applyResult(myGen, res))
       .catch((err) => {
         if (!this.closed) this.log.warn("Sprach-Erkennung fehlgeschlagen — Defaults bleiben", { err: String(err) });
@@ -222,7 +283,20 @@ export class CallLocalizer implements CallLocalizerLike {
       ...(res.formality ? { formality: res.formality } : {}),
       phrases: res.phrases ? Object.keys(res.phrases).length : 0,
       catalog: Object.keys(this.defaults).length,
+      ...(this.priorLang ? { prior: this.priorLang, priorOk: this.priorLang === lang } : {}),
     });
+    // Die vorgegebene Ausgangssprache ist jetzt bestätigt statt geraten — weicht sie ab, ist
+    // entweder contentLanguage falsch gepflegt oder das Modell verwirrt. Beides will man sehen.
+    if (res.catalogLanguage && res.catalogLanguage !== this.agent.contentLanguage) {
+      this.log.warn("Katalogsprache weicht von contentLanguage ab", {
+        konfiguriert: this.agent.contentLanguage,
+        erkannt: res.catalogLanguage,
+      });
+    }
+    // Ab hier ist die Sprache LLM-bestätigt: Die Vorbelegung verliert ihren Vermutungs-Status,
+    // und erst jetzt darf sie ins Anrufer-Profil (Qualitätsgate in callHandler.ts).
+    this.provisional = false;
+    this.confirmed = true;
     if (res.phrases && Object.keys(res.phrases).length) {
       this.cache.set(lang, { ...(this.cache.get(lang) ?? {}), ...res.phrases });
     } else if (!this.cache.has(lang)) {

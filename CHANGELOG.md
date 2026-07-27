@@ -6,6 +6,58 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.7.0] – 2026-07-27
+
+### Added
+- **Begrüßung in der Sprache des Anrufers.** Die Begrüßung geht raus, bevor der Anrufer ein
+  Wort gesagt hat — die Laufzeit-Lokalisierung aus 0.6.26 kommt dafür grundsätzlich zu spät,
+  egal wie schnell sie ist. Der Agent merkt sich deshalb nach dem Gespräch die bestätigte
+  Sprache je Rufnummer und begrüßt beim nächsten Anruf direkt in dieser Sprache. Opt-in pro
+  Agent (`callerMemory.language`), zusätzlich `CALLER_PROFILE_SECRET` nötig. Wirkt über den
+  aufgelösten Agenten und damit für **beide** Provider ohne Provider-Code.
+- **Vorübersetzte Ansagen (`agentTranslations`).** Der Ansagen-Katalog wird außerhalb des
+  Anrufs übersetzt — inklusive Greeting, das die Laufzeit-Übersetzung nie erreichen konnte.
+  Zur Laufzeit ist es ein Map-Lookup. Erzeugt wird nach dem Speichern eines Agenten, nach
+  einem Anruf in einer noch unbekannten Sprache und auf Knopfdruck im Admin.
+- **Jede Übersetzung ist an ihren Quelltext gebunden.** Jeder Eintrag trägt den Hash seines
+  Originals; passt der nicht mehr, gilt er als veraltet und wird nicht ausgespielt — egal ob
+  über Admin-UI, API, Seed-Script oder direkt in der Datenbank geändert wurde. Es gibt bewusst
+  keinen Lösch-Hook, der genau einen Fall vergessen könnte. Bis die Neuübersetzung durch ist,
+  spricht der Agent die Standardsprache: lieber deutsch als veraltet-englisch.
+- **`agent.contentLanguage`** — die Sprache, in der Begrüßung und Ansagen *verfasst* sind.
+  Bislang gab es dafür kein Feld: `agent.language` ist die STT-Sprache und bei `"multi"` ohne
+  Aussage über den Katalog, weshalb das Modell die Ausgangssprache bei **jedem** Anruf erraten
+  musste. Leer = wird beim Speichern aus Begrüßung und System-Prompt erkannt (Stopwort-Scorer,
+  kein LLM-Call) und eingetragen; ein gesetzter Wert wird nie überschrieben.
+- **Admin: „Übersetzte Ansagen ansehen…"** zeigt je Sprache Original und Übersetzung
+  untereinander, markiert veraltete Einträge und erlaubt das Neuerzeugen. Ein fehlender Eintrag
+  wird als Lücke angezeigt statt weggelassen — ein Übersetzungs-Fehlschlag wie in 0.6.28 wäre
+  damit sichtbar gewesen, statt nur im Requesty-Log zu stehen.
+- **Metriken** `greetingLanguage`, `priorSource` und `priorConfirmed` je Anruf. Ohne sie ließe
+  sich nicht beurteilen, ob der Prior überhaupt trägt.
+
+### Changed
+- **Der Lokalisierungs-Prompt bekommt die Ausgangssprache genannt** statt sie erraten zu lassen.
+  Das Pflichtfeld `catalogLanguage` in der Antwort **bleibt** — nicht wegen des Werts, sondern
+  weil der erzwungene Zwischenschritt vor dem Formulieren den 0.6.28-Fix trug. Aus „erkenne"
+  wird „bestätige"; weicht die Antwort ab, wird gewarnt.
+- **Der `CallLocalizer` kann vorgewärmt starten** (`preload`). Bei vorbelegter Sprache läuft die
+  Erkennung trotzdem an — sie liefert die Anredeform, die eine statische Vorübersetzung nicht
+  kennen kann — und ein einzelner Scorer-Widerspruch schaltet sofort um, ohne auf das LLM zu
+  warten.
+
+### Security
+- Rufnummern im Anrufer-Gedächtnis werden als **HMAC** abgelegt, nie im Klartext; ein
+  TTL-Index lässt Profile nach `CALLER_PROFILE_TTL_DAYS` verfallen. Ohne
+  `CALLER_PROFILE_SECRET` bleibt das Gedächtnis vollständig aus — bewusst kein Fallback auf
+  `ADMIN_SESSION_SECRET`. Gespeichert wird ausschließlich die Sprache: Eine Rufnummer ist keine
+  Person, und was bei der Sprache ein Schönheitsfehler ist, wäre bei inhaltlichen Erinnerungen
+  eine Datenpanne. Web-Anrufe, interne Durchwahlen und unterdrückte Nummern bekommen kein Profil.
+- **Bestätigung und Widerspruch zählen verschieden.** Wer auf Englisch begrüßt wird, antwortet
+  eher auf Englisch — auch wenn ihm Deutsch lieber wäre. Eine Bestätigung zählt daher nur hoch,
+  ein Widerspruch überschreibt sofort. Aus einer Fehlzuordnung kommt man mit einem einzigen
+  Anruf wieder heraus; dasselbe entschärft geteilte Anschlüsse.
+
 ## [0.6.30] – 2026-07-26
 
 ### Fixed

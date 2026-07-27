@@ -181,6 +181,18 @@ const IdlePromptsSchema = new Schema(
 );
 
 /**
+ * Anrufer-Gedächtnis (0.7.0): pseudonymisiert je Rufnummer gespeicherte Fakten, damit die
+ * Begrüßung beim nächsten Anruf in der richtigen Sprache kommt. Gestuft, damit spätere
+ * Fakten eigene Zustimmung brauchen. Wirkt nur mit gesetztem CALLER_PROFILE_SECRET.
+ */
+const CallerMemorySchema = new Schema(
+  {
+    language: { type: Boolean, default: false },
+  },
+  { _id: false },
+);
+
+/**
  * Web-Widget (einbettbares Browser-Softphone, 0.6.9). `key` wird server-seitig
  * generiert (agents-Route) und nie vom Client übernommen; `exten` ist die 3-stellige
  * Pseudo-Durchwahl, die der Browser wählt — sie muss zusätzlich in `targetNumbers`
@@ -230,6 +242,9 @@ const AgentSchema = new Schema(
     // STT-Sprache → agent.listen.provider.language ("multi", "de", "en" …). Fällt im Resolver
     // auf den Config-Default zurück, wenn leer.
     language: { type: String },
+    // Sprache, in der Greeting/Ansagen VERFASST sind (Ausgangssprache jeder Übersetzung).
+    // Leer = wird beim Speichern aus Greeting + Prompt erkannt (admin/routes/agents.ts).
+    contentLanguage: { type: String },
     greeting: { type: String },
     prompt: { type: String },
     // Ansage bei fehlgeschlagenem Transfer (Standardsprache; wird zur Laufzeit lokalisiert).
@@ -265,6 +280,7 @@ const AgentSchema = new Schema(
     ambience: { type: AmbienceSchema, default: () => ({}) },
     fillers: { type: FillersSchema, default: () => ({}) },
     idlePrompts: { type: IdlePromptsSchema, default: () => ({}) },
+    callerMemory: { type: CallerMemorySchema, default: () => ({}) },
     widget: { type: WidgetSchema, default: () => ({}) },
     tags: { type: [String], default: [] },
     mip_opt_out: { type: Boolean, default: false },

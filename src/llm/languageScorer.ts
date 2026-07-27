@@ -50,3 +50,18 @@ export function scoreLanguage(text: string): LanguageGuess | null {
   if (top.score - (scored[1]?.score ?? 0) < 0.08) return null; // zu knapp → unsicher
   return { lang: top.lang, confidence: top.score };
 }
+
+/**
+ * Ausgangssprache der Agent-Texte aus Begrüßung + System-Prompt schätzen (für `contentLanguage`,
+ * wenn am Agenten nichts gesetzt ist). Anders als bei der Anrufer-Erkennung ist die Textmenge
+ * hier groß (ein System-Prompt hat mehrere hundert Zeichen) — in dieser Länge ist die
+ * Stopwort-Heuristik sehr sicher, und ein LLM-Call wäre reine Verschwendung.
+ *
+ * `null` heißt „nicht eindeutig"; der Aufrufer setzt dann seinen Default (diese Datei bleibt
+ * bewusst ohne Config-Abhängigkeit).
+ */
+export function detectContentLanguage(...texts: Array<string | undefined>): string | null {
+  const text = texts.filter((t) => t && t.trim()).join(" ").trim();
+  if (!text) return null;
+  return scoreLanguage(text)?.lang ?? null;
+}

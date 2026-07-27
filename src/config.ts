@@ -113,6 +113,8 @@ export interface Config {
     prompt: string;
     greeting: string;
     language: string;
+    /** Sprache, in der Greeting und Ansagen verfasst sind (NICHT die STT-Sprache). */
+    contentLanguage: string;
     listenModel: string;
     speakModel: string;
   };
@@ -130,6 +132,13 @@ export interface Config {
   idle: {
     /** Default-Stille (ms) bis zur ersten Ansage, wenn agent.idlePrompts.timeoutMs fehlt. */
     timeoutMs: number;
+  };
+  /** Anrufer-Gedächtnis (0.7.0): pseudonymisierte Sprachpräferenz je Rufnummer, opt-in pro Agent. */
+  callerProfile: {
+    /** HMAC-Schlüssel für den Profil-Key. Leer = Gedächtnis inaktiv (kein Fallback). */
+    secret: string;
+    /** Verfallsfrist ohne erneuten Kontakt (TTL-Index auf updatedAt). */
+    ttlDays: number;
   };
   /** Default-Texte für System-Ansagen (Standardsprache; werden zur Laufzeit lokalisiert). */
   announcements: {
@@ -261,6 +270,9 @@ export const config: Config = {
     greeting: opt("DEFAULT_AGENT_GREETING", "Hallo! Wie kann ich Ihnen helfen?"),
     // "multi" = nova-3 multilingual (erkennt u.a. Deutsch); alternativ "de"/"en".
     language: opt("DEFAULT_LANGUAGE", "multi"),
+    // Ausgangssprache der Ansagen. Fallback, wenn am Agenten nichts gesetzt ist UND die
+    // automatische Erkennung aus Greeting/Prompt kein eindeutiges Ergebnis liefert.
+    contentLanguage: opt("DEFAULT_CONTENT_LANGUAGE", "de"),
     listenModel: opt("DEFAULT_LISTEN_MODEL", "nova-3"),
     speakModel: opt("DEFAULT_SPEAK_MODEL", "aura-2-thalia-en"),
   },
@@ -279,6 +291,13 @@ export const config: Config = {
   },
   idle: {
     timeoutMs: int("IDLE_PROMPT_TIMEOUT_MS", 8000),
+  },
+  callerProfile: {
+    // Ohne Secret bleibt das Anrufer-Gedächtnis AUS — es gibt bewusst keinen Fallback auf
+    // ADMIN_SESSION_SECRET: ein Pseudonymisierungs-Schlüssel hat einen anderen Zweck und
+    // eine andere Rotationsfrequenz als ein Cookie-Secret.
+    secret: opt("CALLER_PROFILE_SECRET"),
+    ttlDays: int("CALLER_PROFILE_TTL_DAYS", 180),
   },
   announcements: {
     transferFailed: opt(

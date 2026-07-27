@@ -5,7 +5,7 @@ import http from "node:http";
 import { test, before, after } from "node:test";
 
 import { config } from "../src/config.js";
-import { detectAndLocalize, parseLocalizeResponse } from "../src/llm/localize.js";
+import { detectAndLocalize, parseLocalizeResponse, translateCatalog } from "../src/llm/localize.js";
 
 const CATALOG = { transferFailed: "Ich konnte niemanden erreichen.", "filler.0": "Einen Moment." };
 
@@ -160,4 +160,53 @@ test("detectAndLocalize: Abbruch via signal → wirft", async () => {
   const p = detectAndLocalize("caller: hi", CATALOG, { model: "slow/model", signal: ctrl.signal });
   ctrl.abort();
   await assert.rejects(() => p);
+});
+
+// ── Vorgegebene Katalogsprache + translateCatalog (0.7.0) ────────────────────
+
+// Die Ausgangssprache steht am Agenten (contentLanguage) — das Modell muss sie nicht mehr
+// erraten. Der ERZWUNGENE ZWISCHENSCHRITT bleibt aber: Genau er trug den 0.6.28-Fix, nicht
+// der Wert selbst. Aus "erkenne" wird "bestätige".
+test("Prompt: die Katalogsprache wird vorgegeben, aber weiter zurückverlangt", async () => {
+  await detectAndLocalize("caller: Hello there", CATALOG, { catalogLanguage: "de" });
+  const messages = lastBody.messages as Array<{ role: string; content: string }>;
+
+  assert.match(messages[1]!.content, /Ausgangssprache: de/, "Sprache steht im Katalog-Kopf");
+  assert.match(messages[0]!.content, /catalogLanguage/, "Bestätigungs-Schritt bleibt Pflicht");
+  assert.match(messages[0]!.content, /IMMER alle vier Felder/, "Regressionsschutz 0.6.28");
+});
+
+test("Prompt: ohne contentLanguage bleibt der Katalog-Kopf unverändert", async () => {
+  await detectAndLocalize("caller: Hello there", CATALOG);
+  const messages = lastBody.messages as Array<{ role: string; content: string }>;
+  assert.doesNotMatch(messages[1]!.content, /Ausgangssprache/);
+});
+
+test("translateCatalog: übersetzt bei bekannter Ausgangs- und Zielsprache", async () => {
+  const out = await translateCatalog(CATALOG, "de", "en");
+  const messages = lastBody.messages as Array<{ role: string; content: string }>;
+
+  assert.match(messages[1]!.content, /Ausgangssprache: de/);
+  assert.match(messages[1]!.content, /Zielsprache: en/);
+  assert.equal(lastBody.temperature, 0);
+  assert.ok(Object.keys(out).length > 0, "Übersetzungen kommen zurück");
+});
+
+// Kein Gespräch, kein Anrufer — also darf hier NICHTS an einen konkreten Anrufer angepasst
+// werden. Die Anredeform kommt aus dem Original, damit die Fassung für jeden Anrufer taugt.
+test("translateCatalog: Register kommt aus dem Original, nicht aus einem Gespräch", async () => {
+  await translateCatalog(CATALOG, "de", "en");
+  const system = (lastBody.messages as Array<{ content: string }>)[0]!.content;
+
+  assert.match(system, /ORIGINAL/, "Anredeform wird aus dem Original übernommen");
+  assert.match(system, /formality/, "erzwungener Zwischenschritt wie im Laufzeit-Prompt");
+  assert.match(system, /Person|Perspektive/, "Sprecher-Perspektive bleibt gewahrt");
+  assert.match(system, /Eigennamen/, "Produkt- und Firmennamen bleiben stehen");
+  assert.doesNotMatch(system, /caller:/, "kein Gesprächs-Kontext im Übersetzungs-Prompt");
+});
+
+test("translateCatalog: leerer Katalog spart den LLM-Call", async () => {
+  lastBody = {};
+  assert.deepEqual(await translateCatalog({}, "de", "en"), {});
+  assert.deepEqual(lastBody, {}, "kein Request abgesetzt");
 });

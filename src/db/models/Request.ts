@@ -68,6 +68,12 @@ const MetricsSchema = new Schema(
     // Stille-Reengagement (0.6.27): Nachfass-Ansagen und ob der Anruf daran endete.
     idlePrompts: { type: Number },
     idleHangup: { type: Boolean },
+    // Begrüßung in der Anrufersprache (0.7.0): womit begrüßt wurde, woher die Sprache kam
+    // und ob der Anrufer sie bestätigt hat. Ohne diese drei ist nicht beurteilbar, ob der
+    // Prior trägt — genau die Frage, die den ganzen Mechanismus rechtfertigen muss.
+    greetingLanguage: { type: String },
+    priorSource: { type: String },
+    priorConfirmed: { type: Boolean },
   },
   { _id: false },
 );

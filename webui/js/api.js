@@ -82,6 +82,11 @@ export const api = {
   // Web-Widget: Embed-Key rotieren (macht einen geleakten Key wertlos)
   rotateWidgetKey: (id) => request("POST", `/api/agents/${id}/widget/key`),
 
+  // Vorübersetzte Ansagen (read-only) + Neuerzeugung einer Sprache
+  getTranslations: (id) => request("GET", `/api/agents/${id}/translations`),
+  regenerateTranslation: (id, lang) =>
+    request("POST", `/api/agents/${id}/translations/${lang}/regenerate`),
+
   // Requests (Anrufe)
   listRequests: (params = {}) => {
     const qs = new URLSearchParams();

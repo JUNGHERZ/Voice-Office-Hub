@@ -46,6 +46,9 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `TRANSFER_FAILED_ANNOUNCEMENT` *(0.6.26)* | „Ich konnte leider niemanden erreichen. …" | Standardtext der Ansage bei fehlgeschlagener Weiterleitung (pro Agent via `agents.transferFailedAnnouncement` überschreibbar; wird bei mehrsprachigen Agenten lokalisiert). |
 | `IDLE_PROMPT_TIMEOUT_MS` *(0.6.27)* | `8000` | Default-Stille (ms) bis zur ersten **Nachfass-Ansage**, falls `agent.idlePrompts.timeoutMs` fehlt. Aktivierung/Phrasen pro Agent (`agents.idlePrompts`). |
 | `IDLE_HANGUP_ANNOUNCEMENT` *(0.6.27)* | „Ich melde mich dann ab. …" | Standard-Abschied, bevor wegen Stille aufgelegt wird (nur bei `idlePrompts.hangupAfter`; pro Agent überschreibbar, wird lokalisiert). |
+| `DEFAULT_CONTENT_LANGUAGE` *(0.7.0)* | `de` | Ausgangssprache der Ansagen, wenn `agent.contentLanguage` leer ist **und** die automatische Erkennung aus Begrüßung/Prompt kein eindeutiges Ergebnis liefert. **Nicht** zu verwechseln mit `DEFAULT_LANGUAGE` (das ist die STT-Sprache). |
+| `CALLER_PROFILE_SECRET` *(0.7.0)* | — | HMAC-Schlüssel für die Pseudonymisierung der Rufnummer im **Anrufer-Gedächtnis**. **Ohne diesen Wert bleibt das Gedächtnis komplett aus** — bewusst kein Fallback auf `ADMIN_SESSION_SECRET` (anderer Zweck, andere Rotationsfrequenz). Eine Rotation entwertet alle Profile; sie bauen sich im Betrieb neu auf. |
+| `CALLER_PROFILE_TTL_DAYS` *(0.7.0)* | `180` | Verfallsfrist eines Anrufer-Profils ohne erneuten Kontakt (Mongo-TTL-Index). |
 | `EXTERNAL_MEDIA_FORMAT` | `slin` | Asterisk-Format des externalMedia-Kanals (`slin`=8 kHz, `slin16`=16 kHz signed linear) — muss zu `AUDIO_SAMPLE_RATE` passen. |
 | `EXTERNAL_MEDIA_HOST` / `EXTERNAL_MEDIA_PORT` | `127.0.0.1` / `8090` | Adresse, zu der sich Asterisks AudioSocket verbindet (extern: erreichbare Host-Adresse). |
 | `UNKNOWN_NUMBER_BEHAVIOR` | `reject` | Verhalten bei Anruf an eine DDI **ohne** zugeordneten Agent: `reject` (vor Answer mit 404 ablehnen → Netz-Standardansage, 0 Kosten, kein Logeintrag), `announce` (Ansage abspielen + auflegen, kein LLM) oder `agent` (Default-Agent beantwortet — nur Dev). Siehe [Unbekannte Rufnummer](#unbekannte-rufnummer-kein-agent). |
@@ -151,6 +154,8 @@ Mongoose (Fehler → HTTP 400). Die wichtigsten Felder:
 | `transferFailedAnnouncement` *(0.6.26)* | Ansage bei fehlgeschlagener Weiterleitung (leer = `TRANSFER_FAILED_ANNOUNCEMENT`). Beide Provider; bei mehrsprachigen Agenten in die Anrufersprache übersetzt. |
 | `fillers.enabled` / `delayMs` / `phrases[]` *(0.6.26)* | **Timer-Filler** bei Tool-Wartezeiten (**nur native**): kurze Ansage aus `phrases` (rotierend) nach `delayMs` ms, wenn ein langsames customTool/MCP sonst zu Stille führt. NICHT bei `end_call`/`transfer_call`. Phrasen nur in der Standardsprache pflegen — die Übersetzung in die Anrufersprache passiert zur Laufzeit. Per-Tool-Override: `customTools[].fillerPhrase`. |
 | `idlePrompts.enabled` / `timeoutMs` / `maxPrompts` / `phrases[]` / `hangupAfter` / `hangupAnnouncement` *(0.6.27)* | **Nachfassen bei Stille** (beide Provider): Schweigt der Anrufer `timeoutMs` (3000–60000), spricht der Agent eine Ansage aus `phrases` — **die Zeilenreihenfolge ist die Eskalationsstufe**, nicht eine Rotation. Nach `maxPrompts` (1–5) Ansagen endet die Leiter, mit `hangupAfter` im Auflegen (Abschied `hangupAnnouncement` wird vorher zu Ende gesprochen). Die Abstände wachsen je Stufe (1× / 1,5× / 2× `timeoutMs`) plus 0–20 % Jitter — nach oben, nie darunter. Zählt **nicht** während Tool-Wartezeiten, Weiterleitung/Klingelphase oder solange der Agent noch hörbar ist; jede Anrufer-Äußerung setzt die Leiter zurück. Phrasen nur in der Standardsprache pflegen. Metriken: `metrics.idlePrompts` / `metrics.idleHangup`. |
+| `contentLanguage` *(0.7.0)* | Sprache, in der Begrüßung und Ansagen **verfasst** sind — die Ausgangssprache jeder Übersetzung. **Nicht** `language` (das ist die STT-Sprache und bei `"multi"` ohne Aussage über den Katalog). Leer = wird beim Speichern aus Begrüßung + System-Prompt erkannt und eingetragen; ein gesetzter Wert wird nie überschrieben. |
+| `callerMemory.language` *(0.7.0)* | **Anrufer-Gedächtnis** (Default aus): merkt sich nach dem Gespräch die bestätigte Sprache je Rufnummer und begrüßt beim nächsten Anruf direkt in dieser Sprache. Braucht zusätzlich `CALLER_PROFILE_SECRET`. Details unten. |
 | `tags[]` / `mip_opt_out` | Deepgram-Request-Tags / Model-Improvement-Opt-out. |
 
 #### NativeSession (`voiceProvider: "native"`, 0.6.10)
@@ -186,9 +191,48 @@ Die erkannte Sprache landet in `request.language` (Badge in der Anrufliste).
 
 Grenzen (bewusst): Die übersetzte Ansage spricht die **Stimme des Anrufs** — eine rein deutsche
 Aura-Stimme klingt bei „One moment, please" akzentbehaftet (wie schon bei fremdsprachigen
-LLM-Antworten); akzentfrei wird es mit einer mehrsprachigen Stimme (`speak.provider`). Das
-**Greeting** bleibt in der Standardsprache (es wird vor jeder Sprachevidenz gesprochen) — wer
-international erreichbar ist, textet es zweisprachig.
+LLM-Antworten); akzentfrei wird es mit einer mehrsprachigen Stimme (`speak.provider`).
+
+### Begrüßung in der Sprache des Anrufers (0.7.0)
+
+Die Begrüßung geht raus, **bevor** der Anrufer ein Wort gesagt hat — die Laufzeit-Lokalisierung
+oben kommt dafür grundsätzlich zu spät, egal wie schnell sie ist. Es braucht also Wissen von
+vorher und einen Text, der ohne LLM-Wartezeit bereitsteht. Beides zusammen ergibt: Beim ersten
+Anruf begrüßt der Agent in der Standardsprache, **ab dem zweiten** in der Sprache des Anrufers.
+
+**Was nach dem Gespräch passiert** (beides im Hintergrund, keins verzögert einen Anruf):
+
+1. Die bestätigte Sprache wird zur Rufnummer hinterlegt (`callerProfiles`, Opt-in
+   `callerMemory.language` + `CALLER_PROFILE_SECRET`). Gespeichert wird ein **HMAC der
+   normalisierten Nummer**, nie die Nummer selbst; ein TTL-Index lässt Profile verfallen.
+2. Fehlt die Vorübersetzung dieser Sprache, entsteht sie jetzt (`agentTranslations`) — mit
+   `contentLanguage` als Ausgangssprache und der Anredeform des Originals.
+
+**Was beim nächsten Anruf passiert:** Profil-Lookup und Übersetzung werden vor dem
+Session-Aufbau geladen (Timeout 200 ms — eine hängende Datenbank darf den Anrufaufbau nie
+verzögern). Gibt es beides, wird die Begrüßung getauscht und der Localizer vorgewärmt, sodass
+auch die ersten Ansagen sitzen. Ohne Treffer verhält sich alles exakt wie bisher.
+
+**Geänderte Ansagen entwerten ihre Übersetzung automatisch.** Jeder übersetzte Eintrag trägt den
+Hash seines Quelltextes; passt der nicht mehr, gilt er als veraltet und wird nicht ausgespielt —
+unabhängig davon, ob über Admin-UI, API, Seed-Script oder direkt in der Datenbank geändert wurde.
+Es gibt bewusst keinen Lösch-Hook, der das vergessen könnte. Nach dem Speichern eines Agenten
+werden alle vorhandenen Sprachen neu übersetzt; in dem Fenster dazwischen spricht der Agent die
+Standardsprache — lieber deutsch als veraltet-englisch. Im Admin zeigt „Übersetzte Ansagen
+ansehen…" Original und Übersetzung nebeneinander samt Markierung veralteter Einträge.
+
+**Korrektur bei falscher Zuordnung:** Wer auf Englisch begrüßt wird, antwortet eher auf Englisch —
+auch wenn ihm Deutsch lieber wäre. Deshalb zählt eine Bestätigung des Priors nur hoch, während ein
+Widerspruch das Profil **sofort** überschreibt. Aus einer Fehlzuordnung kommt man mit einem
+einzigen Anruf wieder heraus; dasselbe entschärft geteilte Anschlüsse (Firmenzentrale,
+Familienanschluss). Innerhalb des Gesprächs genügt bei vorbelegter Sprache ein einzelner
+Scorer-Widerspruch zum Umschalten, ohne auf das LLM zu warten.
+
+Grenzen (bewusst): Der **erste** Kontakt bleibt immer in der Standardsprache. Web-Anrufe, interne
+Durchwahlen und unterdrückte Nummern bekommen kein Profil (ihr Identifikator wiederholt sich nie).
+Gespeichert wird ausschließlich die Sprache — eine Rufnummer ist keine Person, und was bei der
+Sprache ein Schönheitsfehler ist, wäre bei inhaltlichen Erinnerungen eine Datenpanne. Metriken je
+Anruf: `metrics.greetingLanguage`, `metrics.priorSource`, `metrics.priorConfirmed`.
 
 ### Unbekannte Rufnummer (kein Agent)
 

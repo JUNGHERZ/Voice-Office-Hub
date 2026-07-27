@@ -66,6 +66,7 @@ export function defaultAgent(): ResolvedAgent {
     targetNumbers: [],
     useTransferCallerId: false,
     language: d.language,
+    contentLanguage: d.contentLanguage,
     greeting: d.greeting,
     prompt: d.prompt,
     listen: {
@@ -100,6 +101,7 @@ export function defaultAgent(): ResolvedAgent {
       phrases: [],
       hangupAfter: false,
     },
+    callerMemory: { language: false },
     tags: [],
     mip_opt_out: false,
   };
@@ -112,8 +114,12 @@ function toPlainStringRecord(value: unknown): Record<string, string> {
   return { ...(value as Record<string, string>) };
 }
 
-// `doc` ist ein lean()-Ergebnis des Agent-Schemas.
-function fromDoc(doc: Record<string, any>): ResolvedAgent {
+/**
+ * `doc` ist ein lean()-Ergebnis des Agent-Schemas. Exportiert, weil auch die Admin-Routen einen
+ * aufgelösten Agenten brauchen (Katalog bauen, Übersetzungen erzeugen) — ohne das würden dort
+ * die Default-Fallbacks fehlen und der Katalog anders aussehen als im Anruf.
+ */
+export function fromDoc(doc: Record<string, any>): ResolvedAgent {
   return {
     id: String(doc._id),
     name: doc.name,
@@ -123,6 +129,9 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
     targetNumbers: doc.targetNumbers ?? [],
     useTransferCallerId: doc.useTransferCallerId ?? false,
     language: doc.language ?? doc.listen?.language ?? config.defaultAgent.language,
+    // Leer bedeutet „noch nie gespeichert/erkannt" — für den Anruf reicht der Config-Default;
+    // der konkrete Wert entsteht beim nächsten Speichern über den Agent-Endpoint.
+    contentLanguage: doc.contentLanguage || config.defaultAgent.contentLanguage,
     greeting: doc.greeting ?? config.defaultAgent.greeting,
     prompt: doc.prompt ?? config.defaultAgent.prompt,
     listen: {
@@ -197,6 +206,7 @@ function fromDoc(doc: Record<string, any>): ResolvedAgent {
       hangupAfter: doc.idlePrompts?.hangupAfter ?? false,
       hangupAnnouncement: doc.idlePrompts?.hangupAnnouncement || undefined,
     },
+    callerMemory: { language: doc.callerMemory?.language ?? false },
     transferFailedAnnouncement: doc.transferFailedAnnouncement || undefined,
     tags: doc.tags ?? [],
     mip_opt_out: doc.mip_opt_out ?? false,

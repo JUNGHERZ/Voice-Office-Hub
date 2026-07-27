@@ -15,7 +15,9 @@ import { config } from "../config.js";
 import * as repo from "../db/repository.js";
 import { uploadRecording } from "../db/gridfs.js";
 import { CallLocalizer, type CallLocalizerLike } from "../llm/callLocalizer.js";
+import { lookupLanguage, rememberLanguage } from "../llm/callerProfile.js";
 import { runPostCallSummary } from "../llm/summarize.js";
+import { ensureTranslations, loadUsable } from "../llm/translationStore.js";
 import { buildCallToolset, type CallToolset, type ToolContext } from "../tools/index.js";
 import type { ResolvedAgent, ResolvedAmbience } from "../types.js";
 import { logger } from "../util/logger.js";
@@ -105,6 +107,14 @@ export interface CallHandlerDeps {
   now: () => number;
   /** Jitter-Quelle des Stille-Wächters (Tests reichen eine feste Zahl ein). */
   random: () => number;
+  /** Bekannte Sprache dieser Rufnummer (Anrufer-Gedächtnis) — steuert die Begrüßung. */
+  lookupLanguage: typeof lookupLanguage;
+  /** Vorübersetzte Ansagen einer Sprache, nur soweit ihr Original unverändert ist. */
+  loadTranslations: typeof loadUsable;
+  /** Nach dem Gespräch: Sprache im Anrufer-Profil festhalten. */
+  rememberLanguage: typeof rememberLanguage;
+  /** Nach dem Gespräch: fehlende Übersetzungen der gesprochenen Sprache nachziehen. */
+  ensureTranslations: typeof ensureTranslations;
 }
 
 export const defaultDeps: CallHandlerDeps = {
@@ -121,6 +131,10 @@ export const defaultDeps: CallHandlerDeps = {
   runPostCallSummary,
   resolveOutboundTransfer,
   transferIntoBridge,
+  lookupLanguage,
+  loadTranslations: loadUsable,
+  rememberLanguage,
+  ensureTranslations,
   now: () => Date.now(),
   random: () => Math.random(),
 };
@@ -328,6 +342,62 @@ async function runEchoTest(
   }
 }
 
+/** Obergrenze für den Profil-/Übersetzungs-Lookup vor dem Session-Aufbau. */
+const PRIOR_LOOKUP_TIMEOUT_MS = 200;
+
+/**
+ * Sprache aus dem Anrufer-Gedächtnis anwenden: Begrüßung austauschen und den Localizer
+ * vorwärmen, damit auch die ersten Ansagen sitzen. Liefert den Agenten, mit dem die Session
+ * gebaut wird — bei jedem Fehlschlag unverändert den Original-Agenten.
+ *
+ * Bewusst mit Timeout: Eine hängende Datenbank darf den Anrufaufbau nie verzögern. Das Greeting
+ * ist ein Komfortgewinn, kein Grund, den Anrufer warten zu lassen.
+ */
+async function applyLanguagePrior(
+  agent: ResolvedAgent,
+  meta: CallMeta,
+  localizer: CallLocalizerLike,
+  metrics: repo.CallMetrics,
+  log: ReturnType<typeof logger.child>,
+  deps: CallHandlerDeps,
+): Promise<ResolvedAgent> {
+  try {
+    const prior = await withTimeout(
+      deps.lookupLanguage(agent, meta.callerNumber),
+      PRIOR_LOOKUP_TIMEOUT_MS,
+    );
+    if (!prior || prior.lang === agent.contentLanguage) return agent;
+
+    const phrases = await withTimeout(
+      deps.loadTranslations(agent, prior.lang),
+      PRIOR_LOOKUP_TIMEOUT_MS,
+    );
+    // Ohne gültige Übersetzung der Begrüßung bleibt es bei der Standardsprache: lieber deutsch
+    // als eine veraltete englische Fassung (translationStore.ts prüft den Quelltext-Hash).
+    if (!phrases?.greeting) return agent;
+
+    localizer.preload(prior.lang, phrases);
+    metrics.greetingLanguage = prior.lang;
+    metrics.priorSource = prior.source;
+    log.info("Begrüßung aus Anrufer-Profil", { lang: prior.lang, ansagen: Object.keys(phrases).length });
+    return { ...agent, greeting: phrases.greeting };
+  } catch (err) {
+    log.warn("Sprach-Prior übersprungen", { err: String(err) });
+    return agent;
+  }
+}
+
+/** Rennen gegen die Uhr; bei Zeitüberschreitung `undefined` statt eines hängenden Anrufaufbaus. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([
+    p,
+    new Promise<undefined>((resolve) => {
+      const t = setTimeout(() => resolve(undefined), ms);
+      t.unref?.();
+    }),
+  ]);
+}
+
 interface CallMeta {
   targetNumber?: string;
   callerNumber?: string;
@@ -441,11 +511,24 @@ async function runAgentCall(
       }
     }
 
+    // Was der Anrufer tatsächlich gesprochen hat — erst nach dem Gespräch steht es fest.
+    const lang = localizer.getLanguageState();
+    if (lang.lang && lang.confirmed) {
+      metrics.priorConfirmed = lang.priorLang ? lang.priorLang === lang.lang : undefined;
+    }
+
     await deps.repo.finalizeRequest(requestId, status, metrics);
 
-    // Post-Call-Summary (asynchron, blockiert nicht).
+    // Post-Call-Arbeiten, alle asynchron — der Anruf ist zu diesem Zeitpunkt beendet.
     if (status === "completed" && agent.summary.enabled) {
       void deps.runPostCallSummary(requestId, agent, log);
+    }
+    // Nur LLM-bestätigte Sprachen: Eine Scorer-Vermutung darf keine Begrüßung steuern.
+    if (status === "completed" && lang.lang && lang.confirmed) {
+      void deps.rememberLanguage(agent, meta.callerNumber, lang.lang, lang.priorLang);
+      // Fehlt die Vorübersetzung dieser Sprache noch, entsteht sie jetzt — ab dem nächsten
+      // Anruf derselben Nummer sitzt damit auch die Begrüßung.
+      void deps.ensureTranslations(agent, lang.lang);
     }
   };
 
@@ -467,9 +550,15 @@ async function runAgentCall(
     toolset = await deps.buildCallToolset(agent);
     const callToolset = toolset; // non-optionale Bindung für die Event-Handler unten
 
+    // Begrüßung in der Sprache des Anrufers (0.7.0): Kennen wir die Nummer, steht die Sprache
+    // schon VOR dem ersten Wort fest — die Laufzeit-Erkennung käme fürs Greeting immer zu spät.
+    // Beide Provider bauen ihre Begrüßung aus dem übergebenen Agenten (nativeSession.start()
+    // bzw. deepgram/settings.ts), ein getauschtes `greeting` wirkt deshalb ohne Provider-Code.
+    const sessionAgent = await applyLanguagePrior(agent, meta, localizer, metrics, log, deps);
+
     // Voice-Session aufbauen (Provider laut agent.voiceProvider; Settings baut der Adapter).
     // Konstruktion ist inert — verbunden wird erst per session.start() nach der Verdrahtung.
-    session = deps.createSession(agent, {
+    session = deps.createSession(sessionAgent, {
       callId: channel.id,
       functions: callToolset.definitions,
       localizer,

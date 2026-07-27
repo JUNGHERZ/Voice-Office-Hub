@@ -2,13 +2,13 @@
 
 **🇬🇧 English** · [🇩🇪 Deutsch](README.de.md)
 
-[![Version](https://img.shields.io/badge/version-0.6.30-f5a623)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.7.0-f5a623)](CHANGELOG.md)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-success)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
-[![Changelog](https://img.shields.io/badge/changelog-0.6.30-blue)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-0.7.0-blue)](CHANGELOG.md)
 
 > **VOH-Appliance** — Voice-Office-Hub. Part of the **"*-Office-Hub"** product family
 > (sister project: Message-Office-Hub for chat/email/WhatsApp/SMS).
@@ -41,6 +41,9 @@ data center**, in a **single** Docker container.
 - 🌍 **Announcements translated automatically** — you maintain each announcement **once** in your
   own language; if the caller switches languages, the engine translates them at runtime — keeping
   the level of formality used in the conversation
+- 👋 **Greeting in the caller's language** — the agent remembers which language a number spoke and
+  greets it that way next time, before a single word is said; phone numbers are stored
+  pseudonymised and expire on their own (opt-in per agent)
 - 🧩 **Tools / function calling** — per-agent HTTP endpoints for your business logic **plus
   MCP servers** as tool sources, both managed in the admin UI (`${ENV:}` secrets stay server-side)
 - 📡 **Live view & metrics** — running calls with live transcript; per-call time-to-first-answer,

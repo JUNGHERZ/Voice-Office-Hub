@@ -15,3 +15,6 @@ process.env.NATIVE_EAGER_EOT_THRESHOLD = "";
 // die Suite nicht umkonfigurieren.
 process.env.AUDIO_SAMPLE_RATE = "8000";
 process.env.EXTERNAL_MEDIA_FORMAT = "slin";
+// Anrufer-Gedächtnis: fester Pseudonymisierungs-Schlüssel, damit Hashes im Test
+// reproduzierbar sind. Tests, die das INAKTIVE Gedächtnis prüfen, leeren ihn selbst.
+process.env.CALLER_PROFILE_SECRET = "test-profile-secret";

@@ -292,3 +292,98 @@ test("close: bricht laufende Erkennung ab, spätes Ergebnis wird verworfen", asy
   loc.observeTurn("caller", "noch ein später Turn nach dem close"); // No-op
   await settle();
 });
+
+// ── Vorbelegung aus dem Anrufer-Profil (0.7.0) ───────────────────────────────
+
+test("preload: Ansagen sind ab Sekunde 0 da, ohne dass jemand gesprochen hat", () => {
+  const { loc } = makeLocalizer();
+  loc.preload("en", { greeting: "Hello!", transferFailed: "Could not reach anyone." });
+
+  assert.equal(loc.getLanguage(), "en");
+  assert.equal(loc.resolve("transferFailed"), "Could not reach anyone.");
+});
+
+test("preload: die Vermutung landet noch nicht als Fakt im Request-Dokument", async () => {
+  const { loc, langs } = makeLocalizer();
+  loc.preload("en", { transferFailed: "Could not reach anyone." });
+  await settle();
+
+  assert.deepEqual(langs, [], "kein setLanguage für eine bloße Vorbelegung");
+  assert.equal(loc.getLanguageState().confirmed, false);
+  assert.equal(loc.getLanguageState().priorLang, "en");
+});
+
+test("preload: die Erkennung läuft trotzdem — sie liefert die Anredeform", async () => {
+  const calls: string[] = [];
+  const { loc, langs } = makeLocalizer(
+    {},
+    {
+      localize: async (c) => {
+        calls.push(c);
+        return { language: "en", formality: "informal", phrases: { transferFailed: "Sorry mate." } };
+      },
+    },
+  );
+  loc.preload("en", { transferFailed: "Could not reach anyone." });
+  loc.observeTurn("caller", "Hi there can you help me");
+  await settle();
+
+  assert.equal(calls.length, 1, "Vorbelegung darf die Erkennung nicht ersetzen");
+  assert.equal(loc.resolve("transferFailed"), "Sorry mate.", "register-adaptive Fassung gewinnt");
+  assert.deepEqual(langs, ["en"], "erst die Bestätigung wird geschrieben");
+  assert.equal(loc.getLanguageState().confirmed, true);
+});
+
+test("preload: ein einzelner Scorer-Widerspruch schaltet sofort um, ohne aufs LLM zu warten", async () => {
+  const d = deferred<LocalizeResult>();
+  const { loc } = makeLocalizer(
+    {},
+    { localize: async () => d.promise, scoreLanguage: () => ({ lang: "de", confidence: 0.5 }) },
+  );
+  loc.preload("en", { transferFailed: "Could not reach anyone." });
+  assert.equal(loc.resolve("transferFailed"), "Could not reach anyone.");
+
+  loc.observeTurn("caller", "Guten Tag ich hätte eine Frage");
+  // Ohne auf das LLM zu warten: die Vorbelegung war nur eine Vermutung, der Anrufer widerspricht.
+  assert.equal(loc.getLanguage(), "de");
+  assert.equal(loc.resolve("transferFailed"), "Ich konnte niemanden erreichen.");
+  d.resolve({ language: "de" });
+  await settle();
+});
+
+test("preload: bestätigter Prior bleibt als priorLang erhalten (Lernregel im callHandler)", async () => {
+  const { loc } = makeLocalizer({}, { localize: async () => ({ language: "en" }) });
+  loc.preload("en", { transferFailed: "Could not reach anyone." });
+  loc.observeTurn("caller", "Yes please go ahead now");
+  await settle();
+
+  const state = loc.getLanguageState();
+  assert.equal(state.lang, "en");
+  assert.equal(state.priorLang, "en", "callHandler unterscheidet daran Bestätigung von Widerspruch");
+  assert.equal(state.confirmed, true);
+});
+
+test("preload: nach begonnener Erkennung wirkt es nicht mehr (kein Rückschritt)", async () => {
+  const { loc } = makeLocalizer({}, { localize: async () => ({ language: "de" }) });
+  loc.observeTurn("caller", "Guten Tag ich hätte eine Frage");
+  await settle();
+
+  loc.preload("en", { transferFailed: "Nope." });
+  assert.equal(loc.getLanguage(), "de", "eine gemessene Sprache wird nicht überschrieben");
+});
+
+test("localize erhält die konfigurierte Katalogsprache", async () => {
+  let seen: string | undefined;
+  const { loc } = makeLocalizer(
+    { contentLanguage: "de" },
+    {
+      localize: async (_c, _cat, opts) => {
+        seen = opts?.catalogLanguage;
+        return { language: "en" };
+      },
+    },
+  );
+  loc.observeTurn("caller", "Please help me with this");
+  await settle();
+  assert.equal(seen, "de", "das Modell muss die Ausgangssprache nicht mehr erraten");
+});

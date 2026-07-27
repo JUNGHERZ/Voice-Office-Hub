@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { config } from "../src/config.js";
-import { resolveAgent } from "../src/ari/agentResolver.js";
+import { defaultAgent, fromDoc, resolveAgent } from "../src/ari/agentResolver.js";
 
 // resolveAgent(undefined) nutzt keinen DB-Zugriff → reiner Default-Agent-Pfad.
 test("resolveAgent: ohne DDI → Default-Agent aus Config", async () => {
@@ -36,4 +36,24 @@ test("resolveAgent: ohne DDI → Default-Agent aus Config", async () => {
     phrases: [],
     hangupAfter: false,
   });
+});
+
+// ── contentLanguage / callerMemory (0.7.0) ───────────────────────────────────
+
+test("contentLanguage: Default-Agent und leeres Doc fallen auf die Config zurück", () => {
+  assert.equal(defaultAgent().contentLanguage, config.defaultAgent.contentLanguage);
+  assert.equal(fromDoc({ _id: "x", name: "a" }).contentLanguage, config.defaultAgent.contentLanguage);
+});
+
+test("contentLanguage: gespeicherter Wert gewinnt", () => {
+  assert.equal(fromDoc({ _id: "x", name: "a", contentLanguage: "en" }).contentLanguage, "en");
+});
+
+test("callerMemory: Default aus, gespeicherter Wert wird übernommen", () => {
+  assert.equal(defaultAgent().callerMemory.language, false);
+  assert.equal(fromDoc({ _id: "x", name: "a" }).callerMemory.language, false);
+  assert.equal(
+    fromDoc({ _id: "x", name: "a", callerMemory: { language: true } }).callerMemory.language,
+    true,
+  );
 });

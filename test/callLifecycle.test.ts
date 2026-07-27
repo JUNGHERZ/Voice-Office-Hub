@@ -39,6 +39,12 @@ function makeCall(opts: { agent?: ResolvedAgent; deps?: Partial<CallHandlerDeps>
     runPostCallSummary: async () => {},
     resolveOutboundTransfer: (_agent, target) => ({ target }),
     transferIntoBridge: async () => ({ connected: false }),
+    // Anrufer-Gedächtnis und Vorübersetzung greifen auf die DB zu — in der Suite
+    // grundsätzlich stillgelegt; die Tests dazu reichen eigene Fakes ein.
+    lookupLanguage: async () => null,
+    loadTranslations: async () => ({}),
+    rememberLanguage: async () => {},
+    ensureTranslations: async () => {},
     ...opts.deps,
   };
   const start = (args: string[] = CALL_ARGS) =>
@@ -646,4 +652,153 @@ test("Stille: deaktiviert (Default) → keine Ansage, kein Auflegen", async (t) 
   await settle();
   assert.deepEqual(s.session.injectedMessages, []);
   assert.equal(s.channel.hangups.length, 0);
+});
+
+// ── Begrüßung in der Sprache des Anrufers (0.7.0) ────────────────────────────
+
+/** Fängt den Agenten ein, mit dem die Session tatsächlich gebaut wurde. */
+function capturingCall(depsOver: Partial<CallHandlerDeps> = {}, agent?: ResolvedAgent) {
+  let built: ResolvedAgent | undefined;
+  const localizer = new FakeLocalizer();
+  const s = makeCall({
+    agent,
+    deps: {
+      createLocalizer: () => localizer,
+      ...depsOver,
+    },
+  });
+  const inner = s.deps.createSession!;
+  s.deps.createSession = ((a: ResolvedAgent, o: never) => {
+    built = a;
+    return inner(a, o);
+  }) as typeof s.deps.createSession;
+  return { ...s, localizer, builtAgent: () => built };
+}
+
+// 27 ─ Der Kern: bekannte Nummer → die Begrüßung geht in der Anrufersprache raus, obwohl
+//      noch kein Wort gefallen ist. Wirkt über den Agenten und damit für beide Provider.
+test("Prior: bekannte Nummer → Begrüßung in der Anrufersprache", async () => {
+  const s = capturingCall({
+    lookupLanguage: async () => ({ lang: "en", source: "profile" as const }),
+    loadTranslations: async () => ({ greeting: "Hello! How can I help you?" }),
+  });
+  await s.start();
+  await settle();
+
+  assert.equal(s.builtAgent()?.greeting, "Hello! How can I help you?");
+  assert.equal(s.localizer.preloaded?.lang, "en", "auch die Ansagen sind vorgewärmt");
+
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+  assert.equal(s.repo.metrics?.greetingLanguage, "en");
+  assert.equal(s.repo.metrics?.priorSource, "profile");
+});
+
+// 28 ─ Ohne Treffer bleibt alles wie bisher — der Regelfall darf sich nicht ändern.
+test("Prior: unbekannte Nummer → Verhalten unverändert", async () => {
+  const s = capturingCall({ lookupLanguage: async () => null });
+  await s.start();
+  await settle();
+
+  assert.equal(s.builtAgent()?.greeting, "Hallo", "Standardsprache");
+  assert.equal(s.localizer.preloaded, undefined);
+});
+
+// 29 ─ Lieber deutsch als veraltet-englisch: ohne gültige Übersetzung der BEGRÜSSUNG wird
+//      der Prior nicht angewandt (translationStore filtert veraltete Einträge weg).
+test("Prior: ohne gültige Greeting-Übersetzung bleibt die Standardsprache", async () => {
+  const s = capturingCall({
+    lookupLanguage: async () => ({ lang: "en", source: "profile" as const }),
+    // Begrüßung fehlt (Original geändert), andere Ansagen wären da.
+    loadTranslations: async () => ({ transferFailed: "Nobody there." }),
+  });
+  await s.start();
+  await settle();
+
+  assert.equal(s.builtAgent()?.greeting, "Hallo");
+  assert.equal(s.localizer.preloaded, undefined, "kein halb angewandter Prior");
+});
+
+// 30 ─ Eine hängende Datenbank darf den Anrufaufbau nicht blockieren.
+test("Prior: Lookup-Timeout blockiert den Anrufaufbau nicht", async () => {
+  const s = capturingCall({
+    lookupLanguage: () => new Promise(() => {}), // löst nie auf
+  });
+  await s.start();
+  await settle();
+
+  assert.equal(s.session.started, true, "Session steht trotzdem");
+  assert.equal(s.builtAgent()?.greeting, "Hallo");
+});
+
+// 31 ─ Ein Fehler im Prior-Pfad darf den Anruf nicht kosten.
+test("Prior: Fehler beim Lookup wird verschluckt", async () => {
+  const s = capturingCall({
+    lookupLanguage: async () => {
+      throw new Error("DB weg");
+    },
+  });
+  await s.start();
+  await settle();
+  assert.equal(s.session.started, true);
+  assert.equal(s.builtAgent()?.greeting, "Hallo");
+});
+
+// 32 ─ Nach dem Gespräch: Sprache merken + fehlende Übersetzung nachziehen. Beides nur mit
+//      LLM-bestätigter Sprache — eine Scorer-Vermutung darf keine Begrüßung steuern.
+test("Post-Call: bestätigte Sprache landet im Profil und stößt die Übersetzung an", async () => {
+  const remembered: Array<{ lang: string; prior?: string }> = [];
+  const ensured: string[] = [];
+  const s = capturingCall({
+    rememberLanguage: async (_a, _n, lang, prior) => {
+      remembered.push({ lang, ...(prior ? { prior } : {}) });
+    },
+    ensureTranslations: async (_a, lang) => {
+      ensured.push(lang);
+    },
+  });
+  await s.start();
+  s.localizer.state = { lang: "en", confirmed: true };
+
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+
+  assert.deepEqual(remembered, [{ lang: "en" }]);
+  assert.deepEqual(ensured, ["en"], "ab dem nächsten Anruf sitzt auch die Begrüßung");
+});
+
+test("Post-Call: unbestätigte Sprache wird nicht gemerkt", async () => {
+  const remembered: string[] = [];
+  const s = capturingCall({
+    rememberLanguage: async (_a, _n, lang) => {
+      remembered.push(lang);
+    },
+  });
+  await s.start();
+  s.localizer.state = { lang: "en", confirmed: false };
+
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+  assert.deepEqual(remembered, [], "eine Vermutung darf keine künftige Begrüßung steuern");
+});
+
+// 33 ─ Widerspruch wird als solcher weitergereicht (die Lernregel wertet ihn dann aus).
+test("Post-Call: Widerspruch zum Prior wird mitgegeben", async () => {
+  const seen: Array<{ lang: string; prior?: string }> = [];
+  const s = capturingCall({
+    lookupLanguage: async () => ({ lang: "en", source: "profile" as const }),
+    loadTranslations: async () => ({ greeting: "Hello!" }),
+    rememberLanguage: async (_a, _n, lang, prior) => {
+      seen.push({ lang, prior });
+    },
+  });
+  await s.start();
+  // Der Anrufer sprach doch Deutsch.
+  s.localizer.state = { lang: "de", confirmed: true, priorLang: "en" };
+
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+
+  assert.deepEqual(seen, [{ lang: "de", prior: "en" }]);
+  assert.equal(s.repo.metrics?.priorConfirmed, false, "der Prior lag daneben — messbar machen");
 });

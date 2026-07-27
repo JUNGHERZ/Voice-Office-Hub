@@ -14,7 +14,7 @@ import type {
   NewRequestInput,
   TranscriptTurn,
 } from "../../src/db/repository.js";
-import type { CallLocalizerLike } from "../../src/llm/callLocalizer.js";
+import type { CallLocalizerLike, LanguageState } from "../../src/llm/callLocalizer.js";
 import type { ResolvedAgent } from "../../src/types.js";
 import type { VoiceAgentSession, VoiceFunctionCall } from "../../src/voice/types.js";
 
@@ -236,6 +236,7 @@ export function testAgent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent
     targetNumbers: ["120"],
     useTransferCallerId: false,
     language: "multi",
+    contentLanguage: "de",
     greeting: "Hallo",
     prompt: "Du bist ein Assistent.",
     listen: { model: "nova-3", language_hints: ["de", "en"], keyterms: [], smart_format: true },
@@ -254,6 +255,7 @@ export function testAgent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent
       phrases: [],
       hangupAfter: false,
     },
+    callerMemory: { language: false },
     tags: [],
     mip_opt_out: false,
     ...overrides,
@@ -269,6 +271,10 @@ export class FakeLocalizer implements CallLocalizerLike {
   /** key → Rückgabewert von resolve(); fehlt ein Key, kommt der Key selbst zurück. */
   phrases: Record<string, string> = {};
   language?: string;
+  /** Vom callHandler vorbelegte Sprache + Ansagen (Anrufer-Profil). */
+  preloaded?: { lang: string; phrases: Record<string, string> };
+  /** Was am Gesprächsende über die Sprache bekannt ist — steuert die Profil-Schreibregeln. */
+  state: LanguageState = { confirmed: false };
 
   observeTurn(speaker: string, text: string): void {
     this.observed.push({ speaker, text });
@@ -278,6 +284,13 @@ export class FakeLocalizer implements CallLocalizerLike {
   }
   getLanguage(): string | undefined {
     return this.language;
+  }
+  preload(lang: string, phrases: Record<string, string>): void {
+    this.preloaded = { lang, phrases };
+    this.language = lang;
+  }
+  getLanguageState(): LanguageState {
+    return this.state;
   }
   close(): void {
     this.closed = true;

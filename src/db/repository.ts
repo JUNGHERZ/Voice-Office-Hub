@@ -106,6 +106,12 @@ export interface CallMetrics {
   idlePrompts?: number;
   /** Der Anruf endete, weil die Stille-Leiter erschöpft war (idlePrompts.hangupAfter). */
   idleHangup?: boolean;
+  /** Sprache der ausgespielten Begrüßung, wenn sie aus einem Prior kam (0.7.0). */
+  greetingLanguage?: string;
+  /** Woher der Prior stammte ("profile"). Fehlt, wenn wie bisher in Standardsprache begrüßt wurde. */
+  priorSource?: string;
+  /** Hat der Anrufer den Prior bestätigt? `false` = er sprach eine andere Sprache. */
+  priorConfirmed?: boolean;
 }
 
 export async function finalizeRequest(

@@ -115,6 +115,16 @@ export interface ResolvedIdlePrompts {
   hangupAnnouncement?: string;
 }
 
+/**
+ * Was sich der Agent über Anrufe hinweg zu einer Rufnummer merken darf. Gestuft angelegt,
+ * damit spätere Fakten (Gesprächsnotizen o. ä.) eigene Zustimmung brauchen statt unter einem
+ * Sammel-Schalter mitzulaufen.
+ */
+export interface ResolvedCallerMemory {
+  /** Zuletzt bestätigte Gesprächssprache merken → Begrüßung beim nächsten Anruf. */
+  language: boolean;
+}
+
 export interface ResolvedAgent {
   id?: string;
   name: string;
@@ -128,6 +138,12 @@ export interface ResolvedAgent {
   useTransferCallerId: boolean;
   /** STT-Sprache → agent.listen.provider.language ("multi" für nova-3 multilingual, "de", "en", …). */
   language: string;
+  /**
+   * Sprache, in der Greeting und Ansagen VERFASST sind — die Ausgangssprache jeder Übersetzung.
+   * Bewusst getrennt von `language` (das ist die STT-Sprache und bei "multi" ohne Aussage über
+   * den Katalog). Wird beim Speichern aus Greeting/Prompt ermittelt, wenn am Agenten leer.
+   */
+  contentLanguage: string;
   greeting?: string;
   prompt: string;
   listen: ResolvedListen;
@@ -140,6 +156,7 @@ export interface ResolvedAgent {
   ambience: ResolvedAmbience;
   fillers: ResolvedFillers;
   idlePrompts: ResolvedIdlePrompts;
+  callerMemory: ResolvedCallerMemory;
   /** Ansage bei fehlgeschlagenem Transfer (Standardsprache; wird lokalisiert). Leer = Config-Default. */
   transferFailedAnnouncement?: string;
   tags: string[];

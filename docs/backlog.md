@@ -46,6 +46,34 @@ gebauten Stille-Reengagement (`agent.idlePrompts`, fester Phrasen-Pool je Eskala
   `speak`-Hook im callHandler würde im LLM-Modus statt `injectMessage` einen Turn anstoßen.
   Sinnvoll erst mit Messwerten aus `metrics.idlePrompts` (wie oft greift das überhaupt?).
 
+### 2c. Nicht-übersetzen-Liste (Eigennamen, Produktbegriffe)
+Ergänzung zur Vorübersetzung aus 0.7.0 ([translationStore.ts](../src/llm/translationStore.ts)).
+
+- **Problem:** „Rufen Sie unsere Apfel-Hotline an" — Produkt-, Firmen- und Eigennamen sollen in
+  jeder Zielsprache stehen bleiben. Der Übersetzungs-Prompt weist das heute allgemein an
+  („Eigennamen bleiben unverändert"), kennt aber die konkreten Begriffe nicht.
+- **Idee:** Feld `doNotTranslate: string[]` am Agenten, das in jeden Übersetzungs-Prompt geht.
+  Wirkt für **alle** Sprachen gleichzeitig — im Gegensatz zu einer Handkorrektur pro Sprache.
+- **Bewusst statt eines Editors:** Ein editierbares Übersetzungsfeld pro Sprache wurde 0.7.0
+  verworfen. Wer eine Übersetzung korrigiert, korrigiert meist ein Symptom (die Ursache liegt im
+  Original oder im Prompt), und wer im Admin sitzt, spricht selten alle Zielsprachen. Dazu käme
+  ein dauerhafter Sonderfall im Lebenszyklus (handkorrigierte Einträge vor der Regeneration
+  schützen), der bei jeder Änderung mitgedacht werden müsste.
+- **Aufwand:** klein — ein Agent-Feld, eine Prompt-Zeile, ein Formularfeld.
+
+### 2d. Sprachspezifische Stimme
+Der Tauschpunkt existiert seit 0.7.0 bereits: Der Sprach-Prior greift **vor** dem
+Session-Aufbau, im callHandler wird dort schon `agent.greeting` ersetzt.
+
+- **Idee:** Im selben Schritt `speak.voice`/`speak.model` je Zielsprache wählen. Weil die Wahl vor
+  der ersten Silbe fällt, ist der Wechsel unhörbar — anders als eine Umschaltung mitten im
+  Gespräch, die irritieren würde.
+- **Warum es fehlt:** Eine einsprachige Stimme (z. B. `aura-2-aurelia-de`) spricht korrektes
+  Englisch mit deutschem Akzent. Solange das so konfiguriert ist, klingt eine fremdsprachige
+  Begrüßung schlechter, als sie formuliert ist.
+- **Aufwand:** klein (Feld `speak.byLanguage`), sobald geklärt ist, ob pro Sprache eine Voice-ID
+  gepflegt oder aus einer Matrix abgeleitet wird.
+
 ## STT / Modelle
 
 ### 3. Flux als listen-Modell evaluieren (Turn-Detection)

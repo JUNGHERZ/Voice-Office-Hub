@@ -42,8 +42,8 @@ const SYSTEM_PROMPT = [
   "Das JSON-Objekt CATALOG enthält die Ansagen des Assistenten, je unter einem Key.",
   "Du lieferst IMMER alle vier Felder. Es gibt keinen Fall, in dem du phrases weglässt oder",
   "die Formulierung überspringst — auch dann nicht, wenn die Sprachen übereinstimmen.",
-  'SCHRITT 1 — "catalogLanguage": In welcher Sprache sind die WERTE im CATALOG geschrieben?',
-  "(Kleinbuchstaben-Sprachcode.)",
+  'SCHRITT 1 — "catalogLanguage": Bestätige die im CATALOG-Kopf genannte Ausgangssprache',
+  "(Kleinbuchstaben-Sprachcode). Passt sie nicht zu den Werten, nenne die tatsächliche.",
   'SCHRITT 2 — "language": Die Sprache des ANRUFERS, ausschließlich aus den mit "caller:"',
   'markierten Zeilen. Die "agent:"-Zeilen sind nur Kontext für Anrede und Ton, NICHT für die',
   "Sprachbestimmung.",
@@ -62,22 +62,78 @@ const SYSTEM_PROMPT = [
   '"formality":"formal|informal","phrases":{<key>:<text>,…}}. Keine Prosa.',
 ].join(" ");
 
-interface ChatCompletionResponse {
-  choices?: Array<{ message?: { content?: string } }>;
+/**
+ * Vorübersetzung eines Katalogs bei BEKANNTER Ausgangs- und Zielsprache (Agent-Speicherung,
+ * Post-Call-Nachzug). Kein Erkennungsschritt und kein Gespräch — deshalb auch keine Anpassung
+ * an den Anrufer: Die Anredeform wird aus dem Original übernommen, damit die Fassung für jeden
+ * Anrufer taugt. Die register-adaptive Variante bleibt Sache von `detectAndLocalize` zur Laufzeit.
+ *
+ * `formality` ist wie dort ein erzwungener Zwischenschritt: Das Modell muss die Anredeform des
+ * Originals BENENNEN, bevor es formuliert. Der Wert selbst ist nur Diagnose.
+ */
+const TRANSLATE_PROMPT = [
+  "Du bist eine Übersetzungs-Funktion für die Ansagen eines Telefon-Assistenten.",
+  "Das JSON-Objekt CATALOG enthält die Ansagen, je unter einem Key.",
+  "Du lieferst IMMER beide Felder und IMMER jeden Key — es gibt keinen Fall, in dem du einen",
+  "Wert unübersetzt lässt oder weglässt.",
+  'SCHRITT 1 — "formality": Welche Anredeform verwendet das ORIGINAL? "informal" wenn geduzt',
+  'wird (du/tu/tú), sonst "formal". Achte auf die Verbformen, nicht nur auf Pronomen.',
+  'SCHRITT 2 — "phrases": Formuliere JEDEN Katalog-Wert in der Zielsprache, in der Anredeform',
+  "aus SCHRITT 1. Bedeutung und Interpunktion wahren, korrekte Rechtschreibung und Konjugation",
+  "der Zielsprache. Der Sprecher ist IMMER der Assistent: behalte grammatische Person und",
+  "Perspektive bei (1. Person Singular bleibt 1. Person Singular) und mache aus einer Aussage",
+  "über eigenes Handeln NIEMALS eine Aufforderung an den Anrufer.",
+  "Eigennamen, Produkt- und Firmennamen bleiben unverändert.",
+  "Behalte die Keys EXAKT bei, füge keine hinzu und lasse keine weg.",
+  'Antworte mit striktem JSON: {"formality":"formal|informal","phrases":{<key>:<text>,…}}.',
+  "Keine Prosa.",
+].join(" ");
+
+export async function translateCatalog(
+  catalog: Record<string, string>,
+  from: string,
+  to: string,
+  opts?: { model?: string; signal?: AbortSignal },
+): Promise<Record<string, string>> {
+  if (!Object.keys(catalog).length) return {};
+  const model = opts?.model || config.localize.model;
+  const raw = await chatJson(
+    model,
+    TRANSLATE_PROMPT,
+    `Ausgangssprache: ${from}\nZielsprache: ${to}\n\nCATALOG = ${JSON.stringify(catalog)}`,
+    opts?.signal,
+  );
+  return parseTranslateResponse(raw, catalog);
 }
 
 /**
- * @param conversation rollenmarkierter Ausschnitt der letzten Turns ("caller: …" / "agent: …")
- * @param catalog Key → Default-Satz (Standardsprache)
+ * Robustes Parsen der Übersetzungs-Antwort (exportiert für Tests). Wie bei `parseLocalizeResponse`
+ * überleben nur bekannte Keys mit nicht-leerem String — halluzinierte Keys werden verworfen.
+ * Fehlende Keys sind KEIN Fehler: Der Aufrufer merkt am Hash-Abgleich, was noch fehlt.
  */
-export async function detectAndLocalize(
-  conversation: string,
+export function parseTranslateResponse(
+  raw: string,
   catalog: Record<string, string>,
-  opts?: { model?: string; signal?: AbortSignal },
-): Promise<LocalizeResult> {
-  const model = opts?.model || config.localize.model;
-  const userContent = `CATALOG = ${JSON.stringify(catalog)}\n\nGesprächsausschnitt:\n${conversation}`;
+): Record<string, string> {
+  const text = extractJsonObject(raw);
+  if (!text) throw new Error("translate: keine JSON-Antwort");
+  const obj = JSON.parse(text) as { phrases?: unknown };
+  const phrases: Record<string, string> = {};
+  if (obj.phrases && typeof obj.phrases === "object") {
+    for (const [key, val] of Object.entries(obj.phrases as Record<string, unknown>)) {
+      if (key in catalog && typeof val === "string" && val.trim()) phrases[key] = val.trim();
+    }
+  }
+  return phrases;
+}
 
+/** Gemeinsamer Requesty-Aufruf für beide Prompts (JSON-Modus, temperature 0). */
+async function chatJson(
+  model: string,
+  system: string,
+  user: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const res = await fetch(`${config.llm.requestyBaseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
@@ -87,15 +143,15 @@ export async function detectAndLocalize(
     body: JSON.stringify({
       model,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userContent },
+        { role: "system", content: system },
+        { role: "user", content: user },
       ],
       temperature: 0,
       max_tokens: 1000,
       // Best-effort — nicht jedes geroutete Modell honoriert es; das robuste Parsen fängt den Rest.
       response_format: { type: "json_object" },
     }),
-    signal: opts?.signal,
+    signal,
   });
 
   if (!res.ok) {
@@ -103,9 +159,32 @@ export async function detectAndLocalize(
     log.warn("Localize-Request fehlgeschlagen", { status: res.status, body });
     throw new Error(`Requesty ${res.status}`);
   }
-
   const json = (await res.json()) as ChatCompletionResponse;
-  return parseLocalizeResponse(json.choices?.[0]?.message?.content ?? "", catalog);
+  return json.choices?.[0]?.message?.content ?? "";
+}
+
+interface ChatCompletionResponse {
+  choices?: Array<{ message?: { content?: string } }>;
+}
+
+/**
+ * @param conversation rollenmarkierter Ausschnitt der letzten Turns ("caller: …" / "agent: …")
+ * @param catalog Key → Default-Satz (Standardsprache)
+ * @param opts.catalogLanguage Ausgangssprache des Katalogs (`agent.contentLanguage`). Wird dem
+ *   Modell genannt, damit es sie nicht mehr erraten muss — der Bestätigungs-Schritt bleibt aber
+ *   erhalten (siehe Datei-Kopf: der erzwungene Zwischenschritt trägt die Stabilität, nicht der Wert).
+ */
+export async function detectAndLocalize(
+  conversation: string,
+  catalog: Record<string, string>,
+  opts?: { model?: string; signal?: AbortSignal; catalogLanguage?: string },
+): Promise<LocalizeResult> {
+  const model = opts?.model || config.localize.model;
+  const src = opts?.catalogLanguage ? ` (Ausgangssprache: ${opts.catalogLanguage})` : "";
+  const userContent = `CATALOG${src} = ${JSON.stringify(catalog)}\n\nGesprächsausschnitt:\n${conversation}`;
+
+  const raw = await chatJson(model, SYSTEM_PROMPT, userContent, opts?.signal);
+  return parseLocalizeResponse(raw, catalog);
 }
 
 /**
