@@ -670,6 +670,39 @@ async function regenerateTranslation(host) {
   }
 }
 
+/**
+ * Agent duplizieren: legt die aktuelle Konfiguration als NEUEN Agenten an und öffnet ihn.
+ *
+ * Zwei Dinge werden bewusst nicht mitkopiert, weil sie einen Agenten eindeutig identifizieren
+ * und sonst kollidieren würden:
+ *  - `targetNumbers` — zwei Agenten auf derselben DDI: der Anruf landete beim erstbesten
+ *    Treffer, und welcher das ist, wäre Zufall. Die Kopie startet ohne Rufnummer.
+ *  - `widget.exten`/`widget.key` — die Pseudo-Durchwahl ist ebenfalls eine Nummer, und der
+ *    Embed-Key ist ein Geheimnis. Beides vergibt der Server für die Kopie neu.
+ */
+async function cloneAgent(host) {
+  if (host.busy || !host.agentId) return;
+  host.error = "";
+  host.busy = true;
+  try {
+    const body = toBody(host.form);
+    body.name = `${body.name} (Kopie)`;
+    body.targetNumbers = [];
+    if (body.widget) {
+      delete body.widget.exten;
+      delete body.widget.key;
+    }
+    const res = await api.createAgent(body);
+    const id = res && res.agent && (res.agent._id || res.agent.id);
+    if (!id) throw new Error("Server lieferte keine ID für die Kopie");
+    navigate(host, "agent", String(id));
+  } catch (err) {
+    host.error = `Duplizieren fehlgeschlagen: ${String((err && err.message) || err)}`;
+  } finally {
+    host.busy = false;
+  }
+}
+
 async function save(host) {
   if (host.busy) return;
   host.error = "";
@@ -758,6 +791,31 @@ export default define({
             ← Zurück
           </glk-button>
           <glk-title style="font-size:20px">${title}</glk-title>
+          ${agentId &&
+          html`
+            <glk-button
+              class="head-action"
+              size="sm"
+              variant="tertiary"
+              disabled="${busy}"
+              title="Als neuen Agenten duplizieren"
+              aria-label="Agent duplizieren"
+              onclick="${(host) => cloneAgent(host)}"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                style="width:18px;height:18px;display:block"
+              >
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </glk-button>
+          `}
         </div>
 
         ${error && html`<glk-status message="${error}"></glk-status>`}
@@ -1543,6 +1601,9 @@ export default define({
             `}
       `.css`
         .head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+        /* Duplizieren sitzt rechts außen; der Titel dazwischen darf umbrechen statt zu drücken. */
+        .head glk-title { flex: 1 1 auto; min-width: 0; }
+        .head-action { flex: 0 0 auto; margin-left: auto; }
         .form { display: flex; flex-direction: column; gap: 14px; }
         .group-label { font-size: 13px; opacity: 0.75; }
         .group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

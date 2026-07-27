@@ -6,10 +6,27 @@
 
 /* Reset — sonst weißer Rand um den glass-bg-Aurora-Hintergrund. */
 html, body { margin: 0; padding: 0; }
-body { min-height: 100vh; }
+/* dvh statt vh: auf mobilen Browsern wächst/schrumpft der Viewport mit der Adressleiste;
+   100vh erzeugt dort einen Überhang, der die Seite unnötig scrollbar macht. */
+body { min-height: 100dvh; }
 
 /* Aurora-Hintergrund deckt den ganzen Viewport (glass-bg ist Light DOM). */
-.glass-bg { min-height: 100vh; }
+.glass-bg { min-height: 100dvh; }
+
+/*
+ * Sichere Ränder für die installierte App (iOS-PWA).
+ *
+ * `viewport-fit=cover` (index.html) legt die Seite unter Dynamic Island, Notch und
+ * Home-Indicator — ohne die folgenden Insets verschwindet die Kopfzeile teilweise
+ * darunter. Im QUERFORMAT wandert die Aussparung an den seitlichen Rand, deshalb zählen
+ * auch left/right; `max()` sorgt dafür, dass am Desktop trotzdem die normalen 16px stehen.
+ */
+:root {
+  --safe-l: max(16px, env(safe-area-inset-left, 0px));
+  --safe-r: max(16px, env(safe-area-inset-right, 0px));
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
 
 /* Eine zentrierte App-Spalte. Voller glass-bg dahinter. */
 app-root {
@@ -18,7 +35,8 @@ app-root {
 .app-col {
   max-width: 640px;
   margin-inline: auto;
-  padding: 24px 16px 120px; /* unten Platz für die floating Tab-Bar */
+  /* unten Platz für die floating Tab-Bar (die selbst schon über dem Home-Indicator sitzt) */
+  padding: 24px var(--safe-r) calc(120px + var(--safe-b)) var(--safe-l);
   box-sizing: border-box;
 }
 
@@ -30,7 +48,7 @@ app-root {
   gap: 12px;
   max-width: 640px;
   margin: 0 auto 8px;
-  padding: 16px 16px 0;
+  padding: calc(16px + var(--safe-t)) var(--safe-r) 0 var(--safe-l);
   box-sizing: border-box;
 }
 .app-head__brand {
@@ -41,6 +59,15 @@ app-root {
   color: var(--gl-color-text-heading);
   text-decoration: none;
 }
+/* App-Icon statt Text-Badge. Die Rundung liegt schon im SVG; border-radius hält sie,
+   falls hier später ein quadratisches PNG steht. */
+.app-head__logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: block;
+  flex: 0 0 auto;
+}
 .app-head__actions { display: flex; gap: 8px; align-items: center; }
 
 /* Tab-Bar-Icons (Light DOM). */
@@ -50,9 +77,11 @@ app-tabbar .glass-tab-bar__icon svg { width: 22px; height: 22px; }
 app-tabbar {
   position: fixed;
   left: 50%;
-  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(16px + var(--safe-b));
   transform: translateX(-50%);
   z-index: 50;
+  /* Querformat: die Leiste darf nicht unter die seitliche Aussparung geraten. */
+  max-width: calc(100vw - var(--safe-l) - var(--safe-r));
 }
 
 /* Stat-Cards: gestapelt, ab 520px nebeneinander. */

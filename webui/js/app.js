@@ -33,8 +33,27 @@ import "./views/request-detail-view.js";
 
 const THEME_KEY = "vh_theme";
 
+/** App-Hintergrund je Theme (--gl-color-bg-dark aus GlassKit) — Quelle für die Fensterleiste. */
+const THEME_BG = { dark: "#0e2530", light: "#e8ecf1" };
+
+/**
+ * Fensterleiste (Chrome-PWA) bzw. Statusleiste (Android) nachziehen. Die beiden
+ * media-abhängigen <meta theme-color> in index.html folgen der OS-Einstellung; wer in der
+ * App manuell umschaltet, bekäme sonst eine Leiste im jeweils anderen Theme.
+ */
+function applyThemeColor(theme) {
+  let tag = document.querySelector('meta[name="theme-color"]:not([media])');
+  if (!tag) {
+    tag = document.createElement("meta");
+    tag.setAttribute("name", "theme-color");
+    document.head.appendChild(tag);
+  }
+  tag.setAttribute("content", THEME_BG[theme] || THEME_BG.dark);
+}
+
 function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
+  applyThemeColor(theme);
   try {
     localStorage.setItem(THEME_KEY, theme);
   } catch {
@@ -172,7 +191,7 @@ function renderShell() {
   const head = document.createElement("div");
   head.className = "app-head";
   head.innerHTML = `
-    <a class="app-head__brand" href="#/dashboard"><span class="glass-avatar glass-avatar--sm">VOH</span> Voice-Office-Hub</a>
+    <a class="app-head__brand" href="#/dashboard"><img class="app-head__logo" src="/favicon.svg" alt="" width="32" height="32" /> Voice-Office-Hub</a>
     <span class="app-head__actions">
       <button class="glass-theme-toggle" id="themeToggle" aria-label="Theme wechseln">
         <svg class="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>

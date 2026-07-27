@@ -6,6 +6,33 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.7.4] – 2026-07-27
+
+### Added
+- **Agent duplizieren** — Symbol oben rechts im Agent-Formular (nur bei gespeichertem Agenten).
+  Legt die komplette Konfiguration als neuen Agenten an und öffnet ihn direkt. Bewusst **nicht**
+  mitkopiert werden `targetNumbers` und `widget.exten`/`widget.key`: Rufnummer und Pseudo-Durchwahl
+  identifizieren einen Agenten eindeutig — bei zwei Agenten auf derselben DDI landete ein Anruf
+  beim erstbesten Treffer, und welcher das ist, wäre Zufall. Die Kopie startet daher ohne Nummer.
+
+### Fixed
+- **Kopfzeile lag unter der Dynamic Island** (installierte App auf iOS). `viewport-fit=cover` legt
+  die Seite bewusst unter Notch und Home-Indicator, aber `.app-head` hatte ein festes
+  `padding: 16px 16px 0` — nur die Tab-Bar berücksichtigte `safe-area-inset-bottom`. Jetzt gibt es
+  `--safe-t/r/b/l` für alle vier Seiten; im **Querformat** wandert die Aussparung an den Rand,
+  weshalb auch links/rechts zählen. `max(16px, …)` hält am Desktop die gewohnten Abstände.
+- **`100dvh` statt `100vh`** — auf mobilen Browsern erzeugte die volle Viewport-Höhe einen
+  Überhang, sobald die Adressleiste ein- und ausfuhr.
+
+### Changed
+- **Fensterleiste der installierten App nicht mehr orange.** `theme-color` stand auf der
+  Logo-Akzentfarbe `#f5a623`; bei Chrome färbt das die komplette Titelleiste, und ein oranger
+  Balken über der petrolfarbenen Oberfläche wirkt wie ein Fremdkörper. Jetzt der App-Hintergrund
+  (`#0e2530` dunkel, `#e8ecf1` hell, beides GlassKit-Tokens), inkl. Splash-Screen-Farbe im
+  Manifest. Zwei `media`-Tags decken die OS-Einstellung ab; beim manuellen Theme-Wechsel in der
+  App zieht `applyTheme` die Farbe nach. Orange bleibt Akzent, wo es auf kleiner Fläche wirkt.
+- **App-Icon statt „VOH"-Textbadge** in der Kopfzeile.
+
 ## [0.7.3] – 2026-07-27
 
 ### Fixed

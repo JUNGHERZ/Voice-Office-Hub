@@ -9,7 +9,16 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icon-192.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="#f5a623" />
+  <!--
+    Fensterleiste/Statusleiste in der Farbe des APP-Hintergrunds, nicht in der Logo-Farbe:
+    Als installierte App färbt theme-color bei Chrome die komplette Titelleiste — ein
+    orangener Balken über der petrolfarbenen Oberfläche wirkt wie ein Fremdkörper. Orange
+    bleibt Akzent (Logo, Badges), wo es auf kleiner Fläche funktioniert.
+    Werte = --gl-color-bg-dark / hell aus GlassKit. Beim manuellen Theme-Wechsel zieht
+    app.js das aktive Tag nach (die Media-Query kennt nur die OS-Einstellung).
+  -->
+  <meta name="theme-color" content="#0e2530" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#e8ecf1" media="(prefers-color-scheme: light)" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="VOH" />
