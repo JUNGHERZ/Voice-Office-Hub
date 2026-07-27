@@ -6,6 +6,16 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.7.3] – 2026-07-27
+
+### Fixed
+- **Ein Anruf mit Sprach-Prior kostete einen LLM-Call zu viel.** Bei vorbelegter Sprache blieb
+  der Erkennungs-Zweig aktiv, solange der Bestätigungs-Lauf lief — jeder weitere Anrufer-Turn
+  setzte damit `rerunPending` und stieß nach dem Ergebnis einen zweiten Lauf an, der nichts
+  Neues erbrachte. Im Live-Log als zwei „Ansagen lokalisiert" pro Prior-Anruf sichtbar (ohne
+  Prior nur eins). Die Bestätigung braucht jetzt genau einen Lauf; ohne Prior bleibt der Rerun
+  erhalten, weil dort mehr Kontext echter Gewinn ist.
+
 ## [0.7.2] – 2026-07-27
 
 ### Fixed

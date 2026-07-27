@@ -387,3 +387,53 @@ test("localize erhält die konfigurierte Katalogsprache", async () => {
   await settle();
   assert.equal(seen, "de", "das Modell muss die Ausgangssprache nicht mehr erraten");
 });
+
+// Live gefunden (0.7.3): Bei vorbelegter Sprache lösten mehrere Turns während des laufenden
+// Bestätigungs-Laufs einen Rerun aus — ein zweiter LLM-Call, der nichts Neues erbringt.
+test("preload: mehrere Turns während der Bestätigung lösen KEINEN zweiten Call aus", async () => {
+  const d = deferred<LocalizeResult>();
+  let calls = 0;
+  const { loc } = makeLocalizer(
+    {},
+    {
+      localize: async () => {
+        calls++;
+        return d.promise;
+      },
+      scoreLanguage: () => ({ lang: "en", confidence: 0.5 }),
+    },
+  );
+  loc.preload("en", { transferFailed: "Could not reach anyone." });
+
+  loc.observeTurn("caller", "Hi there can you help me");
+  loc.observeTurn("caller", "I have a question about my order");
+  loc.observeTurn("caller", "It was placed last week you know");
+  await settle();
+  assert.equal(calls, 1, "die Bestätigung braucht genau einen Lauf");
+
+  d.resolve({ language: "en", phrases: { transferFailed: "Sorry about that." } });
+  await settle();
+  assert.equal(calls, 1, "und auch danach kein Nachschlag");
+  assert.equal(loc.getLanguageState().confirmed, true);
+});
+
+// Ohne Prior bleibt der Rerun erhalten: Dort ist mehr Kontext echter Gewinn, weil noch
+// gar nichts über die Sprache bekannt ist.
+test("ohne preload: Turns während des ersten Laufs lösen weiterhin einen Rerun aus", async () => {
+  const d = deferred<LocalizeResult>();
+  let calls = 0;
+  const { loc } = makeLocalizer({}, {
+    localize: async () => {
+      calls++;
+      return calls === 1 ? d.promise : Promise.resolve({ language: "en" });
+    },
+  });
+  loc.observeTurn("caller", "Hi there can you help me");
+  await settle();
+  assert.equal(calls, 1);
+
+  loc.observeTurn("caller", "I have a question about my order");
+  d.resolve({ language: "en" });
+  await settle();
+  assert.equal(calls, 2, "mehr Kontext rechtfertigt den zweiten Lauf");
+});

@@ -161,7 +161,13 @@ export class CallLocalizer implements CallLocalizerLike {
     this.callerTurns++;
     if (!this.currentLang || this.provisional) {
       const words = text.trim().split(/\s+/).filter(Boolean).length;
-      if (words >= DETECT_MIN_WORDS || this.callerTurns >= 2) this.triggerDetect();
+      // Bei vorbelegter Sprache genügt EIN Lauf zur Bestätigung. Ohne diese Bremse stößt jeder
+      // weitere Turn während des laufenden Calls einen Rerun an (`rerunPending`) — der ist
+      // sinnvoll, solange gar nichts bekannt ist, aber überflüssig, wenn wir nur bestätigen.
+      const busyConfirming = this.provisional && this.detecting;
+      if ((words >= DETECT_MIN_WORDS || this.callerTurns >= 2) && !busyConfirming) {
+        this.triggerDetect();
+      }
       // Vorbelegt und der Anrufer spricht hörbar anders: nicht auf das LLM warten. Ein einzelner
       // klarer Widerspruch reicht, weil die Vorbelegung selbst nur eine Vermutung ist.
       if (this.provisional) {
