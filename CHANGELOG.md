@@ -6,6 +6,24 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.7.5] – 2026-07-27
+
+### Fixed
+- **Der Mattglas-Effekt der Tab-Bar hatte nie gewirkt.** GlassKit setzt dort ein
+  `backdrop-filter`, aber gleich zwei Dinge auf unserer Seite haben es neutralisiert: die
+  Zentrierung per `transform: translateX(-50%)` und der `view-transition-name` auf dem Host.
+  Beide isolieren das Element, sodass der Filter nichts mehr zu verwischen hat. Die
+  Zentrierung läuft jetzt über Flexbox, und die Bar bekommt keinen Transition-Namen mehr
+  (sie sieht über alle Views gleich aus; nur der aktive Reiter blendet weich statt hart um).
+  Verifiziert mit einem Headless-Chrome-Vergleich beider Varianten.
+- **Login-Bildschirm zeigte noch das „VOH"-Textbadge** statt des App-Icons.
+
+### Changed
+- **Die Tab-Bar behält bewusst die GlassKit-Farben.** Ein Zwischenstand hatte sie eigens
+  eingefärbt — das war die Behandlung des Symptoms: Sie wirkte nur deshalb zu durchsichtig,
+  weil der Blur fehlte. Mit funktionierendem Filter tragen `--gl-surface-3`/`--gl-surface-1`
+  wie im Showcase des Design-Systems.
+
 ## [0.7.4] – 2026-07-27
 
 ### Added

@@ -36,7 +36,7 @@ export default define({
   render: ({ busy, error }) => html`
     <div class="wrap">
       <div class="stack">
-        <glk-avatar size="lg" style="margin:8px auto 0">VOH</glk-avatar>
+        <img class="logo" src="/favicon.svg" alt="" width="72" height="72" />
         <glk-title style="font-size:20px">Voice-Office-Hub</glk-title>
         <p class="muted">Admin-Anmeldung</p>
         <div style="text-align:left">
@@ -57,6 +57,9 @@ export default define({
   `.css`
     .wrap { padding-top: 8vh; }
     .stack { display: flex; flex-direction: column; gap: 16px; text-align: center; }
+    /* App-Icon wie in der Kopfzeile; Rundung liegt im SVG, border-radius hält sie,
+       falls hier später ein quadratisches PNG steht. */
+    .logo { width: 72px; height: 72px; border-radius: 18px; margin: 8px auto 0; display: block; }
     .muted { color: var(--gl-color-text-muted); margin: 0; }
   `,
 });

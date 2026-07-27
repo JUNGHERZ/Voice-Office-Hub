@@ -74,15 +74,38 @@ app-root {
 app-tabbar .glass-tab-bar__icon svg { width: 22px; height: 22px; }
 
 /* Floating Tab-Bar global positionieren (Host im Light DOM). */
+/*
+ * Zentriert per Flexbox statt `left:50% + translateX(-50%)`: Ein `transform` erzeugt einen
+ * eigenen Stacking-Context und isoliert damit den Hintergrund, den das `backdrop-filter`
+ * der Tab-Bar filtern soll — der Blur hätte dann nur noch den (leeren) Inhalt dieses
+ * Kontexts zu verwischen. Ohne transform greift er wieder auf die Seite dahinter.
+ * `pointer-events` hält die Fläche links und rechts der Bar klickbar.
+ */
 app-tabbar {
   position: fixed;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: calc(16px + var(--safe-b));
-  transform: translateX(-50%);
   z-index: 50;
+  display: flex;
+  justify-content: center;
   /* Querformat: die Leiste darf nicht unter die seitliche Aussparung geraten. */
-  max-width: calc(100vw - var(--safe-l) - var(--safe-r));
+  padding-inline: var(--safe-l) var(--safe-r);
+  box-sizing: border-box;
+  pointer-events: none;
 }
+app-tabbar > * { pointer-events: auto; }
+
+/*
+ * Farbgebung der Tab-Bar: BEWUSST keine eigene — es gelten die GlassKit-Werte
+ * (--gl-surface-3 → --gl-surface-1, --gl-border-subtle), damit sie exakt aussieht wie im
+ * Showcase des Design-Systems.
+ *
+ * Was hier lange fehlte, war nicht Farbe, sondern der Blur: Sowohl das frühere
+ * `transform: translateX(-50%)` als auch ein `view-transition-name` auf dem Host isolieren
+ * das Element, und dann hat GlassKits `backdrop-filter` nichts mehr zu filtern. Beides ist
+ * oben entfernt — seitdem trägt die Bar mit den Original-Werten.
+ */
 
 /* Stat-Cards: gestapelt, ab 520px nebeneinander. */
 .stat-grid {
@@ -104,7 +127,13 @@ app-tabbar {
 }
 /* Persistentes Chrome bekommt stabile Namen → wird nicht überblendet. */
 .app-head { view-transition-name: app-head; }
-app-tabbar { view-transition-name: app-tabbar; }
+/*
+ * Die Tab-Bar bekommt BEWUSST keinen view-transition-name: Der Name isoliert das Element,
+ * und damit hat das `backdrop-filter` unten nichts mehr zu filtern (headless in Chrome
+ * verifiziert — mit Namen kein Blur, ohne Namen sichtbar). Der Verlust ist gering: Die Bar
+ * sieht über alle Views gleich aus, ein Cross-Fade zwischen identischen Zuständen fällt
+ * nicht auf; nur der aktive Reiter blendet jetzt weich statt hart um.
+ */
 /* Der wechselnde Inhalt. */
 .app-col { view-transition-name: view-content; }
 
