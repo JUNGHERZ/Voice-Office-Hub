@@ -2,13 +2,13 @@
 
 **🇬🇧 English** · [🇩🇪 Deutsch](README.de.md)
 
-[![Version](https://img.shields.io/badge/version-0.7.0-f5a623)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.7.1-f5a623)](CHANGELOG.md)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-success)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
-[![Changelog](https://img.shields.io/badge/changelog-0.7.0-blue)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-0.7.1-blue)](CHANGELOG.md)
 
 > **VOH-Appliance** — Voice-Office-Hub. Part of the **"*-Office-Hub"** product family
 > (sister project: Message-Office-Hub for chat/email/WhatsApp/SMS).
@@ -19,7 +19,7 @@ data center**, in a **single** Docker container.
 
 ## ✨ Features
 
-- 📞 **Telephony AI agent** — call answering & natural voice dialogue (Deepgram Voice Agent)
+- 📞 **Telephony AI agent** — answers calls over SIP and holds a natural voice conversation
 - 🔌 **Provider-neutral engine** — voice platforms dock behind one interface: Deepgram Voice
   Agent or the **built-in native pipeline** per agent; ElevenLabs S2S, OpenAI Realtime and
   xAI Grok are prepared seams
@@ -179,26 +179,6 @@ npm run dev        # requires a reachable Asterisk (ARI) + MongoDB
 - [docs/backlog.md](docs/backlog.md) — open items & ideas (Web/WebRTC, admin UI, denoising, Flux …) (in German)
 - [CHANGELOG.md](CHANGELOG.md) — version history
 - [README.de.md](README.de.md) — full German version of this README
-
-## Status
-
-Functional (verified via real calls): core (ARI ↔ Deepgram over AudioSocket), German conversation,
-**persistence** (transcript/functionCalls), **tools** (`transfer_call`, `end_call`), **transfer**
-with auto-return + pass-through termination, **recording** in GridFS, **post-call summary**
-(dedicated model, agent + passthrough), **passthrough mode** (forwarding + recording + batch
-transcription, `DEFAULT_MODE=passthrough`; diarization speaker separation still to be verified with
-a two-device setup), **multi-agent/DDI routing** (`agents.targetNumbers`, the dialplan passes the
-real DDI through; demo agents via `npm run seed`), **admin UI + management API** (Node/Fastify +
-Hybrids/GlassKit, JSON API + OpenAPI, login, agents CRUD, call list/detail with audio player),
-**voice-provider abstraction** (neutral `VoiceAgentSession` + factory; nova-3/Flux selectable per
-agent), **per-agent tools** (HTTP endpoints + **MCP servers** with admin-UI editors), **live call
-view** (running calls, auto-refreshing detail), **per-call metrics** (time-to-first-audio,
-barge-ins, tool counts), **background ambience**, the **embeddable WebRTC web widget** and the
-**native STT→LLM→TTS cascade** (`voiceProvider: "native"`: Flux + streaming LLM + Aura-2/
-ElevenLabs TTS) — backed by 112 unit/integration tests (call lifecycle, toolset, MCP, widget
-endpoints and all three native streaming clients against loopback servers).
-Next stages: S2S voice providers (ElevenLabs, OpenAI Realtime, Grok), fully local pipeline
-(Whisper/Ollama/Piper) for an on-prem tier, TURN support and widget theming.
 
 ## License
 

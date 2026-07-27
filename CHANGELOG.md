@@ -6,6 +6,18 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.7.1] – 2026-07-27
+
+### Changed
+- **Status-Abschnitt aus beiden READMEs entfernt.** Er zählte die Features ein zweites Mal auf,
+  war inhaltlich veraltet (nannte 112 Tests, es sind 263) und stand optisch quer zum Rest. Was
+  er sagte, steht besser in der Feature-Liste; die Roadmap-Zeile am Ende steht im
+  [Backlog](docs/backlog.md).
+- **Erster Feature-Bullet nennt keinen Provider mehr.** „call answering & natural voice dialogue
+  (Deepgram Voice Agent)" nahm dem direkt folgenden Bullet die Aussage weg — dort steht, dass die
+  Voice-Plattform hinter einer neutralen Schnittstelle austauschbar ist. Jetzt: „answers calls
+  over SIP and holds a natural voice conversation".
+
 ## [0.7.0] – 2026-07-27
 
 ### Added
