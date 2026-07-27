@@ -7,10 +7,13 @@ import {
   catalogLabel,
   srcHash,
   staleKeys,
+  toEntryMap,
+  toEntryRows,
   translatableCatalog,
   usableEntries,
   type StoredEntry,
 } from "../src/llm/translationStore.js";
+import { AgentTranslation } from "../src/db/models/AgentTranslation.js";
 import { parseTranslateResponse } from "../src/llm/localize.js";
 import { testAgent } from "./helpers/fakes.js";
 
@@ -141,4 +144,60 @@ test("Übersetzungs-Antwort: fehlende Keys sind kein Fehler", () => {
 // 11 ─ Unbrauchbare Antwort wirft — der Aufrufer behält dann die Standardsprache.
 test("Übersetzungs-Antwort ohne JSON wirft", () => {
   assert.throws(() => parseTranslateResponse("Tut mir leid, ich kann das nicht.", { a: "b" }));
+});
+
+// ── Ablageform (0.7.2) ───────────────────────────────────────────────────────
+
+// Live gefunden: Als Mongoose-Map brach das Speichern an unseren eigenen Pool-Keys, weil
+// Maps keine Punkte in Keys erlauben (Punkte sind in MongoDB Pfad-Separatoren) — und zwar
+// erst im Update-Cast zur Laufzeit, nicht beim Anlegen des Dokuments. Daher Array-Ablage.
+test("Punktierte Katalog-Keys überstehen den Weg in die Ablageform und zurück", () => {
+  const map = {
+    greeting: { text: "Hello!", srcHash: "aaa" },
+    "filler.0": { text: "One moment.", srcHash: "bbb" },
+    "idle.1": { text: "Are you still there?", srcHash: "ccc" },
+    "tool.vorgang_status": { text: "Let me check.", srcHash: "ddd" },
+  };
+  assert.deepEqual(toEntryMap(toEntryRows(map)), map);
+});
+
+test("Ablageform ist ein Array mit key-Feld, keine Map", () => {
+  const rows = toEntryRows({ "filler.0": { text: "One moment.", srcHash: "bbb" } });
+  assert.ok(Array.isArray(rows));
+  assert.deepEqual(rows, [{ key: "filler.0", text: "One moment.", srcHash: "bbb" }]);
+});
+
+test("Ablageform ist stabil sortiert (lesbare Diffs in der Datenbank)", () => {
+  const rows = toEntryRows({
+    "idle.0": { text: "b", srcHash: "x" },
+    greeting: { text: "a", srcHash: "x" },
+    "filler.0": { text: "c", srcHash: "x" },
+  });
+  assert.deepEqual(rows.map((r) => r.key), ["filler.0", "greeting", "idle.0"]);
+});
+
+test("Unvollständige Zeilen werden beim Lesen übersprungen statt zu vergiften", () => {
+  const map = toEntryMap([
+    { key: "greeting", text: "Hello!", srcHash: "aaa" },
+    { key: "", text: "x", srcHash: "y" },
+    { key: "kaputt", text: "", srcHash: "y" },
+    { key: "ohneHash", text: "x" } as never,
+  ]);
+  assert.deepEqual(map, { greeting: { text: "Hello!", srcHash: "aaa" } });
+  assert.deepEqual(toEntryMap(undefined), {});
+});
+
+// Der eigentliche Regressionsschutz: Das Schema selbst muss punktierte Keys tragen können.
+test("Das Modell akzeptiert punktierte Katalog-Keys", () => {
+  const doc = new AgentTranslation({
+    agentId: "6a411b273d84ad5c5d4d28ef",
+    lang: "en",
+    entries: toEntryRows({
+      "filler.0": { text: "One moment.", srcHash: "bbb" },
+      "tool.vorgang_status": { text: "Let me check.", srcHash: "ddd" },
+    }),
+  });
+  assert.equal(doc.validateSync(), undefined, "keine Validierungsfehler");
+  const keys = (doc.entries as Array<{ key: string }>).map((e) => e.key);
+  assert.deepEqual(keys, ["filler.0", "tool.vorgang_status"]);
 });

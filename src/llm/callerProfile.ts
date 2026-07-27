@@ -42,9 +42,26 @@ export function callerKey(callerNumber: string | undefined): string | null {
   return createHmac("sha256", config.callerProfile.secret).update(normalized).digest("hex");
 }
 
+/** Einmal pro Prozess warnen, nicht bei jedem Anruf. */
+let secretWarned = false;
+
 /** Ist das Gedächtnis für diesen Agenten scharf? (Opt-in + Secret + gespeicherte Agent-ID) */
 export function memoryActive(agent: ResolvedAgent): boolean {
-  return !!(agent.callerMemory?.language && config.callerProfile.secret && agent.id);
+  if (!agent.callerMemory?.language || !agent.id) return false;
+  if (!config.callerProfile.secret) {
+    // Der Betreiber hat es am Agenten eingeschaltet und bekäme sonst stillschweigend nichts —
+    // ohne diese Zeile sucht man den Fehler beim Feature statt bei der fehlenden Konfiguration.
+    if (!secretWarned) {
+      secretWarned = true;
+      log.warn(
+        "Anrufer-Gedächtnis ist am Agenten aktiviert, aber CALLER_PROFILE_SECRET fehlt — " +
+          "es wird nichts gemerkt. Secret setzen (siehe .env.example).",
+        { agent: agent.name },
+      );
+    }
+    return false;
+  }
+  return true;
 }
 
 export interface CallerPrior {

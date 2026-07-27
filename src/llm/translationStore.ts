@@ -89,15 +89,27 @@ export function translatableCatalog(agent: ResolvedAgent): Record<string, string
 
 type EntryMap = Record<string, StoredEntry>;
 
-function toEntryMap(raw: unknown): EntryMap {
-  if (!raw) return {};
-  if (raw instanceof Map) return Object.fromEntries(raw) as EntryMap;
-  return { ...(raw as EntryMap) };
+/** Gespeicherte Form (Array, siehe AgentTranslation.ts) → Nachschlage-Form. */
+export function toEntryMap(rows: Array<StoredEntry & { key?: string }> | undefined): EntryMap {
+  const out: EntryMap = {};
+  for (const row of rows ?? []) {
+    if (row?.key && row.text && row.srcHash) out[row.key] = { text: row.text, srcHash: row.srcHash };
+  }
+  return out;
+}
+
+/** Nachschlage-Form → gespeicherte Form. Stabil sortiert, damit Diffs lesbar bleiben. */
+export function toEntryRows(map: EntryMap): Array<StoredEntry & { key: string }> {
+  return Object.keys(map)
+    .sort()
+    .map((key) => ({ key, text: map[key]!.text, srcHash: map[key]!.srcHash }));
 }
 
 /** Gespeicherte Einträge einer Sprache (roh, ungeprüft). */
 export async function loadEntries(agentId: string, lang: string): Promise<EntryMap> {
-  const doc = await AgentTranslation.findOne({ agentId, lang }).lean<{ entries?: unknown }>();
+  const doc = await AgentTranslation.findOne({ agentId, lang }).lean<{
+    entries?: Array<StoredEntry & { key?: string }>;
+  }>();
   return toEntryMap(doc?.entries);
 }
 
@@ -154,7 +166,7 @@ export async function ensureTranslations(agent: ResolvedAgent, lang: string): Pr
 
     await AgentTranslation.updateOne(
       { agentId: agent.id, lang },
-      { $set: { entries: next, model: config.localize.model } },
+      { $set: { entries: toEntryRows(next), model: config.localize.model } },
       { upsert: true },
     );
     log.info("Ansagen vorübersetzt", {

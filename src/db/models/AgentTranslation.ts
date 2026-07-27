@@ -14,6 +14,15 @@ import { Schema, model, type InferSchemaType } from "mongoose";
 
 const EntrySchema = new Schema(
   {
+    /**
+     * Katalog-Key (`greeting`, `filler.0`, `idle.1`, `tool.<name>` …).
+     *
+     * BEWUSST ein Array-Feld statt einer Map: Mongoose-Maps verbieten Punkte in Keys (Punkte
+     * sind in MongoDB Pfad-Separatoren) — genau die haben unsere Pool-Keys aber. Eine Map
+     * bricht deshalb beim ersten `filler.0`, und zwar erst im Update-Cast zur Laufzeit, nicht
+     * schon beim Anlegen des Dokuments. Als Array existiert die Einschränkung nicht.
+     */
+    key: { type: String, required: true },
     /** Übersetzter Satz in der Zielsprache. */
     text: { type: String, required: true },
     /** Hash des Quelltextes zum Zeitpunkt der Übersetzung (sha256, 16 Hex-Zeichen). */
@@ -27,8 +36,8 @@ const AgentTranslationSchema = new Schema(
     agentId: { type: Schema.Types.ObjectId, ref: "Agent", required: true },
     /** Zielsprache als Kleinbuchstaben-Code ("en", "fr", …). */
     lang: { type: String, required: true },
-    /** Katalog-Key → Eintrag. Keys entsprechen `buildLocalizationCatalog` (greeting, filler.0, …). */
-    entries: { type: Map, of: EntrySchema, default: () => new Map() },
+    /** Übersetzte Ansagen. Keys entsprechen `buildLocalizationCatalog` (greeting, filler.0, …). */
+    entries: { type: [EntrySchema], default: [] },
     /** Womit übersetzt wurde — für die Nachvollziehbarkeit im Admin. */
     model: { type: String },
   },

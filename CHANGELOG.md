@@ -6,6 +6,23 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.7.2] – 2026-07-27
+
+### Fixed
+- **Vorübersetzungen wurden nie gespeichert** (`Mongoose maps do not support keys that contain
+  "."`). Die Einträge lagen als Mongoose-`Map`, deren Keys keine Punkte enthalten dürfen —
+  unsere Pool-Keys heißen aber genau `filler.0`, `idle.1`, `tool.<name>`. Der Fehler trat erst
+  im Update-Cast zur Laufzeit auf, nicht beim Anlegen des Dokuments, und blieb deshalb bis zum
+  ersten Live-Anruf unsichtbar: Der Katalog wurde übersetzt, der Write scheiterte, der Agent
+  fiel stumm auf die Standardsprache zurück. Die Einträge liegen jetzt als **Array** mit
+  explizitem `key`-Feld — damit existiert die Einschränkung strukturell nicht mehr.
+  Bestehende Daten sind nicht betroffen (es wurde nie etwas geschrieben).
+
+### Changed
+- **Aktiviertes Anrufer-Gedächtnis ohne `CALLER_PROFILE_SECRET` warnt jetzt** (einmal pro
+  Prozess). Vorher blieb es stillschweigend wirkungslos — wer den Schalter am Agenten setzt und
+  das Secret vergisst, sucht den Fehler sonst beim Feature statt bei der Konfiguration.
+
 ## [0.7.1] – 2026-07-27
 
 ### Changed
