@@ -141,21 +141,22 @@ const VOXTRAL_VOICES: TtsVoiceEntry[] = [
 ];
 
 /**
- * Speechify bindet Stimmen ans Modell: die dokumentierten `*_32`-Stimmen gehören
- * zu simba-3.2 und damit zu Englisch. Für simba-3.0 (dem einzigen Simba mit
- * Deutsch) gibt es keine öffentliche Liste — die IDs kommen aus
- * `GET /v1/voices?model=simba-3.0&locale=de-DE` und werden hier nachgetragen.
- * Bis dahin trägt das Freitextfeld.
+ * Speechify-Stimmen für simba-3.0, live abgerufen am 2026-08-18 (der Katalog führt
+ * 983 Stimmen, davon 44 mit de-DE für 3.0). Hier steht eine Auswahl — die
+ * `-agent`-Varianten sind ausdrücklich für Sprachassistenten gebaut. Die volle
+ * Liste holt `GET /api/tts/voices?provider=speechify`.
+ *
+ * simba-3.2 ist absichtlich NICHT mit deutschen Stimmen belegt: das Modell kann
+ * kein Deutsch.
  */
 const SPEECHIFY_VOICES: TtsVoiceEntry[] = [
-  { id: "beatrice_32", label: "Beatrice (englisch)", languages: ["en"], models: ["simba-3.2"] },
-  { id: "dominic_32", label: "Dominic (englisch)", languages: ["en"], models: ["simba-3.2"] },
-  { id: "edmund_32", label: "Edmund (englisch)", languages: ["en"], models: ["simba-3.2"] },
-  { id: "geffen_32", label: "Geffen (englisch)", languages: ["en"], models: ["simba-3.2"] },
-  { id: "harper_32", label: "Harper (englisch)", languages: ["en"], models: ["simba-3.2"] },
-  { id: "hugh_32", label: "Hugh (englisch)", languages: ["en"], models: ["simba-3.2"] },
-  { id: "imogen_32", label: "Imogen (englisch)", languages: ["en"], models: ["simba-3.2"] },
-  { id: "wyatt_32", label: "Wyatt (englisch)", languages: ["en"], models: ["simba-3.2"] },
+  { id: "katharina-agent", label: "Katharina (deutsch, weiblich, Agent)", languages: ["de"], models: ["simba-3.0"] },
+  { id: "benedikt-agent", label: "Benedikt (deutsch, männlich, Agent)", languages: ["de"], models: ["simba-3.0"] },
+  { id: "henrik-agent", label: "Henrik (deutsch, männlich, Agent)", languages: ["de"], models: ["simba-3.0"] },
+  { id: "greta", label: "Greta (deutsch, weiblich)", languages: ["de"], models: ["simba-3.0"] },
+  { id: "luisa", label: "Luisa (deutsch, weiblich)", languages: ["de"], models: ["simba-3.0"] },
+  { id: "anton", label: "Anton (deutsch, männlich)", languages: ["de"], models: ["simba-3.0"] },
+  { id: "markus", label: "Markus (deutsch, männlich)", languages: ["de"], models: ["simba-3.0"] },
 ];
 
 /**

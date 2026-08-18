@@ -37,6 +37,9 @@ const BENCH_VOICE: Record<string, { model?: string; voice?: string }> = {
   // Flux TTS gibt es nur auf Englisch — der deutsche Testsatz misst hier also
   // Latenz und Kosten, nicht die Aussprache.
   deepgram_flux: { model: "flux-haley-en" },
+  // Deutsche Stimme aus dem simba-3.0-Katalog (live abgefragt 2026-08-18).
+  speechify: { model: "simba-3.0", voice: process.env.TTS_BENCH_SPEECHIFY_VOICE ?? "katharina-agent" },
+  fish_audio: { model: "s2.1-pro", voice: process.env.TTS_BENCH_FISH_VOICE ?? "" },
 };
 
 interface Sample {

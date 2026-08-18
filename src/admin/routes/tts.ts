@@ -96,6 +96,17 @@ async function mistralVoices(
   return { status: res.status, body: parsed };
 }
 
+interface SpeechifyVoiceList {
+  voices?: Array<{
+    id: string;
+    display_name?: string;
+    gender?: string;
+    models?: Array<{ name?: string; languages?: Array<{ locale: string }> }>;
+  }>;
+  has_more?: boolean;
+  next_cursor?: string;
+}
+
 interface CreateVoiceBody {
   name: string;
   /** Base64-kodierte Referenzaufnahme (~3 s genügen). */
@@ -176,10 +187,10 @@ export async function ttsRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: {
         tags: ["tts"],
-        summary: "Stimmen auflisten (provider=mistral: Presets und Klone, provider=azure: Regionskatalog)",
+        summary: "Stimmen auflisten (provider=mistral | azure | speechify)",
         querystring: {
           type: "object",
-          properties: { provider: { type: "string" }, type: { type: "string" } },
+          properties: { provider: { type: "string" }, type: { type: "string" }, model: { type: "string" } },
         },
       },
     },
@@ -208,6 +219,39 @@ export async function ttsRoutes(app: FastifyInstance): Promise<void> {
             gender: v.Gender,
           })),
         });
+      }
+
+      // Speechify liefert knapp 1000 Stimmen über einen Cursor — hier einmal
+      // durchblättern und auf das Nötige eindampfen.
+      if (provider === "speechify") {
+        if (!config.speechify.apiKey) {
+          return reply.code(503).send({ error: "SPEECHIFY_API_KEY ist auf dem Server nicht gesetzt" });
+        }
+        const model = (req.query as { model?: string }).model ?? "simba-3.0";
+        const out: Array<{ id: string; label: string; locale: string }> = [];
+        let cursor: string | undefined;
+        for (let page = 0; page < 40; page++) {
+          const u = new URL(`${config.native.speechifyUrl.replace(/\/$/, "")}/voices`);
+          if (cursor) u.searchParams.set("cursor", cursor);
+          const res = await fetch(u, { headers: { Authorization: `Bearer ${config.speechify.apiKey}` } });
+          if (!res.ok) return reply.code(res.status).send({ error: (await res.text()).slice(0, 300) });
+          const d = (await res.json()) as SpeechifyVoiceList;
+          for (const v of d.voices ?? []) {
+            for (const m of v.models ?? []) {
+              if (m.name !== model) continue;
+              for (const l of m.languages ?? []) {
+                out.push({
+                  id: v.id,
+                  label: `${v.display_name} (${l.locale}, ${v.gender ?? "?"})`,
+                  locale: l.locale,
+                });
+              }
+            }
+          }
+          if (!d.has_more || !d.next_cursor) break;
+          cursor = d.next_cursor;
+        }
+        return reply.send({ model, voices: out });
       }
 
       const r = await mistralVoices(type ? `?type=${encodeURIComponent(type)}` : "", { method: "GET" });

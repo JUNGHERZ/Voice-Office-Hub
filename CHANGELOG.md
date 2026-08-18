@@ -6,6 +6,31 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.5] – 2026-08-18
+
+### Added
+
+- **Deutsche Speechify-Stimmen im Katalog**, live abgerufen statt geraten: der
+  Anbieter führt 983 Stimmen, davon 44 mit `de-DE` für simba-3.0. Im Manifest
+  steht eine Auswahl inklusive der `-agent`-Varianten, die ausdrücklich für
+  Sprachassistenten gebaut sind. Die vollständige Liste holt
+  `GET /api/tts/voices?provider=speechify&model=simba-3.0` über den Cursor.
+
+### Gemessen
+
+**Speechify ist der günstigste und zugleich mit Abstand der langsamste Anbieter:**
+709 ms bis zum ersten Ton, mit Ausreißern bis 2,1 s — rund das Fünffache von
+ElevenLabs. Bei $0,010 je gesprochener Minute gegenüber $0,116 ist das ein
+Kompromiss, aber für einen Telefonagenten auf der falschen Seite.
+
+Der Adapter selbst arbeitet: deutsche Stimme, sauberes 8-kHz-PCM, kein
+Container-Header.
+
+**Fish Audio antwortet mit HTTP 402** (Payment Required) — das Konto hat kein
+Guthaben. Damit bleibt die offene Frage aus 0.8.4 offen: ob `sample_rate: 8000`
+bei `format: "pcm"` akzeptiert wird. Der Adapter steht, der Beweis fehlt.
+
+
 ## [0.8.4] – 2026-08-18
 
 ### Added

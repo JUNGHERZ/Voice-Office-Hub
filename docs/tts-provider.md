@@ -214,11 +214,11 @@ Default ist `simba-3.0`, nicht das neuere `simba-3.2` — **nur 3.0 spricht
 Deutsch** (dazu en, es, fr, it, pt-BR). 3.2 ist streaming-nativ und schneller,
 aber englisch-only.
 
-Die dokumentierten `*_32`-Stimmen gehören zu 3.2 und damit zu Englisch. Für 3.0
-gibt es keine öffentliche Stimmliste; die IDs kommen aus
-`GET /v1/voices?model=simba-3.0&locale=de-DE`. Im Katalog steht deshalb **keine**
-deutsche Stimme — das Freitextfeld trägt, bis jemand mit Schlüssel die Liste
-abruft. Erfundene Namen hatten wir schon (siehe Voxtral).
+Die dokumentierten `*_32`-Stimmen gehören zu 3.2 und damit zu Englisch. Der Katalog führt 983 Stimmen, davon **44 mit `de-DE` für simba-3.0** (live
+abgerufen 2026-08-18). Im Manifest steht eine Auswahl — die `-agent`-Varianten
+(`katharina-agent`, `benedikt-agent`, `henrik-agent`) sind ausdrücklich für
+Sprachassistenten gebaut. Die vollständige Liste holt
+`GET /api/tts/voices?provider=speechify&model=simba-3.0`.
 
 Emotion und Tempo gingen bei Speechify nur über SSML. Das ist bewusst nicht
 verdrahtet: Das LLM müsste Markup erzeugen, der Satz-Chunker schneidet aber an
@@ -323,7 +323,14 @@ frische Verbindung je Satz, von einem Entwicklerrechner in Deutschland):
 | ElevenLabs Flash v2.5 | **147 ms** | $0,124 |
 | Deepgram Aura-2 | 165 ms | $0,027 |
 | Deepgram Flux TTS | 201 ms | $0,034 |
-| Mistral Voxtral | 508 ms | **$0,015** |
+| Mistral Voxtral | 508 ms | $0,015 |
+| Speechify Simba 3.0 | **709 ms** | **$0,010** |
 
-Azure, Speechify und Fish fehlen noch — dort lag kein Schlüssel vor. Sobald einer
-im Env steht, nimmt das Harness den Provider automatisch mit auf.
+Der günstigste Anbieter ist zugleich der langsamste — Speechify braucht rund das
+Fünffache von ElevenLabs bis zum ersten Ton, mit Ausreißern bis 2,1 s. Für einen
+Telefonagenten ist das die falsche Seite des Kompromisses.
+
+**Azure fehlt noch** — dort lag kein Schlüssel vor; es ist der einzige verbliebene
+Kandidat mit EU-Verarbeitung *und* gewachsenem deutschem Stimmkatalog.
+**Fish Audio antwortet mit HTTP 402** (Payment Required): Das Konto hat kein
+Guthaben, der `sample_rate`-Spike aus dem Plan bleibt damit offen.
