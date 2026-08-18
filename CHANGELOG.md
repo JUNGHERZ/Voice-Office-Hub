@@ -6,6 +6,61 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.4] – 2026-08-18
+
+### Added
+
+**Speechify Simba und Fish Audio S2 — damit sind alle sieben Engines aus dem
+Manifest gebaut.**
+
+**Speechify** sitzt auf der HTTP-Basisklasse: ein `POST /v1/audio/stream` je Satz,
+`pcm_8000` nativ, also kein Resampling. Default ist `simba-3.0` und nicht das
+neuere `simba-3.2` — **nur 3.0 spricht Deutsch**. Die dokumentierten
+`*_32`-Stimmen gehören zu 3.2 und damit zu Englisch; für 3.0 gibt es keine
+öffentliche Liste, deshalb steht im Katalog bewusst **keine** deutsche Stimme und
+das Freitextfeld trägt, bis jemand mit Schlüssel `GET /v1/voices` abruft.
+Erfundene Stimmnamen hatten wir schon.
+
+Falls Speechify statt rohem PCM doch einen WAV-Container liefert, schneidet der
+Adapter den RIFF-Header ab. Die Prüfung kostet nichts und entfällt still, wenn
+kein Header kommt — mit Header wären es 44 Byte Kopfdaten im Sprachkanal, am
+Satzanfang als Knacks hörbar.
+
+**Fish Audio** fällt zweimal aus der Reihe: Es serialisiert mit **MessagePack**
+statt JSON (`@msgpack/msgpack`, die einzige neue Laufzeitabhängigkeit des ganzen
+Blocks) und rechnet in **UTF-8-Bytes** statt Zeichen ab — deutsche Umlaute und ß
+kosten doppelt. `metrics.ttsCharacters` trägt dort deshalb Bytes; eine
+zeichengenaue Zahl wäre für die Kostenrechnung schlicht falsch. Wie ElevenLabs
+kennt Fish kein serverseitiges Clear, also trennt `clear()` hart und der nächste
+Satz verbindet lazy neu — samt erneutem `start`-Event, sonst wüsste der Server
+weder Stimme noch Format.
+
+**Fish ist doppelt gesperrt.** Der Anbieter wird aus China betrieben, ohne
+Angemessenheitsbeschluss, und Anrufaudio ist personenbezogen. Ohne
+`FISH_AUDIO_ENABLED=true` erscheint er weder im Panel noch baut ihn der Anruf.
+Der Katalog-Endpoint prüft die Freigabe mit — ein Provider, den man wählen kann,
+der aber still auf Aura zurückfiele, wäre schlimmer als gar keiner.
+
+### Changed
+
+- `speak` kennt drei neue Felder für den Fish-Feinschliff: `temperature`, `topP`
+  (je 0–1 mit Validator) und `latencyMode` (`low`/`balanced`/`normal`, Default
+  `low` — für Telefonie ist der Qualitätsgewinn der übrigen Stufen die
+  Zusatzlatenz nicht wert). Sie kamen bewusst erst jetzt und nicht auf Vorrat in
+  0.8.0: Felder, die kein Adapter liest, sind totes Gewicht.
+
+### Ungeprüft
+
+Für Speechify und Fish lag kein Schlüssel vor — beide Adapter sind gegen die
+dokumentierten Wire-Formate gebaut, nicht gegen die laufende API. Nach den
+Erfahrungen dieses Blocks (erfundene Voxtral-Stimmen, falsch verstandenes
+`Flushed` bei Flux) ist das ausdrücklich ein Vorbehalt und kein Nebensatz. Der
+konkreteste offene Punkt: ob Fish `sample_rate: 8000` bei `format: "pcm"`
+akzeptiert. Die Doku nennt 44100 als Default und listet keine erlaubten Werte;
+wird der Wert ignoriert, käme Audio in falscher Rate an — hörbar als zu schnelle
+oder zu langsame Sprache.
+
+
 ## [0.8.3] – 2026-08-18
 
 ### Added

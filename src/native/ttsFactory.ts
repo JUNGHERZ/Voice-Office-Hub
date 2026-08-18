@@ -18,8 +18,10 @@ import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
 import { ElevenLabsTtsStream } from "./ttsElevenLabs.js";
 import { AzureTtsStream, azureCanServe, azureEndpointFor } from "./ttsAzure.js";
+import { FishTtsStream } from "./ttsFish.js";
 import { FluxTtsStream } from "./ttsFlux.js";
 import { MistralTtsStream, MISTRAL_DEFAULT_MODEL, MISTRAL_SAMPLE_RATE } from "./ttsMistral.js";
+import { SpeechifyTtsStream, speechifyCanServe, SPEECHIFY_DEFAULT_MODEL } from "./ttsSpeechify.js";
 import { AuraTtsStream } from "./ttsStream.js";
 import type { TtsStreamLike } from "./types.js";
 
@@ -160,6 +162,69 @@ const buildFlux: TtsBuilder = (agent, callId, log) => {
   );
 };
 
+const buildSpeechify: TtsBuilder = (agent, callId, log) => {
+  const apiKey = config.speechify.apiKey;
+  const voiceId = agent.speak.voice?.trim();
+  if (!apiKey || !voiceId) {
+    log.warn("Speechify-TTS unvollständig (SPEECHIFY_API_KEY oder Stimm-ID fehlt)", {
+      hasKey: Boolean(apiKey),
+      hasVoice: Boolean(voiceId),
+    });
+    return undefined;
+  }
+  if (!speechifyCanServe(config.audio.sampleRate)) {
+    log.warn("Speechify-TTS: Sample-Rate nicht bedienbar", { rate: config.audio.sampleRate });
+    return undefined;
+  }
+  return new SpeechifyTtsStream(
+    {
+      baseUrl: config.native.speechifyUrl,
+      apiKey,
+      voiceId,
+      model: agent.speak.model?.startsWith("simba") ? agent.speak.model : SPEECHIFY_DEFAULT_MODEL,
+      ...(agent.speak.language ? { language: agent.speak.language } : {}),
+      targetRate: config.audio.sampleRate,
+      concurrency: config.native.httpTtsConcurrency,
+    },
+    callId,
+  );
+};
+
+const buildFish: TtsBuilder = (agent, callId, log) => {
+  // Drittland ohne Angemessenheitsbeschluss: ohne ausdrückliche Freigabe wird
+  // gar nicht erst gebaut, damit niemand versehentlich Anrufaudio dorthin schickt.
+  if (!config.fishAudio.enabled) {
+    log.warn("Fish-Audio-TTS ist nicht freigegeben (FISH_AUDIO_ENABLED=false)");
+    return undefined;
+  }
+  const apiKey = config.fishAudio.apiKey;
+  const referenceId = agent.speak.voice?.trim();
+  if (!apiKey || !referenceId) {
+    log.warn("Fish-Audio-TTS unvollständig (FISH_AUDIO_API_KEY oder reference_id fehlt)", {
+      hasKey: Boolean(apiKey),
+      hasVoice: Boolean(referenceId),
+    });
+    return undefined;
+  }
+  return new FishTtsStream(
+    {
+      url: config.native.fishUrl,
+      apiKey,
+      model: agent.speak.model?.startsWith("s") ? agent.speak.model : "s2.1-pro",
+      referenceId,
+      sampleRate: config.audio.sampleRate,
+      // Telefonie: "low" ist richtig, der Qualitätsgewinn der übrigen Stufen
+      // rechtfertigt die Zusatzlatenz im Gespräch nicht.
+      latency: agent.speak.latencyMode ?? "low",
+      ...(agent.speak.temperature !== undefined ? { temperature: agent.speak.temperature } : {}),
+      ...(agent.speak.topP !== undefined ? { topP: agent.speak.topP } : {}),
+      ...(agent.speak.speed !== undefined ? { speed: agent.speak.speed } : {}),
+      ...(agent.speak.volume !== undefined ? { volume: agent.speak.volume } : {}),
+    },
+    callId,
+  );
+};
+
 /** Schlüssel = agent.speak.provider (Enum aus tts/catalog.ts). */
 const BUILDERS: Record<string, TtsBuilder> = {
   deepgram: (agent, callId) => buildAura(agent, callId),
@@ -167,6 +232,8 @@ const BUILDERS: Record<string, TtsBuilder> = {
   mistral: buildMistral,
   azure: buildAzure,
   deepgram_flux: buildFlux,
+  speechify: buildSpeechify,
+  fish_audio: buildFish,
 };
 
 export function buildNativeTts(agent: ResolvedAgent, callId: string): TtsStreamLike {

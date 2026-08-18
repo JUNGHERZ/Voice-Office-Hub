@@ -158,6 +158,9 @@ export function fromDoc(doc: Record<string, any>): ResolvedAgent {
       volume: doc.speak?.volume,
       stability: doc.speak?.stability,
       similarityBoost: doc.speak?.similarityBoost,
+      temperature: doc.speak?.temperature,
+      topP: doc.speak?.topP,
+      latencyMode: doc.speak?.latencyMode,
     },
     // Leere/fehlende Tools → sinnvolle Defaults (sonst kennt das LLM weder transfer_call noch
     // end_call; ein über die UI ohne Tools angelegter Agent würde nie weiterleiten/auflegen).

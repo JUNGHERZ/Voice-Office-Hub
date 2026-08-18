@@ -81,6 +81,19 @@ export interface Config {
     /** Nur nötig für Agents mit speak.provider=mistral (Voxtral TTS). */
     apiKey: string;
   };
+  speechify: {
+    /** Nur nötig für Agents mit speak.provider=speechify. */
+    apiKey: string;
+  };
+  fishAudio: {
+    /** Nur nötig für Agents mit speak.provider=fish_audio. */
+    apiKey: string;
+    /**
+     * Drittland-Freigabe. Fish Audio wird aus China betrieben; ohne diese
+     * ausdrückliche Freigabe baut der Adapter gar nicht erst (Fallback auf Aura).
+     */
+    enabled: boolean;
+  };
   azure: {
     /** Nur nötig für Agents mit speak.provider=azure (Azure Neural TTS). */
     apiKey: string;
@@ -96,6 +109,10 @@ export interface Config {
     ttsUrl: string;
     /** Flux-Streaming-TTS (v2-Speak-WS; Key kommt aus deepgram.apiKey). */
     fluxTtsUrl: string;
+    /** Speechify Simba (Basis bis /v1). */
+    speechifyUrl: string;
+    /** Fish Audio Live-TTS (vollständige WS-URL). */
+    fishUrl: string;
     /** Mistral Voxtral TTS (Basis bis /v1; Key kommt aus mistral.apiKey). */
     mistralUrl: string;
     /**
@@ -268,6 +285,13 @@ export const config: Config = {
   mistral: {
     apiKey: opt("MISTRAL_API_KEY"),
   },
+  speechify: {
+    apiKey: opt("SPEECHIFY_API_KEY"),
+  },
+  fishAudio: {
+    apiKey: opt("FISH_AUDIO_API_KEY"),
+    enabled: bool("FISH_AUDIO_ENABLED", false),
+  },
   azure: {
     apiKey: opt("AZURE_SPEECH_KEY"),
     // Default bewusst eine EU-Region: Azure verarbeitet dort, wo die Region liegt.
@@ -279,6 +303,8 @@ export const config: Config = {
     ttsUrl: opt("NATIVE_TTS_URL", "wss://api.deepgram.com/v1/speak"),
     fluxTtsUrl: opt("NATIVE_TTS_FLUX_URL", "wss://api.deepgram.com/v2/speak"),
     mistralUrl: opt("NATIVE_TTS_MISTRAL_URL", "https://api.mistral.ai/v1"),
+    speechifyUrl: opt("NATIVE_TTS_SPEECHIFY_URL", "https://api.speechify.ai/v1"),
+    fishUrl: opt("NATIVE_TTS_FISH_URL", "wss://api.fish.audio/v1/tts/live"),
     httpTtsConcurrency: int("NATIVE_HTTP_TTS_CONCURRENCY", 1),
     minSentenceChars: int("NATIVE_MIN_SENTENCE_CHARS", 12),
     eagerEot: bool("NATIVE_EAGER_EOT", false),

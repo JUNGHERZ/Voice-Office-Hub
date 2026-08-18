@@ -6,14 +6,24 @@ import { test } from "node:test";
 import { config } from "../src/config.js";
 import { buildNativeTts } from "../src/native/ttsFactory.js";
 import { AzureTtsStream } from "../src/native/ttsAzure.js";
+import { FishTtsStream } from "../src/native/ttsFish.js";
+import { SpeechifyTtsStream } from "../src/native/ttsSpeechify.js";
 import { ElevenLabsTtsStream } from "../src/native/ttsElevenLabs.js";
 import { MistralTtsStream } from "../src/native/ttsMistral.js";
 import { AuraTtsStream } from "../src/native/ttsStream.js";
 import { testAgent } from "./helpers/fakes.js";
 
 /** Keys um einen Testlauf herum setzen und sicher zurückgeben. */
-function withKeys(keys: { eleven?: string; mistral?: string; azure?: string }, fn: () => void): void {
-  const prev = { eleven: config.elevenlabs.apiKey, mistral: config.mistral.apiKey, azure: config.azure.apiKey };
+function withKeys(keys: { eleven?: string; mistral?: string; azure?: string; speechify?: string; fish?: string }, fn: () => void): void {
+  const prev = {
+    eleven: config.elevenlabs.apiKey,
+    mistral: config.mistral.apiKey,
+    azure: config.azure.apiKey,
+    speechify: config.speechify.apiKey,
+    fish: config.fishAudio.apiKey,
+  };
+  config.speechify.apiKey = keys.speechify ?? "";
+  config.fishAudio.apiKey = keys.fish ?? "";
   config.elevenlabs.apiKey = keys.eleven ?? "";
   config.mistral.apiKey = keys.mistral ?? "";
   config.azure.apiKey = keys.azure ?? "";
@@ -23,6 +33,8 @@ function withKeys(keys: { eleven?: string; mistral?: string; azure?: string }, f
     config.elevenlabs.apiKey = prev.eleven;
     config.mistral.apiKey = prev.mistral;
     config.azure.apiKey = prev.azure;
+    config.speechify.apiKey = prev.speechify;
+    config.fishAudio.apiKey = prev.fish;
   }
 }
 
@@ -163,4 +175,65 @@ test("ttsFactory: azure ohne Key → Aura-Fallback", () => {
     assert.ok(tts instanceof AuraTtsStream);
     tts.close();
   });
+});
+
+test("ttsFactory: speechify mit Key und Stimme", () => {
+  withKeys({ speechify: "sp-test" }, () => {
+    const tts = buildNativeTts(
+      testAgent({ speak: { provider: "speechify", model: "simba-3.0", voice: "harper_32" } }),
+      "call-sp",
+    );
+    assert.ok(tts instanceof SpeechifyTtsStream);
+    tts.close();
+  });
+});
+
+// Ein fremdes Modell darf nicht durchgereicht werden — jeder Builder prüft seinen eigenen.
+test("ttsFactory: speechify fällt auf simba-3.0 zurück", () => {
+  withKeys({ speechify: "sp-test" }, () => {
+    const tts = buildNativeTts(
+      testAgent({ speak: { provider: "speechify", model: "aura-2-thalia-en", voice: "v1" } }),
+      "call-sp2",
+    ) as SpeechifyTtsStream;
+    assert.equal(tts.buildBody("x").model, "simba-3.0");
+    tts.close();
+  });
+});
+
+// Fish ist Drittland: ohne ausdrückliche Freigabe wird gar nicht erst gebaut,
+// auch wenn Key und Stimme vorhanden sind.
+test("ttsFactory: fish_audio ohne Freigabe → Aura-Fallback", () => {
+  const prev = config.fishAudio.enabled;
+  config.fishAudio.enabled = false;
+  try {
+    withKeys({ fish: "fish-test" }, () => {
+      const tts = buildNativeTts(
+        testAgent({ speak: { provider: "fish_audio", model: "s2.1-pro", voice: "voice-123" } }),
+        "call-fish",
+      );
+      assert.ok(tts instanceof AuraTtsStream);
+      tts.close();
+    });
+  } finally {
+    config.fishAudio.enabled = prev;
+  }
+});
+
+test("ttsFactory: fish_audio mit Freigabe, Key und reference_id", () => {
+  const prev = config.fishAudio.enabled;
+  config.fishAudio.enabled = true;
+  try {
+    withKeys({ fish: "fish-test" }, () => {
+      const tts = buildNativeTts(
+        testAgent({ speak: { provider: "fish_audio", model: "s2.1-pro", voice: "voice-123" } }),
+        "call-fish2",
+      ) as FishTtsStream;
+      assert.ok(tts instanceof FishTtsStream);
+      // Telefonie-Default: niedrigste Latenzstufe.
+      assert.equal((tts.buildStartEvent().request as Record<string, unknown>).latency, "low");
+      tts.close();
+    });
+  } finally {
+    config.fishAudio.enabled = prev;
+  }
 });

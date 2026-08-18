@@ -16,8 +16,8 @@ import {
 test("Katalog: speak.provider-Enum stammt aus dem Manifest", () => {
   const enumValues = Agent.schema.path("speak").schema.path("provider").options.enum as string[];
   assert.deepEqual([...enumValues].sort(), [...IMPLEMENTED_TTS_PROVIDER_IDS].sort());
-  // Nicht implementierte Provider dürfen NICHT speicherbar sein.
-  assert.ok(!enumValues.includes("fish_audio"));
+  // Alle sieben Provider sind gebaut — das Enum führt sie damit vollständig.
+  assert.equal(enumValues.length, 7);
 });
 
 // 2 ─ Jeder gelistete Provider ist vollständig beschrieben.
@@ -61,7 +61,7 @@ test("Katalog: providersForPath trennt native und Deepgram-Pfad", () => {
 
   const native = providersForPath("native").map((p) => p.id);
   assert.ok(native.includes("mistral"));
-  assert.ok(!native.includes("fish_audio"), "nicht implementierte Provider tauchen nicht auf");
+  assert.ok(native.includes("azure"), "Azure ist nativ-only");
 });
 
 // 5 ─ DSGVO-Einstufung ist gepflegt (Grundlage für Badge und Doku).

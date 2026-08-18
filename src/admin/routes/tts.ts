@@ -25,9 +25,19 @@ function isConfigured(entry: TtsProviderEntry): boolean {
       return Boolean(config.mistral.apiKey);
     case "AZURE_SPEECH_KEY":
       return Boolean(config.azure.apiKey);
+    case "SPEECHIFY_API_KEY":
+      return Boolean(config.speechify.apiKey);
+    case "FISH_AUDIO_API_KEY":
+      return Boolean(config.fishAudio.apiKey);
     default:
       return false; // Provider ohne Adapter (Phase 2/3)
   }
+}
+
+/** Provider mit Drittland-Sperre erscheinen erst nach ausdrücklicher Freigabe. */
+function isReleased(entry: TtsProviderEntry): boolean {
+  if (entry.optInEnv === "FISH_AUDIO_ENABLED") return config.fishAudio.enabled;
+  return true;
 }
 
 const voiceSchema = {
@@ -138,9 +148,10 @@ export async function ttsRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async () => ({
-      // Nur implementierte Provider — das Panel soll nichts anbieten, was im
-      // Anruf auf Aura zurückfiele.
-      providers: TTS_PROVIDERS.filter((p) => p.implemented).map((p) => ({
+      // Nur implementierte UND freigegebene Provider — das Panel soll nichts
+      // anbieten, was im Anruf auf Aura zurückfiele. Fish Audio ist Drittland und
+      // hängt deshalb zusätzlich an FISH_AUDIO_ENABLED.
+      providers: TTS_PROVIDERS.filter((p) => p.implemented && isReleased(p)).map((p) => ({
         id: p.id,
         label: p.label,
         paths: p.paths,

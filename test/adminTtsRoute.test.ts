@@ -29,7 +29,7 @@ test("GET /api/tts/providers: ohne Auth abgewiesen", async () => {
   });
 });
 
-test("GET /api/tts/providers: liefert nur implementierte Provider", async () => {
+test("GET /api/tts/providers: liefert implementierte und freigegebene Provider", async () => {
   await withServer(async (app) => {
     const res = await app.inject({
       method: "GET",
@@ -39,7 +39,8 @@ test("GET /api/tts/providers: liefert nur implementierte Provider", async () => 
     assert.equal(res.statusCode, 200);
     const body = res.json() as { providers: Array<Record<string, unknown>> };
     const ids = body.providers.map((p) => p.id);
-    assert.deepEqual(ids.sort(), ["azure", "deepgram", "deepgram_flux", "eleven_labs", "mistral"]);
+    // fish_audio fehlt bewusst: Drittland, ohne FISH_AUDIO_ENABLED nicht im Panel.
+    assert.deepEqual(ids.sort(), ["azure", "deepgram", "deepgram_flux", "eleven_labs", "mistral", "speechify"]);
 
     const mistral = body.providers.find((p) => p.id === "mistral");
     assert.equal(mistral?.defaultModel, "voxtral-mini-tts-latest");
@@ -97,4 +98,23 @@ test("Voice-Cloning: Anlegen verlangt Name und Referenzaudio", async () => {
     });
     assert.equal(res.statusCode, 400, "sampleAudio fehlt → Schemafehler");
   });
+});
+
+
+test("GET /api/tts/providers: Fish Audio erscheint erst nach Drittland-Freigabe", async () => {
+  const prev = config.fishAudio.enabled;
+  config.fishAudio.enabled = true;
+  try {
+    await withServer(async (app) => {
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/tts/providers",
+        headers: { "x-api-key": "test-admin-key" },
+      });
+      const ids = (res.json() as { providers: Array<Record<string, unknown>> }).providers.map((p) => p.id);
+      assert.ok(ids.includes("fish_audio"));
+    });
+  } finally {
+    config.fishAudio.enabled = prev;
+  }
 });

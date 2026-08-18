@@ -18,15 +18,14 @@ die Tabellen unten. Wer einen Provider ergänzt, ergänzt ihn dort.
 | **Mistral Voxtral** | nur native | HTTP + SSE `/v1/audio/speech` | 9 inkl. Deutsch (Stimme siehe unten) | **$0,016** | **400 ms** | 🟢 **EU** |
 | **Deepgram Flux TTS** | native + Voice-Agent | WebSocket `/v2/speak` | **nur Englisch** (7 Stimmen) | $0,045 (bis 12.09.2026 frei) | **159 ms** (EU-Endpoint 113 ms) | 🟢 EU-Endpoint (s. u.) |
 | **Azure Neural TTS** | nur native | HTTP + REST `/cognitiveservices/v1` | 150+ Locales, echte deutsche Stimmen | $0,016 (Commitment ab $0,0075) | *ungemessen* | 🟢 **EU** (regionsabhängig) |
+| **Speechify Simba** | nur native | HTTP chunked `/audio/stream` | 3.0 (Default): de, en, es, fr, it, pt · 3.2: nur en | **$0,006–0,010** | *ungemessen* | 🟡 USA |
+| **Fish Audio S2** | nur native | WebSocket + MessagePack | 80+ | $0,015 / 1k **Bytes** | *ungemessen* | 🔴 **Drittland** |
 | **ElevenLabs** | native + Voice-Agent | WebSocket `stream-input` | 30+ | ≈ $0,11 | **146 ms** | 🟡 USA |
 
 TTFA = Zeit bis zum ersten Audio-Byte, Median über drei deutsche Sätze mit je
 frischer Verbindung (`npm run tts-bench`, gemessen 2026-08-18 von einem
 Entwicklerrechner in Deutschland). Auf Kosten pro gesprochener Minute
 umgerechnet: ElevenLabs $0,126 · Aura $0,028 · **Voxtral $0,015**.
-
-Geplant (Adapter noch nicht gebaut, im Manifest bereits beschrieben):
-Deepgram Flux TTS, Speechify Simba, Fish Audio S2 — siehe „Ausblick" unten.
 
 „Pfad" meint den `voiceProvider` des Agents: Die **Deepgram-Voice-Agent-API**
 reicht nur ihre eigenen Stimmen und ElevenLabs durch. Alle übrigen Engines
@@ -209,6 +208,47 @@ einen Einstiegswert — Azure hat über 600 Stimmen, und erfundene Namen hatten 
 schon (siehe Voxtral). Die vollständige, regionsaktuelle Liste holt
 `GET /api/tts/voices?provider=azure` direkt bei Azure ab.
 
+### Speechify: warum simba-3.0 und kein SSML
+
+Default ist `simba-3.0`, nicht das neuere `simba-3.2` — **nur 3.0 spricht
+Deutsch** (dazu en, es, fr, it, pt-BR). 3.2 ist streaming-nativ und schneller,
+aber englisch-only.
+
+Die dokumentierten `*_32`-Stimmen gehören zu 3.2 und damit zu Englisch. Für 3.0
+gibt es keine öffentliche Stimmliste; die IDs kommen aus
+`GET /v1/voices?model=simba-3.0&locale=de-DE`. Im Katalog steht deshalb **keine**
+deutsche Stimme — das Freitextfeld trägt, bis jemand mit Schlüssel die Liste
+abruft. Erfundene Namen hatten wir schon (siehe Voxtral).
+
+Emotion und Tempo gingen bei Speechify nur über SSML. Das ist bewusst nicht
+verdrahtet: Das LLM müsste Markup erzeugen, der Satz-Chunker schneidet aber an
+`.`/`!`/`?` — also mitten durch ein Tag —, und das Markup landete im
+DB-Transkript und im Sprach-Scorer. Großer Radius für einen kosmetischen Gewinn.
+
+Falls der Dienst statt rohem PCM doch einen WAV-Container liefert, schneidet der
+Adapter den Header ab; sonst wäre er am Satzanfang als Knacks zu hören.
+
+### Fish Audio: Drittland, MessagePack und eine offene Frage
+
+Fish ist der einzige Anbieter im Feld mit **roter** Einstufung: betrieben von
+Shanghai Qita Dynamic Technology Co., Ltd, ohne Angemessenheitsbeschluss.
+Anrufaudio und -text sind personenbezogen. Der Provider ist deshalb doppelt
+gesperrt — ohne `FISH_AUDIO_ENABLED=true` erscheint er weder im Panel noch baut
+ihn der Anruf (Fallback auf Aura). Vor dem Einschalten gehören eine eigene
+Transfer-Folgenabschätzung und SCC dazu.
+
+Technisch fällt Fish zweimal aus der Reihe: Es serialisiert mit **MessagePack**
+statt JSON (die einzige neue Laufzeitabhängigkeit des ganzen Blocks), und es
+rechnet in **UTF-8-Bytes** statt in Zeichen ab — deutsche Umlaute und ß kosten
+doppelt. `metrics.ttsCharacters` trägt bei Fish deshalb Bytes; eine zeichengenaue
+Zahl wäre für die Kostenrechnung schlicht falsch.
+
+**Offen und ungeprüft:** ob `sample_rate: 8000` bei `format: "pcm"` akzeptiert
+wird. Die Doku nennt 44100 als Default und listet keine erlaubten Werte, und ohne
+Schlüssel ließ sich das nicht klären. Wird der Wert ignoriert, käme Audio in
+falscher Rate an — hörbar als zu schnelle oder zu langsame Sprache. Das ist der
+erste Test, sobald ein Schlüssel vorliegt.
+
 ### ElevenLabs meldet kein Turn-Ende
 
 Der reale `stream-input`-Endpoint sendet `isFinal` erst beim Verbindungsende,
@@ -260,6 +300,9 @@ gegen echte Gespräche prüfen statt gegen ein Skript.
 | `AZURE_SPEECH_KEY` | *(leer)* | Azure Neural TTS |
 | `AZURE_SPEECH_REGION` | `westeurope` | **Bestimmt den Verarbeitungsort** — EU-Region wählen |
 | `AZURE_SPEECH_ENDPOINT` | *(leer)* | Vollständige URL; nur für Private Endpoints / Custom Voice |
+| `SPEECHIFY_API_KEY` | *(leer)* | Speechify Simba |
+| `FISH_AUDIO_API_KEY` | *(leer)* | Fish Audio S2 |
+| `FISH_AUDIO_ENABLED` | `false` | **Drittland-Freigabe** — ohne sie ist Fish gesperrt |
 | `NATIVE_TTS_URL` | `wss://api.deepgram.com/v1/speak` | Aura-Endpoint (EU: `api.eu.deepgram.com`) |
 | `ELEVENLABS_BASE_URL` | `wss://api.elevenlabs.io/v1` | ElevenLabs-Basis, **systemweit** (EU: `wss://api.eu.residency.elevenlabs.io/v1`, Enterprise) |
 | `NATIVE_TTS_MISTRAL_URL` | `https://api.mistral.ai/v1` | Mistral-Basis |
@@ -270,16 +313,17 @@ Frontend — der Katalog-Endpoint meldet nur, **ob** ein Key gesetzt ist.
 
 ---
 
-## Ausblick
+## Stand der Messungen
 
-Im Manifest bereits beschrieben, Adapter noch nicht gebaut:
+Gemessen sind bisher vier Engines (`npm run tts-bench`, drei deutsche Sätze,
+frische Verbindung je Satz, von einem Entwicklerrechner in Deutschland):
 
-- **Deepgram Flux TTS** — konversationsnahe Synthese auf `/v2/speak`. Interessant
-  weniger wegen der Latenz als wegen `Interrupt` → `SpeechInterrupted`, das
-  `text_spoken` zurückmeldet: damit ließe sich die Gesprächshistorie auf das
-  kürzen, was der Anrufer tatsächlich gehört hat. Derzeit **nur Englisch**
-  (sieben Stimmen).
-- **Speechify Simba** — nominell günstigster Anbieter; `simba-3.0` kann Deutsch,
-  das neuere `simba-3.2` nur Englisch.
-- **Fish Audio S2** — 80+ Sprachen, rechnet allerdings UTF-8-**Bytes** ab
-  (deutsche Umlaute kosten doppelt) und ist datenschutzrechtlich Drittland.
+| Provider | TTFA | $/Minute |
+|---|---|---|
+| ElevenLabs Flash v2.5 | **147 ms** | $0,124 |
+| Deepgram Aura-2 | 165 ms | $0,027 |
+| Deepgram Flux TTS | 201 ms | $0,034 |
+| Mistral Voxtral | 508 ms | **$0,015** |
+
+Azure, Speechify und Fish fehlen noch — dort lag kein Schlüssel vor. Sobald einer
+im Env steht, nimmt das Harness den Provider automatisch mit auf.

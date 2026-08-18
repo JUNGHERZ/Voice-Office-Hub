@@ -36,6 +36,10 @@ export interface ResolvedSpeak {
   /** ElevenLabs voice_settings (nur native Kaskade), 0..1. */
   stability?: number;
   similarityBoost?: number;
+  /** Fish-Audio-Feinschliff (0.8.4), 0..1. */
+  temperature?: number;
+  topP?: number;
+  latencyMode?: "low" | "balanced" | "normal";
 }
 
 export interface ResolvedCustomToolEndpoint {

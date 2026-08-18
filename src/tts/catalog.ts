@@ -290,7 +290,7 @@ export const TTS_PROVIDERS: readonly TtsProviderEntry[] = [
     costPer1kChars: 0.01,
     costNote: "Starter-Tarif; im Pro-/Scale-Tarif $0,008 bzw. $0,006 je 1000 Zeichen.",
     envKey: "SPEECHIFY_API_KEY",
-    implemented: false,
+    implemented: true,
   },
   {
     id: "fish_audio",
@@ -312,7 +312,7 @@ export const TTS_PROVIDERS: readonly TtsProviderEntry[] = [
     costPer1kChars: 0.015,
     costNote: "Abgerechnet werden UTF-8-BYTES, nicht Zeichen — deutsche Umlaute und ß kosten doppelt.",
     envKey: "FISH_AUDIO_API_KEY",
-    implemented: false,
+    implemented: true,
     optInEnv: "FISH_AUDIO_ENABLED",
   },
 ];

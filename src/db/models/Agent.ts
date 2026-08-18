@@ -61,6 +61,11 @@ const SpeakSchema = new Schema(
       min: [0, "speak.similarityBoost: 0–1"],
       max: [1, "speak.similarityBoost: 0–1"],
     },
+    // Fish-Audio-Feinschliff (0.8.4). speed/volume teilen sich die Felder oben;
+    // die Bereiche unterscheiden sich je Anbieter und werden im Adapter geklemmt.
+    temperature: { type: Number, min: [0, "speak.temperature: 0–1"], max: [1, "speak.temperature: 0–1"] },
+    topP: { type: Number, min: [0, "speak.topP: 0–1"], max: [1, "speak.topP: 0–1"] },
+    latencyMode: { type: String, enum: ["low", "balanced", "normal"] },
   },
   { _id: false },
 );
