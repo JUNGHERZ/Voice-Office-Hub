@@ -6,6 +6,40 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.6] – 2026-08-18
+
+### Gemessen
+
+**Azure Neural TTS löst den Zielkonflikt, an dem alle anderen scheitern: 199 ms
+Time-to-First-Audio bei $0,013 je gesprochener Minute, deutsche Stimmen und
+Verarbeitung in `westeurope`.**
+
+Das war die offene Frage seit 0.8.2, und sie fällt deutlicher aus als erwartet.
+Azure liegt nur 60 ms hinter ElevenLabs — dem schnellsten Anbieter im Feld — und
+kostet dabei rund ein Zehntel. Die Sorge vor hohem TTFB, die den Adapter überhaupt
+erst als Wagnis erscheinen ließ, bestätigt sich nicht; die Forenberichte dazu
+betrafen offenbar andere Regionen oder Aufrufmuster.
+
+Vollständiger Stand (`npm run tts-bench`, drei deutsche Sätze, frische Verbindung
+je Satz, von Deutschland aus):
+
+| Provider | TTFA | $/Minute | Verarbeitung |
+|---|---|---|---|
+| ElevenLabs Flash v2.5 | 139 ms | $0,123 | 🟡 US (EU nur Enterprise) |
+| **Azure Neural TTS** | **199 ms** | **$0,013** | 🟢 **EU-Region** |
+| Deepgram Aura-2 | 213 ms | $0,026 | 🟢 EU-Endpoint |
+| Deepgram Flux TTS | 214 ms | $0,034 | 🟢 EU-Endpoint, nur Englisch |
+| Mistral Voxtral | 482 ms | $0,017 | 🟢 EU |
+| Speechify Simba 3.0 | 667 ms | $0,009 | 🟡 US |
+
+Audio gegengeprüft: `de-DE-KatjaNeural` liefert sauberes 8-kHz-PCM (RMS 2745,
+Peak 18173, kein Clipping, kein Container-Header).
+
+Damit ist die Ausgangsfrage dieses Blocks beantwortet — ein DSGVO-konformer
+Ersatz für ElevenLabs mit brauchbarer Latenz und deutschen Stimmen existiert, er
+heißt Azure und nicht Voxtral.
+
+
 ## [0.8.5] – 2026-08-18
 
 ### Added

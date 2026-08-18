@@ -17,8 +17,8 @@ die Tabellen unten. Wer einen Provider ergänzt, ergänzt ihn dort.
 | **Deepgram Aura** | native + Voice-Agent | WebSocket `/v1/speak` | en, de u. a. | $0,030 | **218 ms** | 🟢 EU-Endpoint möglich |
 | **Mistral Voxtral** | nur native | HTTP + SSE `/v1/audio/speech` | 9 inkl. Deutsch (Stimme siehe unten) | **$0,016** | **400 ms** | 🟢 **EU** |
 | **Deepgram Flux TTS** | native + Voice-Agent | WebSocket `/v2/speak` | **nur Englisch** (7 Stimmen) | $0,045 (bis 12.09.2026 frei) | **159 ms** (EU-Endpoint 113 ms) | 🟢 EU-Endpoint (s. u.) |
-| **Azure Neural TTS** | nur native | HTTP + REST `/cognitiveservices/v1` | 150+ Locales, echte deutsche Stimmen | $0,016 (Commitment ab $0,0075) | *ungemessen* | 🟢 **EU** (regionsabhängig) |
-| **Speechify Simba** | nur native | HTTP chunked `/audio/stream` | 3.0 (Default): de, en, es, fr, it, pt · 3.2: nur en | **$0,006–0,010** | *ungemessen* | 🟡 USA |
+| **Azure Neural TTS** | nur native | HTTP + REST `/cognitiveservices/v1` | 150+ Locales, echte deutsche Stimmen | $0,016 (Commitment ab $0,0075) | **199 ms** | 🟢 **EU** (regionsabhängig) |
+| **Speechify Simba** | nur native | HTTP chunked `/audio/stream` | 3.0 (Default): de, en, es, fr, it, pt · 3.2: nur en | **$0,006–0,010** | 667 ms | 🟡 USA |
 | **Fish Audio S2** | nur native | WebSocket + MessagePack | 80+ | $0,015 / 1k **Bytes** | *ungemessen* | 🔴 **Drittland** |
 | **ElevenLabs** | native + Voice-Agent | WebSocket `stream-input` | 30+ | ≈ $0,11 | **146 ms** | 🟡 USA |
 
@@ -51,12 +51,11 @@ $0,126 je gesprochener Minute rund achtmal so teuer wie Voxtral.
 **Guter Mittelweg → Deepgram Aura.** 218 ms und $0,028/min, dazu derselbe
 Anbieter wie beim STT und ein EU-Endpoint.
 
-**Echte deutsche Stimmen mit EU-Verarbeitung → Azure Neural TTS.** Der einzige
-Anbieter im Feld mit gewachsenem deutschem Stimmkatalog *und* Verarbeitung in
-einer EU-Region — anders als Voxtral, wo Deutsch nur über eine geklonte oder
-cross-lingual gesprochene Stimme geht. Preislich gleichauf mit Voxtral, mit
-Commitment-Tarif halb so teuer. **Die Latenz ist hier noch ungemessen** (siehe
-unten) — das ist die offene Frage, nicht der Preis.
+**Für deutsche Telefonagenten → Azure Neural TTS.** Gemessen 199 ms bis zum
+ersten Ton — nur 60 ms hinter ElevenLabs, dabei rund ein Zehntel der Kosten, echte
+deutsche Stimmen und Verarbeitung in `westeurope`. Damit ist es der einzige
+Anbieter im Feld, der Latenz, Kosten, deutsche Sprachqualität und EU-Residency
+zugleich erfüllt; alle anderen geben mindestens eines davon auf.
 
 Die Herstellerangaben taugen für diese Entscheidung nicht: Mistral nennt
 70–90 ms, das ist reine Modellzeit; die eigene Doku spricht von ~0,8 s
@@ -323,14 +322,18 @@ frische Verbindung je Satz, von einem Entwicklerrechner in Deutschland):
 | ElevenLabs Flash v2.5 | **147 ms** | $0,124 |
 | Deepgram Aura-2 | 165 ms | $0,027 |
 | Deepgram Flux TTS | 201 ms | $0,034 |
-| Mistral Voxtral | 508 ms | $0,015 |
-| Speechify Simba 3.0 | **709 ms** | **$0,010** |
+| **Azure Neural TTS** (`westeurope`) | **199 ms** | **$0,013** |
+| Mistral Voxtral | 482 ms | $0,017 |
+| Speechify Simba 3.0 | 667 ms | $0,009 |
 
-Der günstigste Anbieter ist zugleich der langsamste — Speechify braucht rund das
-Fünffache von ElevenLabs bis zum ersten Ton, mit Ausreißern bis 2,1 s. Für einen
-Telefonagenten ist das die falsche Seite des Kompromisses.
+**Azure gewinnt den Zielkonflikt.** 199 ms liegen nur 60 ms hinter ElevenLabs, bei
+rund einem Zehntel der Kosten — und das mit deutschen Stimmen und EU-Verarbeitung.
+ElevenLabs bleibt das schnellste, kostet aber das Neunfache und bekommt EU-Residency
+nur im Enterprise-Tarif.
 
-**Azure fehlt noch** — dort lag kein Schlüssel vor; es ist der einzige verbliebene
-Kandidat mit EU-Verarbeitung *und* gewachsenem deutschem Stimmkatalog.
-**Fish Audio antwortet mit HTTP 402** (Payment Required): Das Konto hat kein
-Guthaben, der `sample_rate`-Spike aus dem Plan bleibt damit offen.
+Der günstigste Anbieter ist zugleich der langsamste: Speechify braucht das
+Fünffache von ElevenLabs bis zum ersten Ton. Für einen Telefonagenten ist das die
+falsche Seite des Kompromisses.
+
+**Fish Audio antwortet mit HTTP 402** (Payment Required) — das Konto hat kein
+Guthaben. Der `sample_rate`-Spike aus dem Plan bleibt damit offen.
