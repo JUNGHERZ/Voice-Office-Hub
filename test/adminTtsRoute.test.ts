@@ -39,7 +39,7 @@ test("GET /api/tts/providers: liefert nur implementierte Provider", async () => 
     assert.equal(res.statusCode, 200);
     const body = res.json() as { providers: Array<Record<string, unknown>> };
     const ids = body.providers.map((p) => p.id);
-    assert.deepEqual(ids.sort(), ["deepgram", "eleven_labs", "mistral"]);
+    assert.deepEqual(ids.sort(), ["azure", "deepgram", "eleven_labs", "mistral"]);
 
     const mistral = body.providers.find((p) => p.id === "mistral");
     assert.equal(mistral?.defaultModel, "voxtral-mini-tts-latest");

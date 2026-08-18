@@ -17,6 +17,7 @@ export const TTS_PROVIDER_IDS = [
   "deepgram_flux",
   "eleven_labs",
   "mistral",
+  "azure",
   "speechify",
   "fish_audio",
 ] as const;
@@ -157,6 +158,20 @@ const SPEECHIFY_VOICES: TtsVoiceEntry[] = [
   { id: "wyatt_32", label: "Wyatt (englisch)", languages: ["en"], models: ["simba-3.2"] },
 ];
 
+/**
+ * Azure-Stimmen. Bei Azure IST der Stimmname das Modell ("de-DE-KatjaNeural") —
+ * dieselbe Form wie bei Aura, deshalb stehen sie in `models` und nicht in `voices`.
+ *
+ * Die Liste ist bewusst KURZ: Azure führt über 600 Stimmen, und der Katalog soll
+ * keine Namen enthalten, die niemand gegengeprüft hat (die erfundenen
+ * Voxtral-Presets waren genau dieser Fehler). Die vollständige, regionsaktuelle
+ * Liste holt `GET /api/tts/voices?provider=azure` direkt bei Azure ab; das
+ * Freitextfeld nimmt jeden Namen entgegen, auch Custom Neural Voices.
+ */
+const AZURE_VOICES: TtsModelEntry[] = [
+  { id: "de-DE-KatjaNeural", label: "Katja (deutsch, weiblich)", languages: ["de"] },
+];
+
 export const TTS_PROVIDERS: readonly TtsProviderEntry[] = [
   {
     id: "deepgram",
@@ -232,6 +247,26 @@ export const TTS_PROVIDERS: readonly TtsProviderEntry[] = [
       "Mistral AI SAS, Paris (Frankreich). Verarbeitung standardmäßig in der EU, 30 Tage Missbrauchs-Retention; Zero Data Retention im Scale-Tarif. Beste Einstufung im Feld.",
     costPer1kChars: 0.016,
     envKey: "MISTRAL_API_KEY",
+    implemented: true,
+  },
+  {
+    id: "azure",
+    label: "Azure Neural TTS",
+    paths: ["native"],
+    models: AZURE_VOICES,
+    defaultModel: "de-DE-KatjaNeural",
+    // Über 600 Stimmen — die Auswahl oben ist ein Einstieg, nicht der Katalog.
+    modelFreeText: true,
+    voices: [],
+    voiceFreeText: false,
+    knobs: [],
+    residency: "eu",
+    residencyNote:
+      "Microsoft Ireland Operations Ltd. Der Verarbeitungsort ist die gewählte Azure-Region — mit AZURE_SPEECH_REGION=westeurope oder germanywestcentral bleibt alles in der EU. Standard hier ist westeurope.",
+    costPer1kChars: 0.016,
+    costNote:
+      "Neural-Stimmen $16 / 1 Mio. Zeichen; Neural HD $22. Mit Commitment-Tarif bis herunter zu $7,50 / 1 Mio.",
+    envKey: "AZURE_SPEECH_KEY",
     implemented: true,
   },
   {

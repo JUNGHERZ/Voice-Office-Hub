@@ -81,6 +81,14 @@ export interface Config {
     /** Nur nötig für Agents mit speak.provider=mistral (Voxtral TTS). */
     apiKey: string;
   };
+  azure: {
+    /** Nur nötig für Agents mit speak.provider=azure (Azure Neural TTS). */
+    apiKey: string;
+    /** Azure-Region — bestimmt Endpoint UND Verarbeitungsort (DSGVO!). */
+    region: string;
+    /** Vollständige Synthese-URL; leer = aus der Region abgeleitet. */
+    endpoint: string;
+  };
   native: {
     /** Flux-Streaming-STT (v2-Listen-WS). */
     sttUrl: string;
@@ -257,6 +265,12 @@ export const config: Config = {
   },
   mistral: {
     apiKey: opt("MISTRAL_API_KEY"),
+  },
+  azure: {
+    apiKey: opt("AZURE_SPEECH_KEY"),
+    // Default bewusst eine EU-Region: Azure verarbeitet dort, wo die Region liegt.
+    region: opt("AZURE_SPEECH_REGION", "westeurope"),
+    endpoint: opt("AZURE_SPEECH_ENDPOINT"),
   },
   native: {
     sttUrl: opt("NATIVE_STT_URL", "wss://api.deepgram.com/v2/listen"),

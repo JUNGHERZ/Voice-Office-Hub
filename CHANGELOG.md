@@ -6,6 +6,50 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.2] – 2026-08-18
+
+### Added
+
+**Azure Neural TTS als vierte Engine.** Anlass war eine unbequeme Lücke: Von den
+bisherigen Engines verarbeitet nur Voxtral in der EU — und dort gibt es keine
+deutschen Preset-Stimmen, Deutsch geht nur über eine geklonte oder cross-lingual
+gesprochene englische Stimme. Azure schließt genau das: gewachsener deutscher
+Stimmkatalog **und** Verarbeitung in einer EU-Region (`westeurope`,
+`germanywestcentral`), preislich gleichauf mit Voxtral und mit Commitment-Tarif
+halb so teuer.
+
+Der Adapter (`src/native/ttsAzure.ts`) sitzt auf der HTTP-Basisklasse aus 0.8.0 —
+ein `POST /cognitiveservices/v1` je Satz mit SSML im Body. `raw-8khz-16bit-mono-pcm`
+und `raw-16khz-16bit-mono-pcm` sind native Ausgabeformate, es wird also **nicht**
+resampelt.
+
+Zwei Dinge, die beim Bauen Aufmerksamkeit brauchten. Erstens das **XML-Escaping**:
+Der Body ist SSML, und ein kaufmännisches Und aus der LLM-Antwort („Meyer & Sohn")
+zerreißt das Dokument — Azure antwortet mit 400, der Satz fällt stumm aus. Zweitens
+der **Stimmkatalog**: Azure führt über 600 Stimmen, und nach den erfundenen
+Voxtral-Presets steht im Manifest nur ein einziger, belegter Einstiegswert. Die
+vollständige, regionsaktuelle Liste holt `GET /api/tts/voices?provider=azure` live
+bei Azure ab; das Freitextfeld nimmt jeden Namen entgegen, auch Custom Neural Voices.
+
+Wie bei Aura **ist** der Stimmname das Modell (`de-DE-KatjaNeural`) — er steht
+deshalb in `speak.model`, nicht in `speak.voice`.
+
+### Bewusst nicht gebaut
+
+**Kein WebSocket-v2-Pfad.** Nur der kann Text streamen (Tokens direkt in den Socket
+statt auf Satzgrenzen zu warten), aber Microsoft unterstützt ihn ausschließlich in
+den SDKs für C#, C++ und Python; für Node gibt es weder Feature noch öffentlich
+dokumentiertes Wire-Format. Ein Nachbau wäre geraten statt spezifiziert — alle
+bisherigen Integrationen hatten dokumentierte Protokolle. Erst messen, dann
+entscheiden, ob der Aufwand sich lohnt.
+
+**Die Latenz ist noch ungemessen**, weil hier kein Azure-Schlüssel vorlag. Der
+Provider steht im Messharness (`npm run tts-bench`) bereits mit drin — sobald
+`AZURE_SPEECH_KEY` gesetzt ist, steht die Zahl neben den anderen dreien. Fremdmessungen
+sehen Azure bei 150–250 ms; Microsoft selbst nennt in der eigenen Doku keine Zahl,
+sondern nur die Mess-API dafür.
+
+
 ## [0.8.1] – 2026-08-18
 
 ### Changed

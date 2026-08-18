@@ -5,21 +5,24 @@ import { test } from "node:test";
 
 import { config } from "../src/config.js";
 import { buildNativeTts } from "../src/native/ttsFactory.js";
+import { AzureTtsStream } from "../src/native/ttsAzure.js";
 import { ElevenLabsTtsStream } from "../src/native/ttsElevenLabs.js";
 import { MistralTtsStream } from "../src/native/ttsMistral.js";
 import { AuraTtsStream } from "../src/native/ttsStream.js";
 import { testAgent } from "./helpers/fakes.js";
 
 /** Keys um einen Testlauf herum setzen und sicher zurückgeben. */
-function withKeys(keys: { eleven?: string; mistral?: string }, fn: () => void): void {
-  const prev = { eleven: config.elevenlabs.apiKey, mistral: config.mistral.apiKey };
+function withKeys(keys: { eleven?: string; mistral?: string; azure?: string }, fn: () => void): void {
+  const prev = { eleven: config.elevenlabs.apiKey, mistral: config.mistral.apiKey, azure: config.azure.apiKey };
   config.elevenlabs.apiKey = keys.eleven ?? "";
   config.mistral.apiKey = keys.mistral ?? "";
+  config.azure.apiKey = keys.azure ?? "";
   try {
     fn();
   } finally {
     config.elevenlabs.apiKey = prev.eleven;
     config.mistral.apiKey = prev.mistral;
+    config.azure.apiKey = prev.azure;
   }
 }
 
@@ -139,4 +142,25 @@ test("ttsFactory: eleven_labs übernimmt die konfigurierte Basis-URL", () => {
   } finally {
     config.elevenlabs.baseUrl = prevUrl;
   }
+});
+
+// Azure: die Stimme steckt im Modellfeld (wie bei Aura ist der Name die Stimme).
+test("ttsFactory: azure mit Key und Stimme", () => {
+  withKeys({ azure: "az-test" }, () => {
+    const tts = buildNativeTts(
+      testAgent({ speak: { provider: "azure", model: "de-DE-KatjaNeural" } }),
+      "call-az",
+    ) as AzureTtsStream;
+    assert.ok(tts instanceof AzureTtsStream);
+    assert.ok(tts.buildSsml("Hallo").includes("name='de-DE-KatjaNeural'"));
+    tts.close();
+  });
+});
+
+test("ttsFactory: azure ohne Key → Aura-Fallback", () => {
+  withKeys({}, () => {
+    const tts = buildNativeTts(testAgent({ speak: { provider: "azure", model: "de-DE-KatjaNeural" } }), "call-az2");
+    assert.ok(tts instanceof AuraTtsStream);
+    tts.close();
+  });
 });

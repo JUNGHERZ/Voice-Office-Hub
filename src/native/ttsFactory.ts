@@ -17,6 +17,7 @@ import { config } from "../config.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
 import { ElevenLabsTtsStream } from "./ttsElevenLabs.js";
+import { AzureTtsStream, azureCanServe, azureEndpointFor } from "./ttsAzure.js";
 import { MistralTtsStream, MISTRAL_DEFAULT_MODEL, MISTRAL_SAMPLE_RATE } from "./ttsMistral.js";
 import { AuraTtsStream } from "./ttsStream.js";
 import type { TtsStreamLike } from "./types.js";
@@ -104,11 +105,41 @@ const buildMistral: TtsBuilder = (agent, callId, log) => {
   );
 };
 
+const buildAzure: TtsBuilder = (agent, callId, log) => {
+  const apiKey = config.azure.apiKey;
+  if (!apiKey) {
+    log.warn("Azure-TTS unvollständig (AZURE_SPEECH_KEY fehlt)");
+    return undefined;
+  }
+  // Bei Azure steckt die Stimme im Modellfeld (wie bei Aura: der Name IST die Stimme).
+  const voice = agent.speak.model?.trim() || agent.speak.voice?.trim();
+  if (!voice) {
+    log.warn("Azure-TTS unvollständig (kein Stimmname gesetzt)");
+    return undefined;
+  }
+  if (!azureCanServe(config.audio.sampleRate)) {
+    log.warn("Azure-TTS: Sample-Rate nicht bedienbar", { rate: config.audio.sampleRate });
+    return undefined;
+  }
+  return new AzureTtsStream(
+    {
+      endpoint: config.azure.endpoint || azureEndpointFor(config.azure.region),
+      apiKey,
+      voice,
+      ...(agent.speak.language ? { language: agent.speak.language } : {}),
+      targetRate: config.audio.sampleRate,
+      concurrency: config.native.httpTtsConcurrency,
+    },
+    callId,
+  );
+};
+
 /** Schlüssel = agent.speak.provider (Enum aus tts/catalog.ts). */
 const BUILDERS: Record<string, TtsBuilder> = {
   deepgram: (agent, callId) => buildAura(agent, callId),
   eleven_labs: buildEleven,
   mistral: buildMistral,
+  azure: buildAzure,
 };
 
 export function buildNativeTts(agent: ResolvedAgent, callId: string): TtsStreamLike {

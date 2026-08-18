@@ -16,6 +16,7 @@ die Tabellen unten. Wer einen Provider ergänzt, ergänzt ihn dort.
 |---|---|---|---|---|---|---|
 | **Deepgram Aura** | native + Voice-Agent | WebSocket `/v1/speak` | en, de u. a. | $0,030 | **218 ms** | 🟢 EU-Endpoint möglich |
 | **Mistral Voxtral** | nur native | HTTP + SSE `/v1/audio/speech` | 9 inkl. Deutsch (Stimme siehe unten) | **$0,016** | **400 ms** | 🟢 **EU** |
+| **Azure Neural TTS** | nur native | HTTP + REST `/cognitiveservices/v1` | 150+ Locales, echte deutsche Stimmen | $0,016 (Commitment ab $0,0075) | *ungemessen* | 🟢 **EU** (regionsabhängig) |
 | **ElevenLabs** | native + Voice-Agent | WebSocket `stream-input` | 30+ | ≈ $0,11 | **146 ms** | 🟡 USA |
 
 TTFA = Zeit bis zum ersten Audio-Byte, Median über drei deutsche Sätze mit je
@@ -50,6 +51,13 @@ $0,126 je gesprochener Minute rund achtmal so teuer wie Voxtral.
 **Guter Mittelweg → Deepgram Aura.** 218 ms und $0,028/min, dazu derselbe
 Anbieter wie beim STT und ein EU-Endpoint.
 
+**Echte deutsche Stimmen mit EU-Verarbeitung → Azure Neural TTS.** Der einzige
+Anbieter im Feld mit gewachsenem deutschem Stimmkatalog *und* Verarbeitung in
+einer EU-Region — anders als Voxtral, wo Deutsch nur über eine geklonte oder
+cross-lingual gesprochene Stimme geht. Preislich gleichauf mit Voxtral, mit
+Commitment-Tarif halb so teuer. **Die Latenz ist hier noch ungemessen** (siehe
+unten) — das ist die offene Frage, nicht der Preis.
+
 Die Herstellerangaben taugen für diese Entscheidung nicht: Mistral nennt
 70–90 ms, das ist reine Modellzeit; die eigene Doku spricht von ~0,8 s
 End-to-End — gemessen sind es 400 ms. Deshalb das Messharness (siehe „Messen").
@@ -66,6 +74,7 @@ verarbeitet, ist damit eine Frage der Auftragsverarbeitung, nicht des Geschmacks
 | **Mistral Voxtral** | Mistral AI SAS, Paris (FR) | EU per Default; 30 Tage Missbrauchs-Retention, Zero Data Retention im Scale-Tarif | 🟢 **EU** — keine Drittlandübermittlung |
 | **Deepgram** (Aura, Flux-STT, Voice Agent) | Deepgram Inc. (US) | `api.eu.deepgram.com` seit 10.01.2026 allgemein verfügbar; unterstützt `/v1/speak`, `/v2/listen`, `/v1/agent/converse`. Gleiche Keys, nur andere Domain | 🟢 **mit EU-Endpoint** — ohne ihn 🟡 |
 | **ElevenLabs** | ElevenLabs Inc. (US) | Mit **EU-Data-Residency** (nur Enterprise) liegt die Speicherung in der EU; zusammen mit Zero Retention Mode auch die Verarbeitung. Ohne sie USA. | 🟢 **mit EU-Residency** — ohne sie 🟡 |
+| **Azure Neural TTS** | Microsoft Ireland Operations Ltd. | Verarbeitung in der **gewählten Region** — `westeurope` (Niederlande) oder `germanywestcentral` (Frankfurt) bleiben in der EU | 🟢 **EU** bei EU-Region — eine US-Region hebelt die Einstufung still aus |
 | **Speechify** *(geplant)* | Speechify Inc. (US) | laut Datenschutzerklärung Verarbeitung und Speicherung in den USA | 🟡 SCC/DPF erforderlich |
 | **Fish Audio** *(geplant)* | Shanghai Qita Dynamic Technology Co., Ltd (CN) | keine Residency-Zusage | 🔴 **Drittland ohne Angemessenheitsbeschluss** |
 | **Deepgram Flux TTS** *(geplant)* | Deepgram Inc. (US) | `/v2/speak` steht **nicht** auf der Liste der EU-Endpoint-Pfade — anders als das bereits genutzte Flux-STT | 🟡 vor Einsatz mit Deepgram klären |
@@ -175,6 +184,30 @@ vorgeholt, während der aktuelle noch spielt. Die Ausgabereihenfolge bleibt
 garantiert (Head-of-Line-Emitter in `src/native/ttsHttp.ts`). Der Standard ist
 `1`; auf `2` erhöhen, wenn Antworten zerhackt klingen.
 
+### Azure: REST statt WebSocket — und was das kostet
+
+Azure kann Text streamen (Tokens direkt in den Socket, ohne auf Satzgrenzen zu
+warten), aber nur über den WebSocket-v2-Endpunkt — und den unterstützt Microsoft
+ausschließlich in den SDKs für **C#, C++ und Python**. Für Node gibt es weder
+SDK-Feature noch öffentlich dokumentiertes Wire-Format; ein Nachbau wäre geraten,
+nicht spezifiziert.
+
+Der Adapter fährt deshalb REST: ein `POST /cognitiveservices/v1` je Satz, SSML im
+Body. Architektonisch ist Azure damit in derselben Klasse wie Voxtral — mit
+demselben Vorbehalt bei den Satzgrenzen (siehe „HTTP-TTS klingt anders"). Dafür
+sind `raw-8khz-16bit-mono-pcm` und `raw-16khz-16bit-mono-pcm` native Formate:
+**kein Resampling**, anders als bei Voxtral.
+
+Der Sprechtext wird XML-escaped, bevor er ins SSML geht. Das ist nicht Kosmetik —
+ein kaufmännisches Und aus der LLM-Antwort („Meyer & Sohn") würde das Dokument
+sonst zerreißen und Azure mit 400 antworten lassen; der Satz fiele stumm aus.
+
+Stimmen stehen bei Azure im **Modellfeld**, nicht im Stimmfeld: der Name *ist* die
+Stimme (`de-DE-KatjaNeural`), genau wie bei Aura. Der Katalog führt bewusst nur
+einen Einstiegswert — Azure hat über 600 Stimmen, und erfundene Namen hatten wir
+schon (siehe Voxtral). Die vollständige, regionsaktuelle Liste holt
+`GET /api/tts/voices?provider=azure` direkt bei Azure ab.
+
 ### ElevenLabs meldet kein Turn-Ende
 
 Der reale `stream-input`-Endpoint sendet `isFinal` erst beim Verbindungsende,
@@ -223,6 +256,9 @@ gegen echte Gespräche prüfen statt gegen ein Skript.
 | `DEEPGRAM_API_KEY` | *(leer)* | Aura-TTS, Flux-STT und Voice Agent |
 | `ELEVENLABS_API_KEY` | *(leer)* | ElevenLabs-TTS; Voice-ID steht am Agenten |
 | `MISTRAL_API_KEY` | *(leer)* | Voxtral-TTS und Voice-Cloning |
+| `AZURE_SPEECH_KEY` | *(leer)* | Azure Neural TTS |
+| `AZURE_SPEECH_REGION` | `westeurope` | **Bestimmt den Verarbeitungsort** — EU-Region wählen |
+| `AZURE_SPEECH_ENDPOINT` | *(leer)* | Vollständige URL; nur für Private Endpoints / Custom Voice |
 | `NATIVE_TTS_URL` | `wss://api.deepgram.com/v1/speak` | Aura-Endpoint (EU: `api.eu.deepgram.com`) |
 | `ELEVENLABS_BASE_URL` | `wss://api.elevenlabs.io/v1` | ElevenLabs-Basis, **systemweit** (EU: `wss://api.eu.residency.elevenlabs.io/v1`, Enterprise) |
 | `NATIVE_TTS_MISTRAL_URL` | `https://api.mistral.ai/v1` | Mistral-Basis |

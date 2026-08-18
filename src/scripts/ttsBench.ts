@@ -33,6 +33,7 @@ const BENCH_VOICE: Record<string, { model?: string; voice?: string }> = {
   // Voxtral hat KEINE deutschen Preset-Stimmen (Cloning-Modell) — die englische
   // Neutral-Stimme spricht den deutschen Text cross-lingual.
   mistral: { model: "voxtral-mini-tts-latest", voice: "en_paul_neutral" },
+  azure: { model: "de-DE-KatjaNeural" },
 };
 
 interface Sample {

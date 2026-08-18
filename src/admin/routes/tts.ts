@@ -10,6 +10,7 @@
 import type { FastifyInstance } from "fastify";
 
 import { config } from "../../config.js";
+import { azureVoicesUrlFor } from "../../native/ttsAzure.js";
 import { TTS_PROVIDERS, type TtsProviderEntry } from "../../tts/catalog.js";
 import { requireAuth } from "../auth.js";
 
@@ -22,6 +23,8 @@ function isConfigured(entry: TtsProviderEntry): boolean {
       return Boolean(config.elevenlabs.apiKey);
     case "MISTRAL_API_KEY":
       return Boolean(config.mistral.apiKey);
+    case "AZURE_SPEECH_KEY":
+      return Boolean(config.azure.apiKey);
     default:
       return false; // Provider ohne Adapter (Phase 2/3)
   }
@@ -162,13 +165,41 @@ export async function ttsRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: {
         tags: ["tts"],
-        summary: "Voxtral-Stimmen auflisten (Presets und eigene Klone)",
-        querystring: { type: "object", properties: { type: { type: "string" } } },
+        summary: "Stimmen auflisten (provider=mistral: Presets und Klone, provider=azure: Regionskatalog)",
+        querystring: {
+          type: "object",
+          properties: { provider: { type: "string" }, type: { type: "string" } },
+        },
       },
     },
     async (req, reply) => {
-      const q = (req.query as { type?: string }).type;
-      const r = await mistralVoices(q ? `?type=${encodeURIComponent(q)}` : "", { method: "GET" });
+      const { provider, type } = req.query as { provider?: string; type?: string };
+
+      // Azure führt über 600 Stimmen und ändert sie regelmäßig — deshalb live aus
+      // der konfigurierten Region statt aus einem Manifest, das sofort veraltet.
+      if (provider === "azure") {
+        if (!config.azure.apiKey) {
+          return reply.code(503).send({ error: "AZURE_SPEECH_KEY ist auf dem Server nicht gesetzt" });
+        }
+        const res = await fetch(azureVoicesUrlFor(config.azure.region), {
+          headers: { "Ocp-Apim-Subscription-Key": config.azure.apiKey },
+        });
+        const text = await res.text();
+        if (!res.ok) return reply.code(res.status).send({ error: text.slice(0, 300) });
+        // Auf das Nötige eindampfen: die Rohantwort ist gut 1 MB.
+        const all = JSON.parse(text) as Array<Record<string, string>>;
+        return reply.send({
+          region: config.azure.region,
+          voices: all.map((v) => ({
+            id: v.ShortName,
+            label: `${v.DisplayName} (${v.LocaleName}, ${v.Gender})`,
+            locale: v.Locale,
+            gender: v.Gender,
+          })),
+        });
+      }
+
+      const r = await mistralVoices(type ? `?type=${encodeURIComponent(type)}` : "", { method: "GET" });
       return reply.code(r.status).send(r.body);
     },
   );
