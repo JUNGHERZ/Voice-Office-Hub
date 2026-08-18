@@ -116,6 +116,31 @@ export class FishTtsStream extends EventEmitter {
       ws.binaryType = "nodebuffer";
       this.ws = ws;
       this.wire(ws);
+      /**
+       * Scheitert schon der Handshake, meldet `ws` nur "Unexpected server
+       * response: 402" — was der Betreiber davon halten soll, steht im Body.
+       * Fish antwortet dort etwa mit dem Hinweis, dass API-Guthaben getrennt vom
+       * Plattform-Guthaben verwaltet wird; ohne diesen Zweig bliebe das verborgen.
+       */
+      const onUnexpected = (_req: unknown, res: { statusCode?: number }) => {
+        let body = "";
+        const stream = res as unknown as NodeJS.ReadableStream;
+        stream.on?.("data", (c: Buffer) => {
+          if (body.length < 400) body += c.toString();
+        });
+        stream.on?.("end", () => {
+          let detail = body.slice(0, 300);
+          try {
+            const parsed = JSON.parse(body) as { message?: string };
+            if (parsed.message) detail = parsed.message;
+          } catch {
+            /* kein JSON — Rohtext behalten */
+          }
+          cleanup();
+          this.connecting = undefined;
+          reject(new Error(`Fish-TTS HTTP ${res.statusCode}: ${detail}`));
+        });
+      };
       const onOpen = () => {
         cleanup();
         this.connecting = undefined;
@@ -140,10 +165,12 @@ export class FishTtsStream extends EventEmitter {
         ws.off("open", onOpen);
         ws.off("error", onError);
         ws.off("close", onClose);
+        ws.off("unexpected-response", onUnexpected);
       };
       ws.on("open", onOpen);
       ws.on("error", onError);
       ws.on("close", onClose);
+      ws.on("unexpected-response", onUnexpected);
     });
     return this.connecting;
   }

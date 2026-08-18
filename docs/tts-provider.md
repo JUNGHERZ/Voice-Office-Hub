@@ -243,10 +243,15 @@ doppelt. `metrics.ttsCharacters` trägt bei Fish deshalb Bytes; eine zeichengena
 Zahl wäre für die Kostenrechnung schlicht falsch.
 
 **Offen und ungeprüft:** ob `sample_rate: 8000` bei `format: "pcm"` akzeptiert
-wird. Die Doku nennt 44100 als Default und listet keine erlaubten Werte, und ohne
-Schlüssel ließ sich das nicht klären. Wird der Wert ignoriert, käme Audio in
-falscher Rate an — hörbar als zu schnelle oder zu langsame Sprache. Das ist der
-erste Test, sobald ein Schlüssel vorliegt.
+wird. Die Doku nennt 44100 als Default und listet keine erlaubten Werte. Mit
+Schlüssel, aber ohne API-Guthaben scheitert schon der Handshake (HTTP 402) — der
+Adapter kommt gar nicht bis zur Synthese. Wird der Wert später ignoriert, käme
+Audio in falscher Rate an, hörbar als zu schnelle oder zu langsame Sprache. Das
+ist der erste Test, sobald API-Guthaben vorliegt.
+
+Damit man das nicht raten muss, liest der Adapter den Antwort-Body eines
+gescheiterten Handshakes aus: Statt `Unexpected server response: 402` steht die
+Erklärung des Dienstes im Log.
 
 ### ElevenLabs meldet kein Turn-Ende
 
@@ -335,5 +340,14 @@ Der günstigste Anbieter ist zugleich der langsamste: Speechify braucht das
 Fünffache von ElevenLabs bis zum ersten Ton. Für einen Telefonagenten ist das die
 falsche Seite des Kompromisses.
 
-**Fish Audio antwortet mit HTTP 402** (Payment Required) — das Konto hat kein
-Guthaben. Der `sample_rate`-Spike aus dem Plan bleibt damit offen.
+**Fish Audio antwortet mit HTTP 402.** Ursache ist nicht das Plattform-Guthaben:
+Fish führt **zwei getrennte Töpfe** — die Credits aus dem Weboberflächen-Plan und
+ein separates *API credit*. Die eigenen Konto-Endpunkte zeigen das deutlich
+(`/wallet/self/package` → 8000 Credits, `/wallet/self/api-credit` → `0.000000`,
+`cumulative_top_up: 0`). API-Guthaben wird unter
+[fish.audio/app/developers](https://fish.audio/app/developers) aufgeladen.
+
+Zusätzlich schließt der Free Plan **kommerzielle Nutzung ausdrücklich aus** — für
+einen produktiven Telefonagenten reicht er ohnehin nicht.
+
+Der `sample_rate`-Spike aus dem Plan bleibt damit offen.

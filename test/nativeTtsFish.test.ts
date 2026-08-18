@@ -161,3 +161,24 @@ test("FishTtsStream: finish reason=error meldet sich als Fehler", async () => {
   tts.close();
   await srv.close();
 });
+
+// 6 ─ Scheitert schon der Handshake, muss die Ursache lesbar sein. Fish antwortet
+//     etwa mit 402 und erklärt im Body, dass API-Guthaben getrennt vom
+//     Plattform-Guthaben verwaltet wird — genau das braucht der Betreiber.
+test("FishTtsStream: HTTP-Fehler beim Handshake nennt die Ursache", async () => {
+  const http = await import("node:http");
+  const server = http.createServer((_req, res) => {
+    res.writeHead(402, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: 402, message: "Insufficient API credit." }));
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const addr = server.address();
+  const port = typeof addr === "object" && addr ? addr.port : 0;
+
+  const tts = new FishTtsStream(makeOpts({ url: `ws://127.0.0.1:${port}` }), "call-402");
+  tts.on("error", () => {});
+  await assert.rejects(() => tts.start(), /402.*Insufficient API credit/);
+
+  tts.close();
+  await new Promise<void>((r) => server.close(() => r()));
+});

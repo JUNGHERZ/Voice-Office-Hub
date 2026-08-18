@@ -6,6 +6,28 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.7] – 2026-08-18
+
+### Fixed
+
+**Ein gescheiterter WebSocket-Handshake nennt jetzt seine Ursache.** Scheitert
+schon der Verbindungsaufbau, meldet die `ws`-Bibliothek nur
+`Unexpected server response: 402` — die Erklärung steht im Antwort-Body und blieb
+bisher verborgen. Der Fish-Adapter liest ihn aus, sodass im Log die Meldung des
+Dienstes selbst erscheint.
+
+Konkret bei Fish Audio: *„Insufficient API credit. API credit is managed
+independently from platform credit."* Genau das war der Stolperstein — Fish führt
+**zwei getrennte Guthabentöpfe**. Die Credits des Weboberflächen-Plans (im Konto
+sichtbar) gelten nicht für die API; deren Guthaben wird unter
+fish.audio/app/developers separat aufgeladen. Die Konto-Endpunkte zeigen es
+unmissverständlich: `/wallet/self/package` meldet 8000 Credits,
+`/wallet/self/api-credit` meldet `0.000000` bei `cumulative_top_up: 0`.
+
+Der `sample_rate: 8000`-Spike bleibt damit offen — der Adapter kommt ohne
+API-Guthaben nicht bis zur Synthese.
+
+
 ## [0.8.6] – 2026-08-18
 
 ### Gemessen
