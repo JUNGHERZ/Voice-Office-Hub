@@ -6,6 +6,38 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.8] – 2026-08-18
+
+### Gemessen
+
+**Alle sieben Engines stehen jetzt mit Zahlen da — der Block ist damit
+vollständig.**
+
+| Provider | TTFA | $/Minute | Verarbeitung | Deutsch |
+|---|---|---|---|---|
+| ElevenLabs Flash v2.5 | 138 ms | $0,115 | 🟡 US | ✅ |
+| Deepgram Aura-2 | 159 ms | $0,027 | 🟢 EU-Endpoint | ✅ |
+| Deepgram Flux TTS | 162 ms | $0,032 | 🟢 EU-Endpoint | ❌ nur Englisch |
+| **Azure Neural TTS** | **191 ms** | **$0,013** | 🟢 **EU-Region** | ✅ |
+| Fish Audio S2.1 Pro | 324 ms | $0,016 | 🔴 Drittland | ✅ |
+| Mistral Voxtral | 461 ms | $0,016 | 🟢 EU | ⚠️ nur geklont |
+| Speechify Simba 3.0 | 670 ms | $0,010 | 🟡 US | ✅ |
+
+**Der `sample_rate`-Spike aus dem Plan ist beantwortet: Fish akzeptiert 8000 Hz.**
+Gegengeprüft mit demselben Satz bei 8000, 16000 und 44100 Hz — die Bytezahlen
+skalieren mit der Rate (1,76 s / 2,09 s / 1,95 s Sprache). Bei einem ignorierten
+Parameter wäre dreimal dieselbe Datenmenge gekommen. Es wird also nicht resampelt,
+und Fish war mit 324 ms schneller als erwartet.
+
+### Added
+
+- **`s2.1-pro-free` im Katalog.** Fish stellt dasselbe S2.1-Pro-Modell kostenfrei
+  bereit — verifiziert, das API-Guthaben bleibt nach einem Aufruf unverändert.
+  Es unterliegt allerdings einer Fair-Use-Policy und gibt laut Fish **keine Zusage
+  zu Uptime oder TTFA**; für einen Telefonagenten ist das die falsche Grundlage,
+  deshalb bleibt `s2.1-pro` der Default.
+
+
 ## [0.8.7] – 2026-08-18
 
 ### Fixed

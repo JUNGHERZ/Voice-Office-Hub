@@ -19,7 +19,7 @@ die Tabellen unten. Wer einen Provider ergänzt, ergänzt ihn dort.
 | **Deepgram Flux TTS** | native + Voice-Agent | WebSocket `/v2/speak` | **nur Englisch** (7 Stimmen) | $0,045 (bis 12.09.2026 frei) | **159 ms** (EU-Endpoint 113 ms) | 🟢 EU-Endpoint (s. u.) |
 | **Azure Neural TTS** | nur native | HTTP + REST `/cognitiveservices/v1` | 150+ Locales, echte deutsche Stimmen | $0,016 (Commitment ab $0,0075) | **199 ms** | 🟢 **EU** (regionsabhängig) |
 | **Speechify Simba** | nur native | HTTP chunked `/audio/stream` | 3.0 (Default): de, en, es, fr, it, pt · 3.2: nur en | **$0,006–0,010** | 667 ms | 🟡 USA |
-| **Fish Audio S2** | nur native | WebSocket + MessagePack | 80+ | $0,015 / 1k **Bytes** | *ungemessen* | 🔴 **Drittland** |
+| **Fish Audio S2** | nur native | WebSocket + MessagePack | 80+ | $0,015 / 1k **Bytes** (`s2.1-pro-free`: $0) | 324 ms | 🔴 **Drittland** |
 | **ElevenLabs** | native + Voice-Agent | WebSocket `stream-input` | 30+ | ≈ $0,11 | **146 ms** | 🟡 USA |
 
 TTFA = Zeit bis zum ersten Audio-Byte, Median über drei deutsche Sätze mit je
@@ -242,16 +242,14 @@ rechnet in **UTF-8-Bytes** statt in Zeichen ab — deutsche Umlaute und ß koste
 doppelt. `metrics.ttsCharacters` trägt bei Fish deshalb Bytes; eine zeichengenaue
 Zahl wäre für die Kostenrechnung schlicht falsch.
 
-**Offen und ungeprüft:** ob `sample_rate: 8000` bei `format: "pcm"` akzeptiert
-wird. Die Doku nennt 44100 als Default und listet keine erlaubten Werte. Mit
-Schlüssel, aber ohne API-Guthaben scheitert schon der Handshake (HTTP 402) — der
-Adapter kommt gar nicht bis zur Synthese. Wird der Wert später ignoriert, käme
-Audio in falscher Rate an, hörbar als zu schnelle oder zu langsame Sprache. Das
-ist der erste Test, sobald API-Guthaben vorliegt.
+**`sample_rate: 8000` wird akzeptiert** — die offene Frage aus dem Plan ist damit
+beantwortet. Gegengeprüft mit demselben Satz bei 8000, 16000 und 44100 Hz: die
+Bytezahlen skalieren mit der Rate (1,76 s / 2,09 s / 1,95 s Sprache), bei einem
+ignorierten Parameter wäre dreimal dieselbe Datenmenge gekommen. Es wird also
+**nicht resampelt**.
 
-Damit man das nicht raten muss, liest der Adapter den Antwort-Body eines
-gescheiterten Handshakes aus: Statt `Unexpected server response: 402` steht die
-Erklärung des Dienstes im Log.
+Scheitert ein Handshake, liest der Adapter den Antwort-Body aus: Statt
+`Unexpected server response: 402` steht die Erklärung des Dienstes im Log.
 
 ### ElevenLabs meldet kein Turn-Ende
 
@@ -319,35 +317,24 @@ Frontend — der Katalog-Endpoint meldet nur, **ob** ein Key gesetzt ist.
 
 ## Stand der Messungen
 
-Gemessen sind bisher vier Engines (`npm run tts-bench`, drei deutsche Sätze,
-frische Verbindung je Satz, von einem Entwicklerrechner in Deutschland):
+Alle sieben Engines gemessen (`npm run tts-bench`, drei deutsche Sätze, frische
+Verbindung je Satz, von einem Entwicklerrechner in Deutschland, 2026-08-18):
 
-| Provider | TTFA | $/Minute |
-|---|---|---|
-| ElevenLabs Flash v2.5 | **147 ms** | $0,124 |
-| Deepgram Aura-2 | 165 ms | $0,027 |
-| Deepgram Flux TTS | 201 ms | $0,034 |
-| **Azure Neural TTS** (`westeurope`) | **199 ms** | **$0,013** |
-| Mistral Voxtral | 482 ms | $0,017 |
-| Speechify Simba 3.0 | 667 ms | $0,009 |
+| Provider | TTFA | $/Minute | Verarbeitung | Deutsch |
+|---|---|---|---|---|
+| ElevenLabs Flash v2.5 | **138 ms** | $0,115 | 🟡 US (EU nur Enterprise) | ✅ |
+| Deepgram Aura-2 | 159 ms | $0,027 | 🟢 EU-Endpoint | ✅ |
+| Deepgram Flux TTS | 162 ms | $0,032 | 🟢 EU-Endpoint | ❌ nur Englisch |
+| **Azure Neural TTS** | **191 ms** | **$0,013** | 🟢 **EU-Region** | ✅ |
+| Fish Audio S2.1 Pro | 324 ms | $0,016 (frei: $0) | 🔴 Drittland | ✅ |
+| Mistral Voxtral | 461 ms | $0,016 | 🟢 EU | ⚠️ nur geklont |
+| Speechify Simba 3.0 | 670 ms | **$0,010** | 🟡 US | ✅ |
 
-**Azure gewinnt den Zielkonflikt.** 199 ms liegen nur 60 ms hinter ElevenLabs, bei
-rund einem Zehntel der Kosten — und das mit deutschen Stimmen und EU-Verarbeitung.
-ElevenLabs bleibt das schnellste, kostet aber das Neunfache und bekommt EU-Residency
-nur im Enterprise-Tarif.
+**Azure gewinnt den Zielkonflikt.** Es ist der einzige Anbieter, der Latenz,
+Kosten, deutsche Sprachqualität und EU-Verarbeitung zugleich erfüllt — 53 ms
+hinter dem schnellsten Anbieter, bei einem Neuntel von dessen Kosten.
 
-Der günstigste Anbieter ist zugleich der langsamste: Speechify braucht das
-Fünffache von ElevenLabs bis zum ersten Ton. Für einen Telefonagenten ist das die
-falsche Seite des Kompromisses.
+Die übrigen geben jeweils mindestens eines auf: ElevenLabs die EU-Residency (außer
+im Enterprise-Tarif) und den Preis, Flux TTS die deutsche Sprache, Voxtral und
+Speechify die Latenz, Fish den Datenschutz.
 
-**Fish Audio antwortet mit HTTP 402.** Ursache ist nicht das Plattform-Guthaben:
-Fish führt **zwei getrennte Töpfe** — die Credits aus dem Weboberflächen-Plan und
-ein separates *API credit*. Die eigenen Konto-Endpunkte zeigen das deutlich
-(`/wallet/self/package` → 8000 Credits, `/wallet/self/api-credit` → `0.000000`,
-`cumulative_top_up: 0`). API-Guthaben wird unter
-[fish.audio/app/developers](https://fish.audio/app/developers) aufgeladen.
-
-Zusätzlich schließt der Free Plan **kommerzielle Nutzung ausdrücklich aus** — für
-einen produktiven Telefonagenten reicht er ohnehin nicht.
-
-Der `sample_rate`-Spike aus dem Plan bleibt damit offen.

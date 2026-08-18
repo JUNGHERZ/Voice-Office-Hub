@@ -299,9 +299,13 @@ export const TTS_PROVIDERS: readonly TtsProviderEntry[] = [
     paths: ["native"],
     models: [
       { id: "s2.1-pro", label: "S2.1 Pro", languages: ["multi"] },
+      { id: "s2.1-pro-free", label: "S2.1 Pro (kostenfrei, ohne SLA)", languages: ["multi"] },
       { id: "s2-pro", label: "S2 Pro", languages: ["multi"] },
       { id: "s1", label: "S1 (Legacy)", languages: ["multi"] },
     ],
+    // Default bleibt der bezahlte Tarif: die kostenfreie Variante ist dasselbe
+    // Modell, aber ausdrücklich ohne Uptime- und TTFA-Zusage — für einen
+    // Telefonagenten die falsche Grundlage.
     defaultModel: "s2.1-pro",
     modelFreeText: false,
     voices: [],
@@ -311,7 +315,8 @@ export const TTS_PROVIDERS: readonly TtsProviderEntry[] = [
     residencyNote:
       "Shanghai Qita Dynamic Technology Co., Ltd (China). Drittlandübermittlung ohne Angemessenheitsbeschluss; Anrufaudio und -text sind personenbezogen. Nicht ohne eigene Transfer-Folgenabschätzung und SCC einsetzen.",
     costPer1kChars: 0.015,
-    costNote: "Abgerechnet werden UTF-8-BYTES, nicht Zeichen — deutsche Umlaute und ß kosten doppelt.",
+    costNote:
+      "Abgerechnet werden UTF-8-BYTES, nicht Zeichen — deutsche Umlaute und ß kosten doppelt. Das Modell s2.1-pro-free kostet nichts (verifiziert: Guthaben bleibt unverändert), unterliegt aber einer Fair-Use-Policy und gibt keine Uptime- oder TTFA-Zusage. API-Guthaben wird getrennt vom Plattform-Guthaben geführt.",
     envKey: "FISH_AUDIO_API_KEY",
     implemented: true,
     optInEnv: "FISH_AUDIO_ENABLED",
