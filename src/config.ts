@@ -94,6 +94,8 @@ export interface Config {
     sttUrl: string;
     /** Aura-Streaming-TTS (Speak-WS). */
     ttsUrl: string;
+    /** Flux-Streaming-TTS (v2-Speak-WS; Key kommt aus deepgram.apiKey). */
+    fluxTtsUrl: string;
     /** Mistral Voxtral TTS (Basis bis /v1; Key kommt aus mistral.apiKey). */
     mistralUrl: string;
     /**
@@ -275,6 +277,7 @@ export const config: Config = {
   native: {
     sttUrl: opt("NATIVE_STT_URL", "wss://api.deepgram.com/v2/listen"),
     ttsUrl: opt("NATIVE_TTS_URL", "wss://api.deepgram.com/v1/speak"),
+    fluxTtsUrl: opt("NATIVE_TTS_FLUX_URL", "wss://api.deepgram.com/v2/speak"),
     mistralUrl: opt("NATIVE_TTS_MISTRAL_URL", "https://api.mistral.ai/v1"),
     httpTtsConcurrency: int("NATIVE_HTTP_TTS_CONCURRENCY", 1),
     minSentenceChars: int("NATIVE_MIN_SENTENCE_CHARS", 12),

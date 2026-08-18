@@ -16,6 +16,7 @@ die Tabellen unten. Wer einen Provider ergänzt, ergänzt ihn dort.
 |---|---|---|---|---|---|---|
 | **Deepgram Aura** | native + Voice-Agent | WebSocket `/v1/speak` | en, de u. a. | $0,030 | **218 ms** | 🟢 EU-Endpoint möglich |
 | **Mistral Voxtral** | nur native | HTTP + SSE `/v1/audio/speech` | 9 inkl. Deutsch (Stimme siehe unten) | **$0,016** | **400 ms** | 🟢 **EU** |
+| **Deepgram Flux TTS** | native + Voice-Agent | WebSocket `/v2/speak` | **nur Englisch** (7 Stimmen) | $0,045 (bis 12.09.2026 frei) | **159 ms** (EU-Endpoint 113 ms) | 🟢 EU-Endpoint (s. u.) |
 | **Azure Neural TTS** | nur native | HTTP + REST `/cognitiveservices/v1` | 150+ Locales, echte deutsche Stimmen | $0,016 (Commitment ab $0,0075) | *ungemessen* | 🟢 **EU** (regionsabhängig) |
 | **ElevenLabs** | native + Voice-Agent | WebSocket `stream-input` | 30+ | ≈ $0,11 | **146 ms** | 🟡 USA |
 
@@ -77,7 +78,7 @@ verarbeitet, ist damit eine Frage der Auftragsverarbeitung, nicht des Geschmacks
 | **Azure Neural TTS** | Microsoft Ireland Operations Ltd. | Verarbeitung in der **gewählten Region** — `westeurope` (Niederlande) oder `germanywestcentral` (Frankfurt) bleiben in der EU | 🟢 **EU** bei EU-Region — eine US-Region hebelt die Einstufung still aus |
 | **Speechify** *(geplant)* | Speechify Inc. (US) | laut Datenschutzerklärung Verarbeitung und Speicherung in den USA | 🟡 SCC/DPF erforderlich |
 | **Fish Audio** *(geplant)* | Shanghai Qita Dynamic Technology Co., Ltd (CN) | keine Residency-Zusage | 🔴 **Drittland ohne Angemessenheitsbeschluss** |
-| **Deepgram Flux TTS** *(geplant)* | Deepgram Inc. (US) | `/v2/speak` steht **nicht** auf der Liste der EU-Endpoint-Pfade — anders als das bereits genutzte Flux-STT | 🟡 vor Einsatz mit Deepgram klären |
+| **Deepgram Flux TTS** | Deepgram Inc. (US) | `api.eu.deepgram.com` bedient `/v2/speak` **nachweislich** (live geprüft, von Deutschland aus schneller als global) — Deepgram führt den Pfad in seiner Regionsliste aber nicht auf | 🟢 **mit EU-Endpoint** — für eine belastbare Zusage bei Deepgram bestätigen lassen |
 
 **Empfohlene Konfiguration für deutsche Installationen** — alle drei Anbieter auf
 ihre EU-Endpunkte legen:

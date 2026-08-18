@@ -200,13 +200,13 @@ export const TTS_PROVIDERS: readonly TtsProviderEntry[] = [
     voices: [],
     voiceFreeText: false,
     knobs: ["speed", "expressivity"],
-    residency: "us",
+    residency: "eu-optional",
     residencyNote:
-      "Deepgram Inc. (USA). /v2/speak steht NICHT auf der Liste der EU-Endpoint-Pfade — anders als das bereits genutzte Flux-STT (/v2/listen). Vor produktivem Einsatz mit Deepgram klären.",
+      "Deepgram Inc. (USA). Der EU-Endpoint api.eu.deepgram.com bedient /v2/speak nachweislich (live geprüft 2026-08-18, von Deutschland aus sogar schneller als global) — Deepgram führt den Pfad in seiner Regionsliste allerdings NICHT auf. Für eine belastbare Zusage vorher bei Deepgram bestätigen lassen; ohne EU-Endpoint USA und damit SCC.",
     costPer1kChars: 0.045,
     costNote: "Bis 12.09.2026 kostenlos (45 parallele Streams, davon 5 in EU/AU); danach teurer als Aura.",
     envKey: "DEEPGRAM_API_KEY",
-    implemented: false,
+    implemented: true,
   },
   {
     id: "eleven_labs",

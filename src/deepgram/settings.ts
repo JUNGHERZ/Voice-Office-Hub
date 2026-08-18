@@ -153,6 +153,10 @@ function buildSpeak(agent: ResolvedAgent): SettingsMessage["agent"]["speak"] {
 function buildDeepgramSpeakProvider(agent: ResolvedAgent, model: string): Record<string, unknown> {
   const p: Record<string, unknown> = { type: "deepgram" };
   if (model) p.model = model;
+  // Flux-TTS läuft in der Voice-Agent-API über dieselbe Provider-Struktur, nur
+  // mit version:"v2" — ohne das Feld würde der v2-Modellname gegen Aura (v1)
+  // aufgelöst und abgelehnt.
+  if (model.startsWith("flux-")) p.version = "v2";
   if (agent.speak.voice) p.voice = agent.speak.voice;
   if (agent.speak.language) p.language = agent.speak.language;
   if (agent.speak.speed !== undefined) p.speed = agent.speak.speed;

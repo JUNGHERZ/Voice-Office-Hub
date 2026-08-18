@@ -6,6 +6,66 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.3] – 2026-08-18
+
+### Added
+
+**Deepgram Flux TTS — und damit endlich ein ehrliches Barge-in.** Der eigentliche
+Gewinn ist nicht die Latenz (gemessen 201 ms, zwischen Aura und ElevenLabs),
+sondern eine Lücke, die seit jeher offenstand: `runAssistantTurn` schreibt den
+Assistententurn erst nach vollständigem LLM-Stream in die Historie, und bei
+Barge-in kehrt der `catch` vorher zurück — **der halbe Satz, den der Anrufer
+tatsächlich gehört hat, fehlte danach komplett**. Das Modell wusste nicht, was es
+gesagt hatte, als es unterbrochen wurde, und wiederholte es gern.
+
+Flux ersetzt Auras `Clear` durch `Interrupt` und meldet mit `SpeechInterrupted`
+zurück, was wirklich gesprochen wurde. Das neue `interrupted`-Event trägt den Text
+in die Historie und ins DB-Transkript — bewusst ohne Generations-Gate, denn
+gesprochen ist gesprochen, unabhängig vom Abbruch.
+
+Damit die Meldung stimmt, reicht der callHandler jetzt `pendingPlayoutMs` bis in
+`cancelActiveTurn()` durch (`VoiceSessionOptions`, ein Callback statt einer
+Referenz — die Session bekommt eine Zahl, keinen Zugriff auf die Medienstrecke).
+Ohne diese Korrektur meldete der Server ein zu langes `text_spoken`: Zwischen
+gesendetem und gehörtem Audio liegt der Playout-Puffer, bei langen Sätzen mehrere
+Sekunden. Die Historie behauptete dann Sätze, die nie zu hören waren — schlechter
+als gar keine Kürzung. Live geprüft: mit korrigiertem Offset liefert der Server
+genau den gehörten Ausschnitt.
+
+Im Voice-Agent-Pfad ist Flux ein einzelnes Feld — `version: "v2"` neben dem
+`flux-*`-Modellnamen.
+
+### Fixed
+
+Zwei Abweichungen zur Dokumentation, die erst gegen die echte API auffielen:
+
+- **`Flushed` ist NICHT das Turn-Ende.** Anders als bei Aura bestätigt es nur den
+  Eingang der Flush-Anforderung — das Audio beginnt danach (gemessen: `Flushed`
+  bei +1229 ms, erstes Audio bei +1306 ms). Wer darauf `flushed` emittiert,
+  meldet das Turn-Ende, bevor der erste Ton läuft. Das Event hängt jetzt an
+  `SpeechMetadata`, das laut Doku *und* Messung nach dem letzten Audioframe kommt.
+- **Flux spricht erst nach `Flush`.** Ein `Speak` allein erzeugt nur
+  `SpeechStarted` und wartet — anders als Aura, das sofort losläuft.
+
+### Changed
+
+- **Flux TTS steht auf 🟢 statt 🟡.** In 0.8.0 hatte ich es als vermutlich
+  US-only eingestuft, weil Deepgram `/v2/speak` in seiner Regionsliste nicht
+  aufführt. Live geprüft bedient `api.eu.deepgram.com` den Pfad aber sehr wohl —
+  von Deutschland aus sogar schneller als global (113 ms gegenüber 159 ms). Für
+  eine belastbare Zusage sollte man sich das von Deepgram bestätigen lassen,
+  solange die Doku schweigt.
+- Die Event-Map `TtsStreamEvents` liegt jetzt in `native/types.ts` bei der Naht
+  statt in `ttsStream.ts`: `interrupted` kommt von Aura gar nicht, die Map gehört
+  also nicht zu einer Implementierung. `ttsStream.ts` re-exportiert sie.
+- `TtsStreamLike.clear()` nimmt optional `unplayedMs` entgegen. Optional, damit
+  Aura, ElevenLabs, die HTTP-Basisklasse und die Test-Fakes zuweisbar bleiben.
+
+**Einschränkung, die bleibt:** Flux TTS gibt es nur auf Englisch (sieben Stimmen).
+Für die deutschen Bestandsagenten ist es damit nicht einsetzbar — der Wert liegt
+vorerst in der Barge-in-Mechanik und in englischsprachigen Agenten.
+
+
 ## [0.8.2] – 2026-08-18
 
 ### Added

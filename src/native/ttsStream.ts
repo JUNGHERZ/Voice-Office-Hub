@@ -15,7 +15,7 @@ import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 
 import { logger } from "../util/logger.js";
-import type { AuraServerMessage, TtsUsage } from "./types.js";
+import type { AuraServerMessage, TtsStreamEvents, TtsUsage } from "./types.js";
 
 export interface TtsStreamOptions {
   url: string;
@@ -25,13 +25,9 @@ export interface TtsStreamOptions {
   sampleRate: number;
 }
 
-export interface TtsStreamEvents {
-  audio: (chunk: Buffer) => void;
-  /** Server hat den Flush verarbeitet — das Turn-Audio ist vollständig übergeben. */
-  flushed: (sequenceId: number | undefined) => void;
-  error: (description: string) => void;
-  close: (code: number) => void;
-}
+// Die Event-Map liegt in types.ts (bei der Naht) — hier re-exportiert, damit
+// bestehende Importe aus ttsStream.js unverändert funktionieren.
+export type { TtsStreamEvents } from "./types.js";
 
 export declare interface AuraTtsStream {
   on<E extends keyof TtsStreamEvents>(event: E, listener: TtsStreamEvents[E]): this;

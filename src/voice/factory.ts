@@ -18,6 +18,15 @@ export interface VoiceSessionOptions {
   functions: FunctionDefinition[];
   /** Laufzeit-Lokalisierung der Filler-Ansagen (nur native genutzt; Deepgram ignoriert ihn). */
   localizer?: FillerLocalizer;
+  /**
+   * Noch nicht abgespieltes Agent-Audio in ms (MediaSession.pendingMs()).
+   * Nur der callHandler kennt den Playout-Puffer; TTS-Anbieter mit
+   * serverseitigem Truncate (Flux TTS) brauchen ihn fürs Barge-in, um die
+   * tatsächlich GEHÖRTE Position zu melden statt der gesendeten.
+   * Bewusst ein Callback und keine Referenz — die Session bekommt eine Zahl,
+   * keinen Zugriff auf die Medienstrecke (Muster wie FillerLocalizer/setTimer).
+   */
+  pendingPlayoutMs?: () => number;
 }
 
 export function createVoiceAgentSession(
@@ -30,7 +39,14 @@ export function createVoiceAgentSession(
     case "native":
       // Eigene STT→LLM→TTS-Kaskade: Flux + Requesty + TTS-Matrix (Aura oder ElevenLabs
       // je nach agent.speak.provider — Auswahl/Fallback in native/nativeSession.ts).
-      return new NativeSession(agent, opts.functions, opts.callId, undefined, opts.localizer);
+      return new NativeSession(
+        agent,
+        opts.functions,
+        opts.callId,
+        undefined,
+        opts.localizer,
+        opts.pendingPlayoutMs,
+      );
     // Geplante Adapter — Enum im Agent-Schema erst bei Implementierung freischalten:
     case "elevenlabs":
     case "openai-realtime":

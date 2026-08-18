@@ -34,6 +34,9 @@ const BENCH_VOICE: Record<string, { model?: string; voice?: string }> = {
   // Neutral-Stimme spricht den deutschen Text cross-lingual.
   mistral: { model: "voxtral-mini-tts-latest", voice: "en_paul_neutral" },
   azure: { model: "de-DE-KatjaNeural" },
+  // Flux TTS gibt es nur auf Englisch — der deutsche Testsatz misst hier also
+  // Latenz und Kosten, nicht die Aussprache.
+  deepgram_flux: { model: "flux-haley-en" },
 };
 
 interface Sample {

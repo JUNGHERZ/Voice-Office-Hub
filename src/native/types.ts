@@ -32,6 +32,36 @@ export interface AuraServerMessage {
   description?: string;
 }
 
+// ── Flux TTS (Streaming-TTS, v2-Speak) ───────────────────────────────────────
+
+/**
+ * Server → Client Steuernachrichten von /v2/speak; Audio kommt als Binärframes.
+ * Tolerant getippt — unbekannte Typen werden ignoriert.
+ */
+export interface FluxTtsServerMessage {
+  type:
+    | "Connected"
+    | "SpeechStarted"
+    | "SpeechInterrupted"
+    | "SpeechMetadata"
+    | "SessionMetadata"
+    | "Flushed"
+    | "ConfigureSuccess"
+    | "ConfigureFailure"
+    | "Warning"
+    | "Error"
+    | string;
+  speech_id?: string;
+  /** SpeechInterrupted: was der Anrufer tatsächlich gehört hat. */
+  text_spoken?: string;
+  text_remaining?: string;
+  audio_played_ms?: number;
+  /** SpeechMetadata: Abrechnungsbasis laut Server. */
+  billable_character_count?: number;
+  code?: string;
+  description?: string;
+}
+
 // ── OpenAI-kompatibles Chat-Streaming (Requesty) ─────────────────────────────
 
 export interface LlmToolCall {
@@ -92,11 +122,38 @@ export interface TtsUsage {
   credits?: number;
 }
 
+/**
+ * Ereignisse aller TTS-Clients. Liegt hier und nicht in ttsStream.ts, weil
+ * `interrupted` von Aura gar nicht kommt — die Event-Map gehört zur Naht, nicht
+ * zu einer Implementierung. ttsStream.ts re-exportiert sie, damit bestehende
+ * Importe unverändert bleiben.
+ */
+export interface TtsStreamEvents {
+  audio: (chunk: Buffer) => void;
+  /** Server hat den Flush verarbeitet — das Turn-Audio ist vollständig übergeben. */
+  flushed: (sequenceId: number | undefined) => void;
+  /**
+   * Barge-in vom Anbieter bestätigt, inklusive dem, was der Anrufer WIRKLICH
+   * gehört hat. Nur Anbieter mit serverseitigem Truncate liefern das
+   * (Flux TTS via SpeechInterrupted); Aura und ElevenLabs kennen es nicht.
+   */
+  interrupted: (ev: { spokenText: string; audioPlayedMs: number }) => void;
+  error: (description: string) => void;
+  close: (code: number) => void;
+}
+
 export interface TtsStreamLike {
   start(): Promise<void>;
   sendText(text: string): void;
   flush(): void;
-  clear(): void;
+  /**
+   * Barge-in.
+   * @param unplayedMs Noch nicht abgespieltes Agent-Audio in der Media-Queue
+   *   (MediaSession.pendingMs()). Anbieter mit serverseitigem Truncate rechnen
+   *   daraus die echte Abspielposition; alle anderen ignorieren den Wert.
+   *   Optionaler Parameter, damit bestehende Clients zuweisbar bleiben.
+   */
+  clear(unplayedMs?: number): void;
   close(): void;
   usage?(): TtsUsage;
   on(event: string, listener: (...args: never[]) => void): unknown;

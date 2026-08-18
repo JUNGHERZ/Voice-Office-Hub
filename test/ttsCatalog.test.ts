@@ -56,7 +56,7 @@ test("Katalog: Speechify hat simba-3.0 als Default (Deutsch)", () => {
 // 4 ─ Pfad-Filter: die Voice-Agent-API reicht nur eigene Stimmen + ElevenLabs durch.
 test("Katalog: providersForPath trennt native und Deepgram-Pfad", () => {
   const va = providersForPath("deepgram").map((p) => p.id);
-  assert.deepEqual(va.sort(), ["deepgram", "eleven_labs"]);
+  assert.deepEqual(va.sort(), ["deepgram", "deepgram_flux", "eleven_labs"]);
   assert.ok(!va.includes("mistral"), "Mistral läuft nur in der nativen Kaskade");
 
   const native = providersForPath("native").map((p) => p.id);

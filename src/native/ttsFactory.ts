@@ -18,6 +18,7 @@ import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
 import { ElevenLabsTtsStream } from "./ttsElevenLabs.js";
 import { AzureTtsStream, azureCanServe, azureEndpointFor } from "./ttsAzure.js";
+import { FluxTtsStream } from "./ttsFlux.js";
 import { MistralTtsStream, MISTRAL_DEFAULT_MODEL, MISTRAL_SAMPLE_RATE } from "./ttsMistral.js";
 import { AuraTtsStream } from "./ttsStream.js";
 import type { TtsStreamLike } from "./types.js";
@@ -134,12 +135,38 @@ const buildAzure: TtsBuilder = (agent, callId, log) => {
   );
 };
 
+const buildFlux: TtsBuilder = (agent, callId, log) => {
+  const apiKey = config.deepgram.apiKey;
+  if (!apiKey) {
+    log.warn("Flux-TTS unvollständig (DEEPGRAM_API_KEY fehlt)");
+    return undefined;
+  }
+  // Wie bei Aura IST der Modellname die Stimme ("flux-haley-en").
+  const model = agent.speak.model?.trim();
+  if (!model || !model.startsWith("flux-")) {
+    log.warn("Flux-TTS: kein flux-Modell gesetzt", { model });
+    return undefined;
+  }
+  return new FluxTtsStream(
+    {
+      url: config.native.fluxTtsUrl,
+      apiKey,
+      model,
+      encoding: config.audio.encoding,
+      sampleRate: config.audio.sampleRate,
+      ...(agent.speak.speed !== undefined ? { speed: agent.speak.speed } : {}),
+    },
+    callId,
+  );
+};
+
 /** Schlüssel = agent.speak.provider (Enum aus tts/catalog.ts). */
 const BUILDERS: Record<string, TtsBuilder> = {
   deepgram: (agent, callId) => buildAura(agent, callId),
   eleven_labs: buildEleven,
   mistral: buildMistral,
   azure: buildAzure,
+  deepgram_flux: buildFlux,
 };
 
 export function buildNativeTts(agent: ResolvedAgent, callId: string): TtsStreamLike {

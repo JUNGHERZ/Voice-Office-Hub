@@ -587,6 +587,9 @@ async function runAgentCall(
       callId: channel.id,
       functions: callToolset.definitions,
       localizer,
+      // media steht hier bereits — die Sonde meldet, wie viel Agent-Audio noch
+      // in der Playout-Queue liegt und damit NICHT gehört wurde.
+      pendingPlayoutMs: () => media?.pendingMs?.() ?? 0,
     });
 
     /**

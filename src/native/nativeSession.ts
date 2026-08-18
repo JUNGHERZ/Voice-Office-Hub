@@ -157,6 +157,8 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     private readonly callId: string,
     depsOverride?: Partial<NativeSessionDeps>,
     private readonly localizer?: FillerLocalizer,
+    /** Noch nicht abgespieltes Agent-Audio (ms) — siehe VoiceSessionOptions. */
+    private readonly pendingPlayoutMs?: () => number,
   ) {
     super();
     this.deps = { ...defaultDeps, ...depsOverride };
@@ -395,6 +397,29 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
         this.emit("agentAudioDone");
       }
     });
+    /**
+     * Barge-in vom Anbieter bestätigt (nur Flux TTS): `text_spoken` ist das, was
+     * der Anrufer WIRKLICH gehört hat. Ohne dieses Event fehlt der halbe Satz
+     * komplett in der Historie — runAssistantTurn schreibt den Assistententurn
+     * erst nach vollständigem LLM-Stream, und bei Barge-in kehrt der catch vorher
+     * zurück. Das Modell weiß dann nicht, was es gesagt hat, als es unterbrochen
+     * wurde, und wiederholt es gern.
+     *
+     * Bewusst NICHT generationsgegated: Gesprochen ist gesprochen, unabhängig
+     * davon, ob der Turn abgebrochen wurde (gleiche Begründung wie bei
+     * sendFunctionResponse).
+     */
+    this.tts.on("interrupted", (ev: { spokenText: string; audioPlayedMs: number }) => {
+      const text = ev.spokenText.trim();
+      if (!text || this.closed) return;
+      this.log.debug("Barge-in: tatsächlich gesprochener Text", {
+        chars: text.length,
+        audioPlayedMs: ev.audioPlayedMs,
+      });
+      this.history.addAssistant(text);
+      this.emit("conversationText", { role: "assistant", content: text });
+    });
+
     this.tts.on("error", (description: string) => {
       if (!this.closed) this.emit("error", `TTS: ${description}`);
     });
@@ -508,7 +533,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.toolRound = undefined;
     round?.resolve(); // wartende Runde aufwecken — sie erkennt ihre stale Generation selbst
     this.clearFiller(); // laufenden Filler-Timer abbrechen (Barge-in/injectMessage/close)
-    this.tts.clear();
+    this.tts.clear(this.pendingPlayoutMs?.() ?? 0);
   }
 
   /** Bestätigtes EndOfTurn: Gate öffnen, gepufferte Sätze sprechen, Latenz ab JETZT messen. */
