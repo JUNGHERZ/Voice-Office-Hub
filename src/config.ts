@@ -36,6 +36,13 @@ export interface Config {
     requestyApiKey: string;
     requestyBaseUrl: string;
     model: string;
+    /**
+     * Prompt-Caching-Breakpoint auf den System-Prompt (nur Claude-Modelle — bei
+     * allen anderen bleibt der Request unveraendert). Lohnt erst ab dem
+     * Mindest-Praefix des Modells (Haiku 4.5: 4096 Tokens ~ 11.300 Zeichen
+     * Deutsch); darunter ignoriert die API den Block kostenneutral.
+     */
+    promptCache: boolean;
   };
   mongo: {
     uri: string;
@@ -254,6 +261,7 @@ export const config: Config = {
     requestyApiKey: opt("REQUESTY_API_KEY"),
     requestyBaseUrl: opt("REQUESTY_BASE_URL", "https://router.requesty.ai/v1"),
     model: opt("LLM_MODEL", "openai/gpt-4o"),
+    promptCache: bool("LLM_PROMPT_CACHE", true),
   },
   mongo: {
     uri: opt("MONGO_URI", "mongodb://127.0.0.1:27017/voiceagent"),

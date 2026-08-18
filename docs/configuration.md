@@ -12,6 +12,7 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `REQUESTY_API_KEY` | — | Auth für den Requesty-Router (Think + Summary). |
 | `REQUESTY_BASE_URL` | `https://router.requesty.ai/v1` | OpenAI-kompatibler Endpunkt. |
 | `LLM_MODEL` | `openai/gpt-4o` | Konversations-Modell (Requesty-ID, z. B. `vertex/gemini-3.1-flash-lite@eu`); pro Agent überschreibbar. |
+| `LLM_PROMPT_CACHE` *(0.8.9)* | `true` | Setzt einen Prompt-Caching-Breakpoint auf den System-Prompt. Greift **nur bei Claude-Modellen** — alle anderen Anbieter bekommen den Request unverändert, weil sie die Anthropic-Blockform nicht kennen. Wirkt zudem erst ab dem Mindest-Präfix des Modells (Haiku 4.5: 4096 Tokens ≈ 11.300 Zeichen deutscher Prompt); darunter ignoriert die API den Block kostenneutral und die Engine loggt das einmal je Anruf. |
 | `MONGO_URI` | `mongodb://127.0.0.1:27017/voiceagent` | Lokal **oder** externes (repliziertes) Set. |
 | `USE_LOCAL_MONGO` | `true` | `false` → kein lokales `mongod` im Container. |
 | `ARI_URL` / `ARI_USERNAME` / `ARI_PASSWORD` | `http://127.0.0.1:8088` / `voiceagent` / — | ARI-Zugang. |

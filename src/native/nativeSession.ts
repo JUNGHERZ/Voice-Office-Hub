@@ -37,7 +37,12 @@ import type {
   VoiceSessionUsage,
 } from "../voice/types.js";
 import { ConversationHistory } from "./history.js";
-import { streamChatCompletion, toOpenAiTools, type OpenAiTool } from "./llmStream.js";
+import {
+  promptCacheBelowMinimum,
+  streamChatCompletion,
+  toOpenAiTools,
+  type OpenAiTool,
+} from "./llmStream.js";
 import { createSentenceChunker } from "./sentences.js";
 import { FluxSttStream, type SttStreamOptions } from "./sttStream.js";
 import { buildNativeTts } from "./ttsFactory.js";
@@ -150,6 +155,8 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
    * weil sie die Tool-Wartezeit enthält und nicht mit normalen Turns vergleichbar ist.
    */
   private fillerSpokenThisTurn = false;
+  /** Cache-Diagnose einmal je Anruf — pro Turn waere sie reines Log-Rauschen. */
+  private cacheDiagLogged = false;
 
   constructor(
     private readonly agent: ResolvedAgent,
@@ -590,6 +597,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
             ...(modelSupportsTemperature(model)
               ? { temperature: this.agent.think.temperature }
               : {}),
+            promptCache: config.llm.promptCache,
             signal: abort.signal,
           },
           (delta) => {
@@ -602,6 +610,31 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
             }
           },
         );
+        if (result.usage) {
+          const u = result.usage;
+          this.log.debug("LLM-Nutzung", {
+            model,
+            promptTokens: u.promptTokens,
+            completionTokens: u.completionTokens,
+            cachedTokens: u.cachedTokens,
+            cacheWriteTokens: u.cacheWriteTokens,
+          });
+          // Caching an, Praefix aber zu kurz: die API ignoriert den Breakpoint
+          // kostenneutral — ohne Hinweis sucht man den ausbleibenden Effekt im Code.
+          if (
+            !this.cacheDiagLogged &&
+            config.llm.promptCache &&
+            !u.cachedTokens &&
+            !u.cacheWriteTokens &&
+            promptCacheBelowMinimum(this.history.messages(), model, true, this.tools)
+          ) {
+            this.cacheDiagLogged = true;
+            this.log.info("Prompt-Caching wirkungslos: System-Prompt unter Mindestlaenge", {
+              model,
+              promptTokens: u.promptTokens,
+            });
+          }
+        }
         if (gen !== this.generation || this.closed) return;
         if (spec && firstRound && !spec.open) {
           // Nichts darf nach außen (TTS/Historie/Tools), bevor das EndOfTurn bestätigt.

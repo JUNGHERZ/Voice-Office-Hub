@@ -79,6 +79,36 @@ export interface ChatMessage {
   tool_call_id?: string;
 }
 
+/**
+ * Content-Block der Anthropic-Blockform. Nur der Request kennt ihn: die
+ * ConversationHistory hält weiterhin ausschliesslich Strings (ihr Zeichenbudget
+ * rechnet auf `content.length`), der Cache-Breakpoint entsteht erst an der
+ * Requestgrenze in llmStream.ts.
+ */
+export interface ChatContentBlock {
+  type: "text";
+  text: string;
+  /** Prompt-Caching-Breakpoint (nur Claude-Modelle, siehe llm/models.ts). */
+  cache_control?: { type: "ephemeral" };
+}
+
+/** ChatMessage, wie sie tatsaechlich auf die Leitung geht. */
+export type WireChatMessage = Omit<ChatMessage, "content"> & {
+  content: string | ChatContentBlock[] | null;
+};
+
+/**
+ * Token-Verbrauch einer Completion. `cachedTokens` sind Cache-TREFFER (zu ~10 %
+ * des Inputpreises), `cacheWriteTokens` das erstmalige Anlegen (~125 %) — beide
+ * zaehlen bereits in promptTokens mit und duerfen nicht addiert werden.
+ */
+export interface LlmStreamUsage {
+  promptTokens: number;
+  completionTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+}
+
 /** Ein SSE-Chunk (`data: {…}`) des Chat-Completions-Streams. */
 export interface ChatStreamChunk {
   choices?: Array<{
@@ -93,12 +123,20 @@ export interface ChatStreamChunk {
     };
     finish_reason?: string | null;
   }>;
+  /** Requesty sendet die Nutzung im letzten Event mit — ohne stream_options (verifiziert 2026-08-18). */
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number; caching_tokens?: number };
+  };
 }
 
 export interface LlmStreamResult {
   content: string;
   toolCalls: LlmToolCall[];
   finishReason?: string;
+  /** Fehlt, wenn der Anbieter keine Nutzung im Stream mitsendet. */
+  usage?: LlmStreamUsage;
 }
 
 // ── Naht für den Orchestrator (Tests injizieren Fakes) ───────────────────────

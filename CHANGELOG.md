@@ -6,6 +6,77 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.9] – 2026-08-18
+
+### Gemessen
+
+**Der Einkaufspreis pro Gesprächsminute steht — auf 46 echten Live-Dev-Gesprächen
+(77,3 Gesprächsminuten, Ø 101 s, Ø 6,8 LLM-Turns).**
+
+| Komponente | Modell | $/Gesprächsmin | Anteil |
+|---|---|---:|---:|
+| STT | Deepgram `flux-general-multi` | 0,0078 | 28 % |
+| LLM | `bedrock/claude-haiku-4-5@eu-central-1` | 0,0060 | 22 % |
+| TTS | Azure `de-DE-SeraphinaMultilingualNeural` | 0,0141 | 50 % |
+| **Summe** | | **0,0279** | |
+
+Rund **$0,047 pro Anruf** bei Ø 101 s, ohne SIP-Trunk-Minuten. Mit ElevenLabs
+statt Azure wären es $0,115/min — Faktor 4,1 auf die Gesamtrechnung, Faktor 7,2
+auf den TTS-Anteil allein.
+
+Zwei Werte, die nicht geschätzt sind: **2,75 Zeichen/Token für Deutsch** (gegen
+die Bedrock-Abrechnung gemessen; Englisch liegt bei ~4 — dieselbe Zeichenzahl
+kostet auf Deutsch also ein Drittel mehr Tokens), und der Requesty-Realpreis
+**$1,10/$5,50 pro 1M** statt der Anthropic-Liste $1,00/$5,00: `eu-central-1`
+kostet 10 % Regionsaufschlag, den die EU-Residency wert ist.
+
+### Added
+
+- **Prompt-Caching für Claude-Modelle** (`LLM_PROMPT_CACHE`, Default `true`). Der
+  System-Prompt geht pro Anruf rund sieben Mal erneut raus — einmal je
+  Agenten-Antwort. Ein `cache_control`-Breakpoint auf der System-Message macht
+  daraus einen einmaligen Schreibvorgang und danach Cache-Treffer zu ~10 % des
+  Inputpreises. Live gegen Bedrock gemessen, 23.508 Zeichen System-Prompt:
+  $0,011669 ohne Caching, $0,014299 beim Anlegen, **$0,002296 bei jedem
+  weiteren Aufruf** — Faktor 5,1, amortisiert ab dem zweiten Aufruf.
+
+  Der Breakpoint sitzt bewusst auf der System-Message: Anthropic rendert
+  `tools` → `system` → `messages`, damit sind Tool-Definitionen und System-Prompt
+  in einem Zug gecacht. Die wachsende Historie danach bleibt ungecacht — sie
+  ändert sich pro Turn ohnehin und ist mit ~550 Tokens klein gegen einen großen
+  System-Prompt.
+
+- **LLM-Nutzung aus dem Stream** (`LlmStreamResult.usage`): Prompt-, Completion-,
+  Cache-Treffer- und Cache-Schreib-Tokens. Requesty sendet sie im letzten
+  SSE-Event ohne `stream_options` mit — der Request-Shape bleibt unverändert.
+  Ohne diese Zahlen wäre das Caching in Produktion nicht überprüfbar.
+
+### Notes
+
+**Prompt-Caching wirkt erst ab einer Mindestlänge, und das ist kein Fehler.**
+Claude cacht ein Präfix erst ab einer modellabhängigen Grenze — Haiku 4.5
+braucht 4096 Tokens, das sind rund 11.300 Zeichen deutscher Prompt. Darunter
+ignoriert die API den Block **stillschweigend**: kein Fehler, kein
+Schreibaufschlag, aber auch keine Ersparnis. Live gegengeprüft mit 4003 Tokens
+(knapp darunter) — Kosten mit und ohne `cache_control` identisch.
+
+Weil ein zu früh gesetzter Breakpoint also nichts kostet, ist die Mindestlänge
+bewusst **kein Gate**, sondern speist nur die Diagnose: liegt der Prompt
+darunter, sagt die Engine das einmal je Anruf im Log, statt den ausbleibenden
+Effekt zum Rätsel zu machen. Mit den heutigen Agenten-Prompts (1.036 Zeichen)
+ist das der Normalfall — der Hebel entsteht erst mit größeren Wissensbasen.
+
+Die **harte** Grenze ist stattdessen das Modell: `cache_control` ist eine
+Anthropic-Eigenheit, und einem OpenAI- oder Gemini-Modell statt eines Strings
+ein Content-Block-Array zu schicken, riskiert einen 400 mitten im Anruf. Nicht-
+Claude-Modelle bekommen den Request deshalb unverändert — im Test und live gegen
+`openai/gpt-4.1-mini` gegengeprüft.
+
+Ohne Caching überholt der LLM ab etwa 12.000 Zeichen System-Prompt den TTS-Anteil
+als teuerster Posten (bei 60.000 Zeichen: $0,101/min allein für den LLM). Mit
+Caching bleibt er auch dort unter dem TTS-Anteil ($0,030/min).
+
+
 ## [0.8.8] – 2026-08-18
 
 ### Gemessen
