@@ -2,13 +2,13 @@
 
 **🇬🇧 English** · [🇩🇪 Deutsch](README.de.md)
 
-[![Version](https://img.shields.io/badge/version-0.7.5-f5a623)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.0-f5a623)](CHANGELOG.md)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-success)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
-[![Changelog](https://img.shields.io/badge/changelog-0.7.5-blue)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-0.8.0-blue)](CHANGELOG.md)
 
 > **VOH-Appliance** — Voice-Office-Hub. Part of the **"*-Office-Hub"** product family
 > (sister project: Message-Office-Hub for chat/email/WhatsApp/SMS).
@@ -28,8 +28,10 @@ data center**, in a **single** Docker container.
   a third of the bundled agent's media cost
 - 🇩🇪 **Multilingual** — German-language conversation out of the box (nova-3/Flux + Aura-2,
   STT model selectable per agent)
-- 🗣️ **TTS voices** — Deepgram Aura-2 or optionally **ElevenLabs** per agent (voice ID on the
-  agent, API key stays in the server env)
+- 🗣️ **TTS voices** — Deepgram Aura-2, **Mistral Voxtral** (EU processing, ~7× cheaper than
+  ElevenLabs, voice cloning from ~3 s of reference audio) or **ElevenLabs** per agent — picked
+  from a server-side catalogue that also carries the GDPR classification. API keys stay in the
+  server env, never in the database
 - 🎧 **Background ambience** — optional per-agent room tone under and between agent speech
   (bundled license-free presets: office/room/rain)
 - 🌐 **Embeddable web widget** — visitors call the agent right in the browser (one script
@@ -176,6 +178,7 @@ npm run dev        # requires a reachable Asterisk (ARI) + MongoDB
 - [docs/asterisk-sipgate.md](docs/asterisk-sipgate.md) — Asterisk + sipgate trunk, worked example (in German)
 - [docs/configuration.md](docs/configuration.md) — ENV, operating modes, agent fields, operations (in German)
 - [docs/tools.md](docs/tools.md) — per-agent tools: HTTP endpoint contract & MCP servers (in German)
+- [docs/tts-provider.md](docs/tts-provider.md) — TTS engines: selection, cost, GDPR/EU residency, voice migration (in German)
 - [docs/backlog.md](docs/backlog.md) — open items & ideas (Web/WebRTC, admin UI, denoising, Flux …) (in German)
 - [CHANGELOG.md](CHANGELOG.md) — version history
 - [README.de.md](README.de.md) — full German version of this README

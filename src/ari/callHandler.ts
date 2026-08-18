@@ -195,6 +195,19 @@ export async function handleStasisStart(
  *     Anrufers spielt die Standardansage ("kein Anschluss"). 0 Kosten, kein Logeintrag.
  * In beiden Fällen wird bewusst KEIN `requests`-Dokument angelegt (kein Log-Spam).
  */
+/**
+ * Median einer Latenzreihe in Millisekunden (Eingabe in Sekunden, wie die
+ * Provider sie melden). Median statt Mittelwert: einzelne Ausreißer — Tool-Runden,
+ * ein Reconnect — sollen die Provider-Bewertung nicht verzerren.
+ */
+function medianMs(values: Array<number | undefined>): number | undefined {
+  const xs = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v)).sort((a, b) => a - b);
+  if (!xs.length) return undefined;
+  const mid = Math.floor(xs.length / 2);
+  const sec = xs.length % 2 ? (xs[mid] as number) : ((xs[mid - 1] as number) + (xs[mid] as number)) / 2;
+  return Math.round(sec * 1000);
+}
+
 async function handleUnknownNumber(
   client: AriClient,
   channel: AriChannel,
@@ -454,6 +467,12 @@ async function runAgentCall(
     voiceProvider: agent.voiceProvider,
     sttModel: agent.listen.model,
   };
+  /**
+   * Turn-Latenzen aller Agenten-Turns (Sekunden, wie vom Provider gemeldet).
+   * Der Median wandert beim Finalisieren in die Metriken — ein Mittelwert würde
+   * von einzelnen Ausreißern (Tool-Runden, Reconnects) verzerrt.
+   */
+  const turnLatencies: Array<{ total?: number; ttt?: number; tts?: number }> = [];
   let audioSinceEnd = false; // kam nach end_call noch Audio (der Abschied)?
   let drainInterval: NodeJS.Timeout | undefined;
   let hangupTimer: NodeJS.Timeout | undefined;
@@ -488,6 +507,12 @@ async function runAgentCall(
       metrics.ttsModel = usage.ttsModel;
       metrics.ttsCharacters = usage.ttsCharacters;
       if (usage.ttsCredits !== undefined) metrics.ttsCredits = usage.ttsCredits;
+    }
+    if (turnLatencies.length) {
+      metrics.turns = turnLatencies.length;
+      metrics.turnLatencyMs = medianMs(turnLatencies.map((l) => l.total));
+      metrics.turnThinkMs = medianMs(turnLatencies.map((l) => l.ttt));
+      metrics.turnTtsMs = medianMs(turnLatencies.map((l) => l.tts));
     }
     session?.close();
     localizer.close(); // laufende Sprach-Erkennung abbrechen, späte Ergebnisse verwerfen
@@ -709,7 +734,10 @@ async function runAgentCall(
         agentSpeechUntil = Math.max(agentSpeechUntil, Date.now() + estimateSpeechMs(ev.content));
       }
     });
-    session.on("agentStartedSpeaking", (lat) => log.debug("AgentStartedSpeaking", { ...lat }));
+    session.on("agentStartedSpeaking", (lat) => {
+      log.debug("AgentStartedSpeaking", { ...lat });
+      if (lat.total !== undefined) turnLatencies.push(lat);
+    });
     session.on("functionCallRequest", async (ev) => {
       for (const fn of ev.functions) {
         if (!fn.clientSide) continue;

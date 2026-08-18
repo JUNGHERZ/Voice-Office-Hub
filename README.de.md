@@ -2,13 +2,13 @@
 
 [🇬🇧 English](README.md) · **🇩🇪 Deutsch**
 
-[![Version](https://img.shields.io/badge/version-0.7.5-f5a623)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.0-f5a623)](CHANGELOG.md)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-single--container-2496ED?logo=docker&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-success)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)](LICENSE)
-[![Changelog](https://img.shields.io/badge/changelog-0.7.5-blue)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-0.8.0-blue)](CHANGELOG.md)
 
 > **VOH-Appliance** — Voice-Office-Hub. Teil der **„*-Office-Hub"**-Produktfamilie
 > (Schwesterprojekt: Message-Office-Hub für Chat/E-Mail/WhatsApp/SMS).
@@ -28,8 +28,10 @@ von einem KI-Agenten angenommen, natürlich geführt und bei Bedarf an Menschen 
   Drittel der Medienkosten des gebündelten Agents
 - 🇩🇪 **Mehrsprachig** — deutschsprachige Konversation ab Werk (nova-3/Flux + Aura-2,
   STT-Modell pro Agent wählbar)
-- 🗣️ **TTS-Stimmen** — Deepgram Aura-2 oder optional **ElevenLabs** pro Agent (Voice-ID am
-  Agent, API-Key bleibt im Server-Env)
+- 🗣️ **TTS-Stimmen** — Deepgram Aura-2, **Mistral Voxtral** (EU-Verarbeitung, rund 7× günstiger
+  als ElevenLabs, Voice-Cloning ab ~3 s Referenzaudio) oder **ElevenLabs** pro Agent — auswählbar
+  aus einem Server-Katalog, der auch die DSGVO-Einstufung mitführt. API-Keys bleiben im
+  Server-Env, nie in der Datenbank
 - 🎧 **Hintergrundatmosphäre** — optionale, leise Dauerschleife pro Agent unter und zwischen
   der Agent-Sprache (mitgelieferte lizenzfreie Presets: Büro/Raum/Regen)
 - 🌐 **Einbettbares Web-Widget** — Besucher rufen den Agenten direkt im Browser an (ein
@@ -178,6 +180,7 @@ npm run dev        # benötigt erreichbares Asterisk (ARI) + MongoDB
 - [docs/asterisk-sipgate.md](docs/asterisk-sipgate.md) — Asterisk + sipgate-Trunk, ausführliches Beispiel
 - [docs/configuration.md](docs/configuration.md) — ENV, Betriebsmodi, Agent-Felder, Betrieb
 - [docs/tools.md](docs/tools.md) — Tools pro Agent: HTTP-Endpoint-Kontrakt & MCP-Server
+- [docs/tts-provider.md](docs/tts-provider.md) — TTS-Engines: Auswahl, Kosten, DSGVO/EU-Residency, Stimm-Migration
 - [docs/backlog.md](docs/backlog.md) — offene Punkte & Ideen (Web/WebRTC, Admin-UI, Denoising, Flux …)
 - [CHANGELOG.md](CHANGELOG.md) — Versionsverlauf
 

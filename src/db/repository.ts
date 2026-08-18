@@ -91,6 +91,14 @@ export async function setSummary(
 export interface CallMetrics {
   /** Answer → erstes TTS-Audio (Begrüßung), in Millisekunden. */
   timeToFirstAudioMs?: number;
+  /** Median der Turn-Latenz über alle Agenten-Turns (ms) — Basis für Provider-Vergleiche. */
+  turnLatencyMs?: number;
+  /** Median-Anteil bis zum ersten LLM-Token (ms). */
+  turnThinkMs?: number;
+  /** Median-Anteil ab dem ersten Satz bis zum ersten Audio (ms). */
+  turnTtsMs?: number;
+  /** Anzahl gemessener Turns (Aussagekraft des Medians). */
+  turns?: number;
   bargeIns: number;
   toolCalls: number;
   toolErrors: number;

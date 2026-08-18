@@ -27,16 +27,25 @@ async function load(host) {
   }
 }
 
-// TTS-Beschriftung der Zeile: bei ElevenLabs nie das (dort bedeutungslose)
-// Aura-Modell zeigen — entweder das explizite ElevenLabs-Modell oder "ElevenLabs".
+// Kurzname je TTS-Provider für die Zeilenbeschriftung. Deepgram-Aura zeigt nur
+// das Modell (es IST die Stimme); alle übrigen führen den Providernamen mit,
+// damit ein Modellwechsel nicht wie ein anderer Anbieter aussieht.
+const PROVIDER_SHORT = {
+  deepgram_flux: "Flux TTS",
+  eleven_labs: "ElevenLabs",
+  mistral: "Voxtral",
+  speechify: "Speechify",
+  fish_audio: "Fish Audio",
+};
+
 function voiceLabel(a) {
   if (a.mode === "passthrough") return `leitet an ${a.passthroughTarget || "?"}`;
   const speak = a.speak || {};
-  if (speak.provider === "eleven_labs") {
-    const m = speak.model && speak.model.indexOf("aura") !== 0 ? speak.model : "";
-    return m || "ElevenLabs";
-  }
-  return speak.model || "";
+  const short = PROVIDER_SHORT[speak.provider];
+  if (!short) return speak.model || ""; // Deepgram Aura: Modell = Stimme
+  // Die Stimme sagt mehr als die Modell-ID, wo es beides gibt.
+  const detail = speak.voice || speak.model || "";
+  return detail ? `${short} · ${detail}` : short;
 }
 
 function ddiLabel(a) {

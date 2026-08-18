@@ -9,6 +9,7 @@
 import { Schema, model, type InferSchemaType } from "mongoose";
 
 import { AMBIENCE_PRESET_IDS } from "../../audio/ambiencePresets.js";
+import { IMPLEMENTED_TTS_PROVIDER_IDS } from "../../tts/catalog.js";
 import { BUILTIN_TOOL_NAMES } from "../../tools/names.js";
 import { IMPLEMENTED_VOICE_PROVIDERS } from "../../voice/types.js";
 
@@ -40,9 +41,13 @@ const ThinkSchema = new Schema(
 
 const SpeakSchema = new Schema(
   {
-    // "eleven_labs" nutzt die Dritt-TTS-Durchreiche der Voice-Agent-API; der API-Key
-    // kommt aus dem Server-Env (ELEVENLABS_API_KEY), die Voice-ID steht in `voice`.
-    provider: { type: String, enum: ["deepgram", "eleven_labs"], default: "deepgram" },
+    // Provider-Matrix samt Modell-/Stimmlisten und DSGVO-Einstufung steht in
+    // tts/catalog.ts. Das Enum enthält bewusst NUR implementierte Provider —
+    // wie bei voiceProvider soll sich ein Agent gar nicht erst auf etwas
+    // speichern lassen, das im Anruf nicht liefe.
+    // API-Keys kommen immer aus dem Server-Env, nie aus der DB; die Stimm- bzw.
+    // Referenz-ID steht in `voice`.
+    provider: { type: String, enum: [...IMPLEMENTED_TTS_PROVIDER_IDS], default: "deepgram" },
     model: { type: String, default: "aura-2-thalia-en" },
     voice: { type: String },
     language: { type: String },

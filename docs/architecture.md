@@ -67,6 +67,19 @@ Der `callHandler` orchestriert zwischen zwei bewusst schmal gehaltenen Schnittst
   über Asterisk selbst (SIP over WebSocket → `[webrtc-inbound]` → Stasis) — der komplette
   Engine-Pfad bleibt identisch, siehe [docs/webrtc.md](webrtc.md).
 
+Innerhalb der nativen Kaskade gibt es eine dritte, kleinere Naht:
+
+- **TTS-Naht — `TtsStreamLike`** (`src/native/types.ts`): `sendText`, `flush`, `clear`,
+  `close` plus Events `audio`, `flushed`, `error`, `close`. Welcher Adapter gebaut wird,
+  entscheidet die Tabelle in `src/native/ttsFactory.ts` anhand von `speak.provider`
+  (Manifest: `src/tts/catalog.ts`). Socket-Anbieter (Aura, ElevenLabs) implementieren sie
+  direkt; Request-pro-Satz-Anbieter (Voxtral über HTTP/SSE) über die Basisklasse
+  `src/native/ttsHttp.ts`, die Reihenfolge, Flush- und Barge-in-Semantik herstellt.
+  Anbieter mit abweichender Sample-Rate resampeln im Adapter (`src/audio/resample.ts`),
+  damit die Zusage „rohes PCM im systemweiten Format" an der Adaptergrenze intakt bleibt
+  und Orchestrator, callHandler und Medienpfad unberührt sind. Details und
+  DSGVO-Einstufung: [docs/tts-provider.md](tts-provider.md).
+
 Beide Nähte werden von den Call-Lifecycle-Tests ([test/callLifecycle.test.ts](../test/callLifecycle.test.ts))
 mit Fakes belegt — der komplette Anruf-Pfad läuft dort ohne Asterisk, Cloud oder DB.
 

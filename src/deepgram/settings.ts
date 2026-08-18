@@ -9,6 +9,7 @@
  */
 import { config } from "../config.js";
 import { modelSupportsTemperature } from "../llm/models.js";
+import { findTtsProvider } from "../tts/catalog.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
 import type { FunctionDefinition, SettingsMessage } from "./events.js";
@@ -130,6 +131,19 @@ function buildSpeak(agent: ResolvedAgent): SettingsMessage["agent"]["speak"] {
         headers: { "xi-api-key": apiKey },
       },
     };
+  }
+  // Die Voice-Agent-API reicht nur ihre eigenen Stimmen und ElevenLabs durch.
+  // Ohne diese Prüfung landete ein nativ-only-Provider (z. B. speak.provider
+  // "mistral" mit dem Modell "voxtral-mini-tts-latest") als Deepgram-Modellname
+  // in der Settings-Message — die Voice-Agent-API lehnt das ab und der ANRUF
+  // SCHEITERT. Vor der Provider-Erweiterung konnte der Fall nicht auftreten.
+  const entry = findTtsProvider(agent.speak.provider);
+  if (!entry?.paths.includes("deepgram")) {
+    log.warn("speak.provider läuft nicht im Deepgram-Voice-Agent-Pfad — Fallback auf die Deepgram-Stimme", {
+      agent: agent.name,
+      provider: agent.speak.provider,
+    });
+    return { provider: buildDeepgramSpeakProvider(agent, config.defaultAgent.speakModel) };
   }
   return { provider: buildDeepgramSpeakProvider(agent, agent.speak.model) };
 }

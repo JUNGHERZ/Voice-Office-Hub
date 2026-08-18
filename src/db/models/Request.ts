@@ -55,6 +55,14 @@ const MetricsSchema = new Schema(
   {
     // Answer → erstes TTS-Audio des Agenten (i. d. R. die Begrüßung), in Millisekunden.
     timeToFirstAudioMs: { type: Number },
+    // Turn-Latenzen (0.8.0): Median über alle Agenten-Turns des Anrufs, in Millisekunden.
+    // Der Provider-Vergleich (ElevenLabs ↔ Voxtral ↔ Aura) soll aus Produktionsdaten
+    // fallen, nicht aus Herstellerangaben — bis 0.7.x landeten diese Werte nur im Log.
+    turnLatencyMs: { type: Number },
+    // Anteil davon bis zum ersten LLM-Token (time-to-think) bzw. ab erstem Satz (TTS).
+    turnThinkMs: { type: Number },
+    turnTtsMs: { type: Number },
+    turns: { type: Number },
     bargeIns: { type: Number, default: 0 },
     toolCalls: { type: Number, default: 0 },
     toolErrors: { type: Number, default: 0 },

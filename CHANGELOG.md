@@ -6,6 +6,114 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.0] – 2026-08-18
+
+### Added
+
+**Mistral Voxtral als dritte TTS-Engine — und ein Provider-Katalog, aus dem sich alles Weitere speist.**
+Bis 0.7.x kannte das Projekt genau zwei Stimmen-Anbieter, und Modell wie Stimme waren
+im Agenten-Panel reine Freitextfelder: keine Auswahl, keine Validierung, keine Aussage
+darüber, wo Anrufaudio eigentlich verarbeitet wird. Neu ist das Manifest
+`src/tts/catalog.ts` als einzige Quelle der Wahrheit — daraus stammen das Mongoose-Enum,
+die Auswahlfelder im Panel, die DSGVO-Badges und die Doku-Tabellen. Ein siebter Provider
+ist damit ein Katalogeintrag, kein neuer Zweig in vier Dateien. Der Katalog liegt als
+`GET /api/tts/providers` unter dem Formular; er meldet nur, **ob** ein API-Key gesetzt
+ist, nie seinen Wert.
+
+Voxtral selbst spricht neun Sprachen inklusive Deutsch, kostet $0,016 je 1000 Zeichen
+(rund ein Siebtel von ElevenLabs Flash/Turbo) und verarbeitet als einzige Engine im Feld
+standardmäßig in der EU. Anders als Aura und ElevenLabs hält es keinen Socket offen,
+sondern fährt einen HTTP-Request je Satz — die neue Basisklasse `native/ttsHttp.ts`
+stellt dahinter dieselben Zusagen her, auf die der Orchestrator baut: Audio in
+Auftragsreihenfolge (Head-of-Line-Emitter, damit ein vorgeholter Satz das Audio nicht
+verschränkt), `flushed` erst wenn wirklich alles übergeben ist, und ein Barge-in, das
+laufende Requests abbricht **und** Nachzügler stummschaltet, die schon im Reader lagen.
+
+**Resampler (`src/audio/resample.ts`).** Voxtral gibt fest 24 kHz aus, die Telefonstrecke
+fährt 8 kHz — und nacktes Dezimieren wäre keine Option gewesen: alles zwischen 4 und
+12 kHz, also Zischlaute und Plosive, faltete sich zurück ins Sprachband und wäre als
+metallisches Sirren hörbar. Die vorhandenen Filter im Medienpfad helfen dagegen nicht,
+der DC-Blocker ist ein 6-Hz-*Hoch*pass. Jetzt läuft ein Polyphase-FIR mit
+Fenster-Sinc-Prototyp (Cutoff 3600 Hz, ~96 Taps) davor; gemessen ist die Kurve bis 3 kHz
+flach und bei 4 kHz bereits 48,7 dB unten. Der Filterzustand überlebt Chunk-Grenzen
+inklusive eines halben Samples — ein Netzwerk-Chunk darf mitten in ein 16-Bit-Wort fallen.
+
+**Voice-Cloning-API** (`/api/tts/voices`): auflisten, aus Referenzaudio klonen, löschen.
+Voxtral klont zero-shot ab etwa drei Sekunden. Wichtig und in `docs/tts-provider.md`
+ausführlich begründet: Das Referenzmaterial darf **nicht** aus ElevenLabs-Ausgaben
+stammen — deren Nutzungsbedingungen untersagen, erzeugtes Audio als Eingabe für
+Modelltraining oder konkurrierende Dienste zu verwenden. Sauber ist, aus derselben
+Originalaufnahme neu zu klonen. Beim Anlegen wird immer eine Löschfrist mitgegeben
+(`retention_notice`, Standard 30 Tage), denn die geklonte Stimme einer identifizierbaren
+Person ist ein personenbezogenes Datum.
+
+**Messharness (`npm run tts-bench`).** Die Herstellerangaben zur Latenz gehen weit
+auseinander — Mistral nennt 70–90 ms, das ist aber reine Modellzeit; die API liefert
+laut eigener Doku rund 0,8 s bis zum ersten Audio. Statt das zu glauben, schickt das
+Harness dieselben deutschen Sätze durch jeden konfigurierten Provider und misst TTFA,
+Audiodauer, Zeichen und Kosten. Provider ohne Key werden übersprungen statt still auf
+Aura zurückzufallen. Ergänzend landen die Turn-Latenzen jetzt auch pro Anruf in der
+Datenbank (`metrics.turnLatencyMs`, `turnThinkMs`, `turnTtsMs`, `turns` — Median über
+alle Agenten-Turns); berechnet wurden sie schon immer, sie landeten bisher nur im Log.
+
+**DSGVO-/EU-Residency-Einstufung** je Provider: als Badge direkt neben der Auswahl im
+Panel und ausführlich in `docs/tts-provider.md`, inklusive der Empfehlung, für Deepgram
+(STT wie TTS) den EU-Endpoint zu konfigurieren.
+
+### Changed
+
+- **Agenten-Panel: Modell und Stimme sind jetzt Auswahlfelder** statt Freitext, gespeist
+  aus dem Katalog, mit Freitext-Ausweg für eigene und geklonte IDs. Das Formularmodell
+  hält Modell und Stimme je Provider getrennt (`modelBy`/`voiceBy`), damit beim
+  Umschalten kein Wert verlorengeht — die bisherige Sonderlösung mit zwei Feldern für
+  eine Datenbankspalte hätte sich bei sechs Providern verzwölffacht. In der Datenbank
+  landet unverändert nur der Wert des aktiven Providers.
+- **Provider-Auswahl folgt dem Pfad.** Die Deepgram-Voice-Agent-API reicht nur eigene
+  Stimmen und ElevenLabs durch; im Panel erscheinen deshalb nur Provider, die im
+  gewählten `voiceProvider` auch laufen, mit Hinweiszeile statt ausgegrauter Option.
+- **`buildNativeTts` ist eine Builder-Tabelle** (`src/native/ttsFactory.ts`) statt einer
+  if/else-Kette im Orchestrator. Sechs Zweige mit identischer Form sind eine Matrix; der
+  Fallback bleibt bewusst imperativ außerhalb der Tabelle, weil er die eigentliche
+  Zusage ist: unvollständige Konfiguration fällt mit Warnung auf Aura zurück, ein Anruf
+  scheitert nie an der TTS-Auswahl. Nebeneffekt: jeder Builder prüft seinen eigenen
+  Modellstring, die providerübergreifende Heuristik `!model.startsWith("aura")` entfällt.
+- Das `speak.provider`-Enum stammt jetzt aus dem Katalog und enthält — wie schon bei
+  `voiceProvider` — bewusst nur **implementierte** Provider.
+- **GlassKit auf 1.12.0 / 1.11.0 angehoben.** Beim Bau des Panels fiel auf, dass
+  `glk-select` seine `<option>`-Kinder nur einmal übernahm — jeder Select mit dynamischer
+  Liste (Provider je Pfad, Modelle und Stimmen je Provider) zeigte dauerhaft den ersten
+  Stand. GlassKit hat das generisch in `base.js` behoben; der hiesige Zwischenfix ist
+  wieder entfernt, `package.json` verlangt die reparierte Version.
+
+### Fixed
+
+- **Voxtral: falscher Feldname und erfundene Stimmen.** Gegen die echte API geprüft: die
+  SSE-Deltas heißen `audio_data`, nicht `delta` — der Adapter las ins Leere und lieferte
+  bei HTTP 200 null Audio. Und die 20 „Preset-Stimmen" aus der Doku-Recherche stammten aus
+  dem Open-Weights-Repo; die Cloud-API kennt zehn, alle englisch, davon eine weibliche.
+  Für einen deutschen Agenten heißt das: Voxtral braucht eine geklonte Stimme, die Presets
+  sind ein Demo-Satz. Katalog korrigiert, PCM-Breite (float32 LE) ist jetzt verifiziert
+  statt erkannt.
+- **ElevenLabs meldet kein Turn-Ende.** Der reale `stream-input`-Endpoint sendet `isFinal`
+  erst beim Verbindungsende, nicht nach `flush` — mit `auto_mode=true` wie `=false`. Der
+  Kopfkommentar des Adapters behauptete das Gegenteil, der Fake-Server im Test hat es nie
+  auffallen lassen. Produktiv folgenlos (einziger Verbraucher wäre `agentAudioDone`, und
+  das Auflegen wartet über `MediaSession.pendingMs()`), aber dokumentiert — und das
+  Messharness erkennt das Ende jetzt über ein Ruhefenster statt über `flushed`.
+- **Nativ-only-Provider im Deepgram-Voice-Agent-Pfad ließen den Anruf scheitern.**
+  `buildSpeak` fiel für alles außer `eleven_labs` direkt in den Deepgram-Zweig durch und
+  hätte ein fremdes Modell (etwa `voxtral-mini-tts-latest`) als Deepgram-Modellnamen in
+  die Settings-Message geschrieben — die Voice-Agent-API lehnt das ab. Vor der
+  Provider-Erweiterung konnte der Fall nicht auftreten, mit ihr wäre er sofort da
+  gewesen. Jetzt greift derselbe Warn-und-Fallback-Weg wie bei unvollständiger
+  ElevenLabs-Konfiguration.
+- **Der Admin-Error-Handler machte aus Client-Fehlern ein opakes 500.** Fastify-eigene
+  Fehler (Schema-Validierung, 404, Payload zu groß) tragen ihren Status selbst, wurden
+  aber verschluckt: Aufrufer erfuhren nicht, was an ihrer Anfrage falsch war, und jeder
+  Tippfehler landete als Fehler im Server-Log. Client-Status im 4xx-Bereich werden jetzt
+  durchgereicht.
+
+
 ## [0.7.5] – 2026-07-27
 
 ### Fixed

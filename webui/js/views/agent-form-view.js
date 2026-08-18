@@ -49,6 +49,58 @@ const FALLBACK_AMBIENCE = [
   { id: "rain", label: "Regen" },
 ];
 
+// Fallback, falls /api/tts/providers nicht erreichbar ist. Bewusst knapp: das
+// Formular soll bedienbar bleiben, die Feinheiten (Stimmlisten, DSGVO-Hinweise)
+// liefert der Server.
+const FALLBACK_TTS_PROVIDERS = [
+  {
+    id: "deepgram",
+    label: "Deepgram Aura",
+    paths: ["native", "deepgram"],
+    models: [{ id: "aura-2-thalia-en", label: "Thalia (englisch)", languages: ["en"] }],
+    defaultModel: "aura-2-thalia-en",
+    modelFreeText: true,
+    voices: [],
+    voiceFreeText: false,
+    knobs: ["speed", "volume"],
+    residency: "eu-optional",
+    residencyNote: "",
+    costPer1kChars: 0.03,
+    envKey: "DEEPGRAM_API_KEY",
+    configured: true,
+  },
+];
+
+// Kurztext + Farbe des DSGVO-Badges neben der Provider-Auswahl.
+const RESIDENCY_LABELS = {
+  eu: { text: "EU-Verarbeitung", variant: "success" },
+  "eu-optional": { text: "EU-Endpoint möglich", variant: "success" },
+  us: { text: "USA — SCC/DPF nötig", variant: "warning" },
+  "third-country": { text: "Drittland", variant: "danger" },
+};
+
+// Nur Provider, die im gewählten voiceProvider-Pfad tatsächlich laufen. Ausgrauen
+// wäre erklärungsbedürftig — die Hinweiszeile darunter sagt stattdessen, warum
+// die Liste kurz ist.
+function providersForPath(providers, voiceProvider) {
+  const path = voiceProvider === "native" ? "native" : "deepgram";
+  return (providers || []).filter((p) => (p.paths || []).indexOf(path) !== -1);
+}
+
+function providerById(providers, id) {
+  return (providers || []).filter((p) => p.id === id)[0];
+}
+
+// Stimmen sind teils ans Modell gebunden (Speechify: die *_32-Stimmen gehören zu 3.2).
+function voicesForModel(provider, modelId) {
+  if (!provider) return [];
+  return (provider.voices || []).filter((v) => !v.models || v.models.indexOf(modelId) !== -1);
+}
+
+function knobActive(provider, knob) {
+  return Boolean(provider && (provider.knobs || []).indexOf(knob) !== -1);
+}
+
 // Auswahl für „Sprache der Ansagen". Deckt die Sprachen ab, die der serverseitige
 // Stopwort-Scorer erkennt (src/llm/languageScorer.ts) — nur für die kann die automatische
 // Ermittlung überhaupt ein Ergebnis liefern.
@@ -79,10 +131,11 @@ function emptyForm() {
     greeting: "",
     prompt: "",
     speakProvider: "deepgram",
-    speakModel: "",
-    // Getrenntes Modellfeld je Provider: beim Umschalten geht kein Wert verloren.
-    speakModelEleven: "",
-    speakVoice: "",
+    // Modell und Stimme je Provider getrennt halten: beim Umschalten geht kein
+    // Wert verloren, und es braucht keine Heuristik über Modellnamen mehr.
+    // In der DB landet immer nur der Wert des AKTIVEN Providers.
+    modelBy: {},
+    voiceBy: {},
     // ElevenLabs voice_settings (leer = Voice-Default aus dem Dashboard).
     speakStability: "",
     speakSimilarity: "",
@@ -144,17 +197,10 @@ function toForm(a) {
     greeting: a.greeting || "",
     prompt: a.prompt || "",
     speakProvider: (a.speak && a.speak.provider) || "deepgram",
-    // Gespeichertes Modell dem passenden Provider-Feld zuordnen (Aura-Werte gehören
-    // nie ins ElevenLabs-Feld — dort gilt sonst der Server-Default eleven_turbo_v2_5).
-    speakModel:
-      (a.speak && a.speak.provider) === "eleven_labs" ? "" : (a.speak && a.speak.model) || "",
-    speakModelEleven:
-      (a.speak && a.speak.provider) === "eleven_labs" &&
-      a.speak.model &&
-      a.speak.model.indexOf("aura") !== 0
-        ? a.speak.model
-        : "",
-    speakVoice: (a.speak && a.speak.voice) || "",
+    // Der gespeicherte Wert gehört per Definition dem aktiven Provider — damit
+    // entfällt das alte Raten über Modellpräfixe.
+    modelBy: { [(a.speak && a.speak.provider) || "deepgram"]: (a.speak && a.speak.model) || "" },
+    voiceBy: { [(a.speak && a.speak.provider) || "deepgram"]: (a.speak && a.speak.voice) || "" },
     speakStability: a.speak && a.speak.stability != null ? String(a.speak.stability) : "",
     speakSimilarity: a.speak && a.speak.similarityBoost != null ? String(a.speak.similarityBoost) : "",
     speakSpeed: a.speak && a.speak.speed != null ? String(a.speak.speed) : "",
@@ -224,10 +270,8 @@ function toBody(f) {
     speak: {
       ...f._speak,
       provider: f.speakProvider,
-      model:
-        (f.speakProvider === "eleven_labs" ? f.speakModelEleven.trim() : f.speakModel.trim()) ||
-        undefined,
-      voice: f.speakVoice.trim() || undefined,
+      model: (f.modelBy[f.speakProvider] || "").trim() || undefined,
+      voice: (f.voiceBy[f.speakProvider] || "").trim() || undefined,
       // voice_settings: leeres Feld löscht den Wert (→ Voice-Default); Komma als
       // Dezimaltrenner zulassen ("0,5").
       stability: num(String(f.speakStability).replace(",", ".")),
@@ -300,6 +344,12 @@ async function load(host) {
   } catch (e) {
     host.ambiencePresets = FALLBACK_AMBIENCE;
   }
+  try {
+    const res = await api.listTtsProviders();
+    host.ttsProviders = (res && res.providers) || FALLBACK_TTS_PROVIDERS;
+  } catch (e) {
+    host.ttsProviders = FALLBACK_TTS_PROVIDERS;
+  }
   if (!host.agentId) {
     host.form = emptyForm();
     host.loading = false;
@@ -319,6 +369,33 @@ async function load(host) {
 // Feld-Setter: erzeugt eine neue Form-Kopie (Hybrids erkennt so die Änderung).
 function setField(host, key, value) {
   host.form = { ...host.form, [key]: value };
+}
+
+// Setter für die providergebundenen Maps (modelBy/voiceBy).
+function setByProvider(host, map, value) {
+  const f = host.form;
+  host.form = { ...f, [map]: { ...f[map], [f.speakProvider]: value } };
+}
+
+/**
+ * Voice-Provider wechseln. Der Deepgram-Voice-Agent reicht nur eigene Stimmen und
+ * ElevenLabs durch — steht dort ein nativ-only-TTS (z. B. Voxtral), fällt die
+ * Auswahl mit zurück auf Deepgram. Sonst zeigte das Formular einen Provider, den
+ * der Anruf gar nicht nutzen könnte.
+ */
+function selectVoiceProvider(host, value) {
+  const allowed = providersForPath(host.ttsProviders, value).map((p) => p.id);
+  const f = host.form;
+  const speak = allowed.length && allowed.indexOf(f.speakProvider) === -1 ? "deepgram" : f.speakProvider;
+  host.form = { ...f, voiceProvider: value, speakProvider: speak };
+}
+
+// Provider wechseln: Modell des neuen Providers vorbelegen, falls dort noch nichts steht.
+function selectProvider(host, providers, id) {
+  const entry = providerById(providers, id);
+  const f = host.form;
+  const model = f.modelBy[id] || (entry && entry.defaultModel) || "";
+  host.form = { ...f, speakProvider: id, modelBy: { ...f.modelBy, [id]: model } };
 }
 
 function toggleBuiltinTool(host, name, checked) {
@@ -767,6 +844,7 @@ export default define({
   form: undefined,
   builtins: undefined,
   ambiencePresets: undefined,
+  ttsProviders: undefined,
   toolModalOpen: false,
   toolEditIndex: -1,
   toolDraft: undefined,
@@ -782,9 +860,20 @@ export default define({
   translationLang: "",
   translationsBusy: false,
   render: {
-    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, ambiencePresets, toolModalOpen, toolEditIndex, toolDraft, toolError, mcpModalOpen, mcpEditIndex, mcpDraft, mcpError, voiceModalOpen, translationsOpen, translations, translationLang, translationsBusy }) => {
+    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, ambiencePresets, ttsProviders, toolModalOpen, toolEditIndex, toolDraft, toolError, mcpModalOpen, mcpEditIndex, mcpDraft, mcpError, voiceModalOpen, translationsOpen, translations, translationLang, translationsBusy }) => {
       const f = form || emptyForm();
       const title = agentId ? f.name || "Agent" : "Neuer Agent";
+      // TTS-Panel wird aus dem Server-Katalog gerendert — ein siebter Provider ist
+      // damit ein Katalogeintrag, kein neuer Zweig hier.
+      const pathProviders = providersForPath(ttsProviders, f.voiceProvider);
+      const ttsProvider = providerById(ttsProviders, f.speakProvider);
+      const residencyBadge =
+        (ttsProvider && RESIDENCY_LABELS[ttsProvider.residency]) || { text: "", variant: "" };
+      // Leeres Modellfeld heißt beim Anlegen „noch nichts gewählt" — dann zeigt das
+      // Select den Provider-Default, damit nicht versehentlich ohne Modell gespeichert wird.
+      const activeModel = f.modelBy[f.speakProvider] || (ttsProvider && !ttsProvider.modelFreeText ? ttsProvider.defaultModel : "");
+      const activeVoice = f.voiceBy[f.speakProvider] || "";
+      const modelVoices = voicesForModel(ttsProvider, activeModel || (ttsProvider && ttsProvider.defaultModel));
       return html`
         <div class="head">
           <glk-button size="sm" variant="tertiary" onclick="${(host) => navigate(host, "agents")}">
@@ -859,7 +948,7 @@ export default define({
                 <glk-select
                   id="voiceProviderSelect"
                   label="Voice-Provider"
-                  onglk-change="${(host, e) => setField(host, "voiceProvider", e.detail.value)}"
+                  onglk-change="${(host, e) => selectVoiceProvider(host, e.detail.value)}"
                 >
                   <option value="deepgram">Deepgram Voice Agent</option>
                   <option value="native">Native (STT→LLM→TTS-Kaskade, Flux + Aura)</option>
@@ -935,27 +1024,91 @@ export default define({
                 <glk-select
                   id="speakProviderSelect"
                   label="TTS-Provider (speak.provider)"
-                  onglk-change="${(host, e) => setField(host, "speakProvider", e.detail.value)}"
+                  onglk-change="${(host, e) => selectProvider(host, host.ttsProviders, e.detail.value)}"
                 >
-                  <option value="deepgram">Deepgram (Aura)</option>
-                  <option value="eleven_labs">ElevenLabs</option>
+                  ${pathProviders.map((p) => html`<option value="${p.id}">${p.label}</option>`)}
                 </glk-select>
 
-                ${f.speakProvider === "eleven_labs"
+                ${ttsProvider &&
+                html`
+                  <div class="empty-hint">
+                    <strong>${residencyBadge.text}</strong> — ${ttsProvider.residencyNote}
+                    ${ttsProvider.costNote ? html` ${ttsProvider.costNote}` : ""}
+                  </div>
+                `}
+                ${ttsProvider && !ttsProvider.configured
+                  ? html`
+                      <div class="empty-hint">
+                        Achtung: <code>${ttsProvider.envKey}</code> ist auf dem Server nicht
+                        gesetzt — Anrufe fallen mit Warnung auf die Deepgram-Stimme zurück.
+                      </div>
+                    `
+                  : ""}
+                ${f.voiceProvider !== "native"
+                  ? html`
+                      <div class="empty-hint">
+                        Der Deepgram-Voice-Agent reicht nur eigene Stimmen und ElevenLabs durch.
+                        Für Mistral Voxtral und die übrigen Engines den Voice-Provider auf
+                        „Native" stellen.
+                      </div>
+                    `
+                  : ""}
+
+                ${ttsProvider &&
+                html`
+                  <glk-select
+                    id="speakModelSelect"
+                    label="Modell (speak.model)"
+                    onglk-change="${(host, e) => setByProvider(host, "modelBy", e.detail.value)}"
+                  >
+                    ${ttsProvider.modelFreeText ? html`<option value="">— eigenes Modell —</option>` : ""}
+                    ${ttsProvider.models.map(
+                      (m) => html`<option value="${m.id}">${m.label}</option>`,
+                    )}
+                  </glk-select>
+                `}
+                ${ttsProvider && ttsProvider.modelFreeText
                   ? html`
                       <glk-input
-                        label="ElevenLabs Voice-ID"
-                        value="${f.speakVoice}"
-                        placeholder="z. B. 21m00Tcm4TlvDq8ikWAM"
-                        hint="API-Key kommt aus dem Server-Env (ELEVENLABS_API_KEY) — ohne Key/Voice-ID fällt der Anruf auf die Deepgram-Stimme zurück"
-                        onglk-input="${(host, e) => setField(host, "speakVoice", e.detail.value)}"
+                        label="Eigene Modell-ID (optional)"
+                        value="${activeModel}"
+                        placeholder="${ttsProvider.defaultModel}"
+                        hint="Überschreibt die Auswahl oben — der Katalog listet nur eine Auswahl."
+                        onglk-input="${(host, e) => setByProvider(host, "modelBy", e.detail.value)}"
                       ></glk-input>
+                    `
+                  : ""}
+
+                ${modelVoices.length
+                  ? html`
+                      <glk-select
+                        id="speakVoiceSelect"
+                        label="Stimme (speak.voice)"
+                        onglk-change="${(host, e) => setByProvider(host, "voiceBy", e.detail.value)}"
+                      >
+                        <option value="">— eigene Stimm-ID unten —</option>
+                        ${modelVoices.map(
+                          (v) => html`<option value="${v.id}">${v.label} · ${v.id}</option>`,
+                        )}
+                      </glk-select>
+                    `
+                  : ""}
+                ${ttsProvider && ttsProvider.voiceFreeText
+                  ? html`
                       <glk-input
-                        label="ElevenLabs-Modell (optional)"
-                        value="${f.speakModelEleven}"
-                        placeholder="leer = eleven_turbo_v2_5"
-                        onglk-input="${(host, e) => setField(host, "speakModelEleven", e.detail.value)}"
+                        label="${modelVoices.length ? "Eigene/geklonte Stimm-ID" : "Stimm-ID (speak.voice)"}"
+                        value="${activeVoice}"
+                        placeholder="${f.speakProvider === "eleven_labs"
+                          ? "z. B. 21m00Tcm4TlvDq8ikWAM"
+                          : "ID einer eigenen oder geklonten Stimme"}"
+                        hint="API-Key kommt aus dem Server-Env — nie aus der Datenbank."
+                        onglk-input="${(host, e) => setByProvider(host, "voiceBy", e.detail.value)}"
                       ></glk-input>
+                    `
+                  : ""}
+
+                ${knobActive(ttsProvider, "stability") || knobActive(ttsProvider, "speed")
+                  ? html`
                       <div class="group-head">
                         <glk-button
                           size="sm"
@@ -969,14 +1122,7 @@ export default define({
                         <span class="empty-hint">${voiceSettingsSummary(f)}</span>
                       </div>
                     `
-                  : html`
-                      <glk-input
-                        label="TTS-Modell (speak.model)"
-                        value="${f.speakModel}"
-                        placeholder="z. B. aura-2-thalia-en"
-                        onglk-input="${(host, e) => setField(host, "speakModel", e.detail.value)}"
-                      ></glk-input>
-                    `}
+                  : ""}
 
                 <glk-divider></glk-divider>
 
@@ -1629,6 +1775,7 @@ export default define({
         ["voiceProviderSelect", host.form.voiceProvider],
         ["listenModelSelect", host.form.listenModel],
         ["speakProviderSelect", host.form.speakProvider],
+        ["speakModelSelect", host.form.modelBy[host.form.speakProvider]],
         ["ambiencePresetSelect", host.form.ambiencePreset],
         ["toolMethodSelect", host.toolDraft && host.toolDraft.method],
         ["translationLangSelect", host.translationLang],
@@ -1644,6 +1791,11 @@ export default define({
       // des vorherigen Agenten stehen und würde ungewollt mitgespeichert.
       const langSel = host.shadowRoot && host.shadowRoot.getElementById("contentLanguageSelect");
       if (langSel) langSel.setAttribute("value", host.form.contentLanguage || "");
+      // Dito bei der Stimmauswahl: leer heißt hier „eigene Stimm-ID im Feld darunter".
+      // (glk-select ab 1.12.0 zieht die Optionsliste selbst nach und stellt den Wert
+      // danach wieder her — hier genügt das value-Attribut wie bei jedem Select.)
+      const voiceSel = host.shadowRoot && host.shadowRoot.getElementById("speakVoiceSelect");
+      if (voiceSel) voiceSel.setAttribute("value", host.form.voiceBy[host.form.speakProvider] || "");
     },
     connect: (host) => {
       load(host);

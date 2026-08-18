@@ -307,3 +307,11 @@ skalieren muss?
   `gpt-5-mini` auch integriert. Aktuell läuft `think` über Requesty (`openai/gpt-4o-mini`).
 - **Deepgram managed-Google/Gemini:** zeitweise 403 (Billing-Sperre in Deepgrams Google-Projekt) →
   nicht nutzbar bis Deepgram das behebt.
+- **GlassKit `glk-select`: Optionen wurden nur einmal übernommen** — *erledigt in
+  glasskit-elements 1.12.0.* `_moveOptions()` lief in einem einmaligen
+  `requestAnimationFrame`; spätere Änderungen der `<option>`-Kinder erreichten das innere
+  `<select>` nie. Betraf jeden Select mit dynamischer Liste — bei uns Provider, Modelle und
+  Stimmen im TTS-Panel. GlassKit hat es generisch in `base.js` gelöst (MutationObserver →
+  `projectLightDom()`, plus Wertwiederherstellung und öffentliches `refresh()`); damit sind
+  auch `glk-tab-item` und `glk-modal` mit erledigt. Unser Workaround `syncSelectOptions()`
+  ist entfernt, `package.json` verlangt jetzt `^1.12.0`.

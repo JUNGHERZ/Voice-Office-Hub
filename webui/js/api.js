@@ -79,6 +79,14 @@ export const api = {
   // Ambience-Presets (read-only)
   listAmbiencePresets: () => request("GET", "/api/ambience"),
 
+  // TTS-Provider-Katalog (read-only): Modelle, Stimmen, DSGVO-Einstufung
+  listTtsProviders: () => request("GET", "/api/tts/providers"),
+
+  // Voxtral-Stimmen: auflisten, aus Referenzaudio klonen, löschen
+  listTtsVoices: (type) => request("GET", `/api/tts/voices${type ? `?type=${type}` : ""}`),
+  createTtsVoice: (data) => request("POST", "/api/tts/voices", data),
+  deleteTtsVoice: (id) => request("DELETE", `/api/tts/voices/${id}`),
+
   // Web-Widget: Embed-Key rotieren (macht einen geleakten Key wertlos)
   rotateWidgetKey: (id) => request("POST", `/api/agents/${id}/widget/key`),
 

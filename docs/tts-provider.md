@@ -1,0 +1,232 @@
+# TTS-Provider: Auswahl, Kosten und DSGVO-Einstufung
+
+Welche Stimme ein Agent spricht, entscheidet `speak.provider` — einstellbar im
+Agenten-Panel. Dieses Dokument beschreibt die verfügbaren Engines, ihre Kosten,
+ihre datenschutzrechtliche Einstufung und wie man bestehende Stimmen migriert.
+
+Die maßgebliche Quelle im Code ist das Manifest **`src/tts/catalog.ts`**. Daraus
+speisen sich das Mongoose-Enum, die Auswahlfelder im Panel, die DSGVO-Badges und
+die Tabellen unten. Wer einen Provider ergänzt, ergänzt ihn dort.
+
+---
+
+## Überblick
+
+| Provider | Pfad | Transport | Sprachen | Preis / 1000 Zeichen | Gemessene TTFA | Verarbeitung |
+|---|---|---|---|---|---|---|
+| **Deepgram Aura** | native + Voice-Agent | WebSocket `/v1/speak` | en, de u. a. | $0,030 | **218 ms** | 🟢 EU-Endpoint möglich |
+| **Mistral Voxtral** | nur native | HTTP + SSE `/v1/audio/speech` | 9 inkl. Deutsch (Stimme siehe unten) | **$0,016** | **400 ms** | 🟢 **EU** |
+| **ElevenLabs** | native + Voice-Agent | WebSocket `stream-input` | 30+ | ≈ $0,11 | **146 ms** | 🟡 USA |
+
+TTFA = Zeit bis zum ersten Audio-Byte, Median über drei deutsche Sätze mit je
+frischer Verbindung (`npm run tts-bench`, gemessen 2026-08-18 von einem
+Entwicklerrechner in Deutschland). Auf Kosten pro gesprochener Minute
+umgerechnet: ElevenLabs $0,126 · Aura $0,028 · **Voxtral $0,015**.
+
+Geplant (Adapter noch nicht gebaut, im Manifest bereits beschrieben):
+Deepgram Flux TTS, Speechify Simba, Fish Audio S2 — siehe „Ausblick" unten.
+
+„Pfad" meint den `voiceProvider` des Agents: Die **Deepgram-Voice-Agent-API**
+reicht nur ihre eigenen Stimmen und ElevenLabs durch. Alle übrigen Engines
+laufen ausschließlich in der **nativen Kaskade** (`voiceProvider: "native"`).
+Stellt man am Agenten trotzdem einen nativ-only-Provider ein, fällt der
+Voice-Agent-Pfad mit einer Warnung auf die Deepgram-Stimme zurück — ein Anruf
+scheitert nie an der TTS-Auswahl.
+
+---
+
+## Auswahlhilfe
+
+**Deutscher Agent, DSGVO im Vordergrund → Mistral Voxtral.** Einzige Engine im
+Feld mit EU-Verarbeitung als Standard und mit Abstand die günstigste — rund ein
+Achtel der ElevenLabs-Kosten. Der Preis dafür ist Latenz: 400 ms gegenüber
+146 ms bei ElevenLabs, also gut eine Viertelsekunde mehr, bis das erste Wort
+kommt. Das ist im Gespräch spürbar, aber nicht disqualifizierend.
+
+**Niedrigste Latenz zählt mehr als alles andere → ElevenLabs.** Der warm
+gehaltene Socket mit `auto_mode` ist im Feld unerreicht (146 ms) — und mit
+$0,126 je gesprochener Minute rund achtmal so teuer wie Voxtral.
+
+**Guter Mittelweg → Deepgram Aura.** 218 ms und $0,028/min, dazu derselbe
+Anbieter wie beim STT und ein EU-Endpoint.
+
+Die Herstellerangaben taugen für diese Entscheidung nicht: Mistral nennt
+70–90 ms, das ist reine Modellzeit; die eigene Doku spricht von ~0,8 s
+End-to-End — gemessen sind es 400 ms. Deshalb das Messharness (siehe „Messen").
+
+---
+
+## DSGVO und EU-Residency
+
+Anrufaudio und Transkripte sind personenbezogene Daten. Wo die TTS-Engine
+verarbeitet, ist damit eine Frage der Auftragsverarbeitung, nicht des Geschmacks.
+
+| Provider | Betreiber | Verarbeitung | Einstufung |
+|---|---|---|---|
+| **Mistral Voxtral** | Mistral AI SAS, Paris (FR) | EU per Default; 30 Tage Missbrauchs-Retention, Zero Data Retention im Scale-Tarif | 🟢 **EU** — keine Drittlandübermittlung |
+| **Deepgram** (Aura, Flux-STT, Voice Agent) | Deepgram Inc. (US) | `api.eu.deepgram.com` seit 10.01.2026 allgemein verfügbar; unterstützt `/v1/speak`, `/v2/listen`, `/v1/agent/converse`. Gleiche Keys, nur andere Domain | 🟢 **mit EU-Endpoint** — ohne ihn 🟡 |
+| **ElevenLabs** | ElevenLabs Inc. (US) | USA, kein EU-Endpoint dokumentiert | 🟡 SCC/DPF erforderlich |
+| **Speechify** *(geplant)* | Speechify Inc. (US) | laut Datenschutzerklärung Verarbeitung und Speicherung in den USA | 🟡 SCC/DPF erforderlich |
+| **Fish Audio** *(geplant)* | Shanghai Qita Dynamic Technology Co., Ltd (CN) | keine Residency-Zusage | 🔴 **Drittland ohne Angemessenheitsbeschluss** |
+| **Deepgram Flux TTS** *(geplant)* | Deepgram Inc. (US) | `/v2/speak` steht **nicht** auf der Liste der EU-Endpoint-Pfade — anders als das bereits genutzte Flux-STT | 🟡 vor Einsatz mit Deepgram klären |
+
+**Empfehlung für deutsche Installationen:** Mistral Voxtral als Standardstimme,
+und für Deepgram (STT wie TTS) den EU-Endpoint konfigurieren:
+
+```bash
+NATIVE_STT_URL=wss://api.eu.deepgram.com/v2/listen
+NATIVE_TTS_URL=wss://api.eu.deepgram.com/v1/speak
+DEEPGRAM_AGENT_URL=wss://api.eu.deepgram.com/v1/agent/converse
+```
+
+Die Badges im Agenten-Panel zeigen dieselbe Einstufung direkt bei der Auswahl,
+damit die Entscheidung nicht erst in der Doku auffällt.
+
+### Geklonte Stimmen sind personenbezogene Daten
+
+Eine Stimme, die eine identifizierbare Person nachbildet, ist ein
+personenbezogenes Datum — zusätzlich zum Persönlichkeitsrecht an der eigenen
+Stimme. Praktisch heißt das:
+
+- **Einwilligung der Sprecherin bzw. des Sprechers** einholen und dokumentieren,
+  und zwar ausdrücklich für die Synthese, nicht nur für die Aufnahme.
+- **Löschfrist festlegen.** Mistrals Voice-API kennt dafür `retention_notice`
+  (Standard 30 Tage); die Admin-API setzt den Wert bei jedem Anlegen mit.
+- **Nicht mehr benötigte Klone löschen** (`DELETE /api/tts/voices/:id`).
+
+---
+
+## Stimmen migrieren (ElevenLabs → Voxtral)
+
+Voxtral klont zero-shot aus ~3 Sekunden Referenzaudio, in Blindtests wurde es
+gegenüber ElevenLabs Flash v2.5 in 68,4 % der Vergleiche bevorzugt. Ein Wechsel
+ist damit realistisch — mit zwei Einschränkungen.
+
+**Für Deutsch führt kein Weg am Klonen vorbei.** Die Cloud-API hält nur zehn
+Preset-Stimmen bereit, alle englisch (acht Varianten einer US-Stimme, zwei
+britische), davon eine einzige weibliche. Voxtral ist ein Cloning-Modell — die
+eigentliche Stimme bringt man selbst mit. Deutscher Text mit einer englischen
+Preset-Stimme funktioniert zwar (cross-lingual, geprüft), klingt aber
+entsprechend. Ein deutscher Produktionsagent braucht eine geklonte Stimme.
+
+> **Nicht aus ElevenLabs-Ausgaben klonen.** Die Nutzungsbedingungen von
+> ElevenLabs untersagen, erzeugtes Audio als Eingabe für Modelltraining oder für
+> konkurrierende Dienste zu verwenden. Ein paar Sekunden generierte Sprache in
+> Voxtral zu klonen wäre genau das.
+
+**Der saubere Weg** ist, aus derselben **Originalaufnahme** neu zu klonen, aus
+der die ElevenLabs-Stimme entstanden ist — also aus dem Rohmaterial der
+Sprecherin bzw. des Sprechers, an dem die eigenen Nutzungsrechte bestehen. Drei
+Sekunden genügen.
+
+```bash
+# Referenzaufnahme (WAV/MP3) base64-kodieren und anlegen
+BASE64=$(base64 -i stimme-original.wav)
+curl -X POST http://localhost:8080/api/tts/voices \
+  -H "x-api-key: $ADMIN_API_KEY" -H "Content-Type: application/json" \
+  -d "{\"name\":\"Empfang\",\"sampleAudio\":\"$BASE64\",\"sampleFilename\":\"stimme-original.wav\",\"retentionNotice\":30}"
+```
+
+Die zurückgegebene `id` trägt man am Agenten als Stimme ein (Panel: Feld
+„Eigene/geklonte Stimm-ID"). Bestehende Stimmen listet
+`GET /api/tts/voices`, Löschen `DELETE /api/tts/voices/:id`.
+
+---
+
+## Technische Hinweise
+
+### Voxtral gibt 24 kHz aus — die Telefonstrecke fährt 8 kHz
+
+Voxtral synthetisiert fest mit 24 kHz. Die Umsetzung auf `AUDIO_SAMPLE_RATE`
+übernimmt `src/audio/resample.ts`: ein Polyphase-FIR mit Fenster-Sinc-Prototyp,
+Cutoff 3600 Hz, ~96 Taps. Gemessene Kurve: bis 3 kHz flach, bei 4 kHz (der
+Ziel-Nyquistfrequenz) −48,7 dB, darüber −71 dB und mehr.
+
+Der Filter ist nicht optional. Ohne ihn faltet sich alles zwischen 4 und 12 kHz
+— Zischlaute, Plosive — zurück ins Sprachband und wird als metallisches Sirren
+hörbar. Die vorhandenen Filter im Medienpfad helfen nicht: der DC-Blocker in
+`audiosocketServer.ts` ist ein 6-Hz-*Hoch*pass, die Rampen sind 5-ms-Hüllkurven.
+
+### HTTP-TTS klingt anders als WebSocket-TTS
+
+Aura und ElevenLabs halten einen Socket offen; Voxtral fährt **einen Request je
+Satz**. Streng seriell heißt das: an jeder Satzgrenze eine Lücke in Höhe der
+Request-Latenz. Läuft die Playout-Queue dabei leer, blendet die Medienstrecke
+aus und wieder ein — als Kerbe hörbar.
+
+Gegenmittel ist `NATIVE_HTTP_TTS_CONCURRENCY=2`: der nächste Satz wird
+vorgeholt, während der aktuelle noch spielt. Die Ausgabereihenfolge bleibt
+garantiert (Head-of-Line-Emitter in `src/native/ttsHttp.ts`). Der Standard ist
+`1`; auf `2` erhöhen, wenn Antworten zerhackt klingen.
+
+### ElevenLabs meldet kein Turn-Ende
+
+Der reale `stream-input`-Endpoint sendet `isFinal` erst beim Verbindungsende,
+nicht als Antwort auf `flush` — geprüft mit `auto_mode=true` und `=false`, in
+beiden Fällen gleich. Das `flushed`-Event des Adapters feuert deshalb erst beim
+Schließen. Produktiv hat das heute keine Folge (einziger Verbraucher wäre
+`agentAudioDone`, und das Auflegen wartet über `MediaSession.pendingMs()`), aber
+wer ein verlässliches Turn-Ende braucht, muss auf `multi-stream-input` mit
+`close_context` wechseln — den Endpoint nutzt der Voice-Agent-Pfad bereits.
+
+### Abrechnungsbasis
+
+Gezählt wird, was tatsächlich an den Anbieter **gesendet** wurde — ein per
+Barge-in verworfener Satz zählt nicht. Die Werte landen pro Anruf in
+`metrics.ttsProvider/ttsModel/ttsCharacters/ttsCredits`.
+
+---
+
+## Messen
+
+```bash
+npm run tts-bench          # bzw. npx tsx src/scripts/ttsBench.ts
+TTS_BENCH_PROVIDERS=mistral,deepgram npm run tts-bench
+```
+
+Das Harness schickt dieselben deutschen Sätze durch jeden konfigurierten
+Provider und meldet TTFA (Median, Minimum, Maximum), Audiodauer, Zeichen und
+Kosten. Es braucht weder Datenbank noch Asterisk, nur die API-Keys im Env.
+Provider ohne Key werden übersprungen statt still auf Aura zurückzufallen. Für
+ElevenLabs die Voice-ID über `TTS_BENCH_ELEVEN_VOICE` mitgeben.
+
+Das Ende einer Äußerung erkennt das Harness über ein Ruhefenster, nicht über
+`flushed` — sonst würde es je nach Provider Verschiedenes messen (siehe oben).
+
+Im laufenden Betrieb landen die Turn-Latenzen zusätzlich pro Anruf in der
+Datenbank (`metrics.turnLatencyMs`, `turnThinkMs`, `turnTtsMs`, `turns` —
+jeweils Median über alle Agenten-Turns). Damit lässt sich die Provider-Wahl
+gegen echte Gespräche prüfen statt gegen ein Skript.
+
+---
+
+## ENV-Referenz
+
+| Variable | Default | Zweck |
+|---|---|---|
+| `DEEPGRAM_API_KEY` | *(leer)* | Aura-TTS, Flux-STT und Voice Agent |
+| `ELEVENLABS_API_KEY` | *(leer)* | ElevenLabs-TTS; Voice-ID steht am Agenten |
+| `MISTRAL_API_KEY` | *(leer)* | Voxtral-TTS und Voice-Cloning |
+| `NATIVE_TTS_URL` | `wss://api.deepgram.com/v1/speak` | Aura-Endpoint (EU: `api.eu.deepgram.com`) |
+| `NATIVE_TTS_ELEVEN_URL` | `wss://api.elevenlabs.io/v1` | ElevenLabs-Basis |
+| `NATIVE_TTS_MISTRAL_URL` | `https://api.mistral.ai/v1` | Mistral-Basis |
+| `NATIVE_HTTP_TTS_CONCURRENCY` | `1` | Parallele Synthese-Requests bei HTTP-TTS |
+
+API-Keys bleiben immer im Server-Env. Sie landen nie in der Datenbank und nie im
+Frontend — der Katalog-Endpoint meldet nur, **ob** ein Key gesetzt ist.
+
+---
+
+## Ausblick
+
+Im Manifest bereits beschrieben, Adapter noch nicht gebaut:
+
+- **Deepgram Flux TTS** — konversationsnahe Synthese auf `/v2/speak`. Interessant
+  weniger wegen der Latenz als wegen `Interrupt` → `SpeechInterrupted`, das
+  `text_spoken` zurückmeldet: damit ließe sich die Gesprächshistorie auf das
+  kürzen, was der Anrufer tatsächlich gehört hat. Derzeit **nur Englisch**
+  (sieben Stimmen).
+- **Speechify Simba** — nominell günstigster Anbieter; `simba-3.0` kann Deutsch,
+  das neuere `simba-3.2` nur Englisch.
+- **Fish Audio S2** — 80+ Sprachen, rechnet allerdings UTF-8-**Bytes** ab
+  (deutsche Umlaute kosten doppelt) und ist datenschutzrechtlich Drittland.

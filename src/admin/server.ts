@@ -20,6 +20,7 @@ import { agentRoutes } from "./routes/agents.js";
 import { ambienceRoutes } from "./routes/ambience.js";
 import { requestRoutes } from "./routes/requests.js";
 import { toolRoutes } from "./routes/tools.js";
+import { ttsRoutes } from "./routes/tts.js";
 import { widgetRoutes } from "./routes/widget.js";
 
 const log = logger.child({ mod: "admin" });
@@ -48,6 +49,7 @@ export async function buildAdminServer(): Promise<FastifyInstance> {
         { name: "requests", description: "Anrufe / Requests (read-only) + Aufnahme" },
         { name: "tools", description: "Verfügbare eingebaute Tools (read-only)" },
         { name: "ambience", description: "Hintergrundatmosphäre — Presets (read-only)" },
+        { name: "tts", description: "TTS-Provider-Katalog inkl. DSGVO-Einstufung (read-only)" },
         { name: "widget", description: "Web-Widget (öffentlich: key-/token-gebunden)" },
       ],
     },
@@ -69,6 +71,14 @@ export async function buildAdminServer(): Promise<FastifyInstance> {
     const name = (err as { name?: string }).name;
     if (name === "ValidationError" || name === "CastError") {
       return reply.code(400).send({ error: name, message: err.message });
+    }
+    // Fastify-eigene Client-Fehler (Schema-Validierung, 404, Payload zu groß)
+    // tragen ihren Status selbst. Ohne diesen Zweig würden sie zu einem opaken
+    // 500 — der Aufrufer erführe nicht, WAS an seiner Anfrage falsch war, und
+    // jeder Tippfehler landete als Fehler im Server-Log.
+    const status = (err as { statusCode?: number }).statusCode;
+    if (typeof status === "number" && status >= 400 && status < 500) {
+      return reply.code(status).send({ error: name ?? "bad_request", message: err.message });
     }
     log.error("Admin-Fehler", { err: String(err) });
     return reply.code(500).send({ error: "internal" });
@@ -97,6 +107,7 @@ export async function buildAdminServer(): Promise<FastifyInstance> {
   await app.register(requestRoutes, { prefix: "/api/requests" });
   await app.register(toolRoutes, { prefix: "/api/tools" });
   await app.register(ambienceRoutes, { prefix: "/api/ambience" });
+  await app.register(ttsRoutes, { prefix: "/api/tts" });
   // Widget-Routen sind öffentlich (key-/token-gebunden) und definieren ihre Pfade selbst.
   await app.register(widgetRoutes);
 

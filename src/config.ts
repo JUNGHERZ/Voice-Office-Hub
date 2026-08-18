@@ -71,6 +71,10 @@ export interface Config {
    * NativeSession (0.6.10): eigene STT→LLM→TTS-Kaskade als voiceProvider "native".
    * Nutzt die vorhandenen Keys (deepgram.apiKey für STT+TTS, llm.* für das LLM).
    */
+  mistral: {
+    /** Nur nötig für Agents mit speak.provider=mistral (Voxtral TTS). */
+    apiKey: string;
+  };
   native: {
     /** Flux-Streaming-STT (v2-Listen-WS). */
     sttUrl: string;
@@ -78,6 +82,14 @@ export interface Config {
     ttsUrl: string;
     /** ElevenLabs-Streaming-TTS (Basis bis /v1; Key kommt aus elevenlabs.apiKey). */
     elevenUrl: string;
+    /** Mistral Voxtral TTS (Basis bis /v1; Key kommt aus mistral.apiKey). */
+    mistralUrl: string;
+    /**
+     * Gleichzeitig laufende Synthese-Requests bei HTTP-TTS (1 = streng seriell).
+     * Seriell heißt an jeder Satzgrenze eine Lücke in Höhe der Request-Latenz —
+     * bei hörbaren Kerben auf 2 erhöhen (ein Satz wird dann vorgeholt).
+     */
+    httpTtsConcurrency: number;
     /** Mindestlänge (Zeichen), bevor der Satz-Chunker einen Satz an die TTS gibt. */
     minSentenceChars: number;
     /** Spekulativer LLM-Start auf EagerEndOfTurn (0.6.17; Audio erst nach bestätigtem Turn-Ende). */
@@ -236,10 +248,15 @@ export const config: Config = {
   elevenlabs: {
     apiKey: opt("ELEVENLABS_API_KEY"),
   },
+  mistral: {
+    apiKey: opt("MISTRAL_API_KEY"),
+  },
   native: {
     sttUrl: opt("NATIVE_STT_URL", "wss://api.deepgram.com/v2/listen"),
     ttsUrl: opt("NATIVE_TTS_URL", "wss://api.deepgram.com/v1/speak"),
     elevenUrl: opt("NATIVE_TTS_ELEVEN_URL", "wss://api.elevenlabs.io/v1"),
+    mistralUrl: opt("NATIVE_TTS_MISTRAL_URL", "https://api.mistral.ai/v1"),
+    httpTtsConcurrency: int("NATIVE_HTTP_TTS_CONCURRENCY", 1),
     minSentenceChars: int("NATIVE_MIN_SENTENCE_CHARS", 12),
     eagerEot: bool("NATIVE_EAGER_EOT", false),
     // Leerer String zählt als "nicht gesetzt" (ENV-Pinning der Tests nutzt das).

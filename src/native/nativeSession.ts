@@ -40,14 +40,17 @@ import { ConversationHistory } from "./history.js";
 import { streamChatCompletion, toOpenAiTools, type OpenAiTool } from "./llmStream.js";
 import { createSentenceChunker } from "./sentences.js";
 import { FluxSttStream, type SttStreamOptions } from "./sttStream.js";
-import { ElevenLabsTtsStream } from "./ttsElevenLabs.js";
-import { AuraTtsStream } from "./ttsStream.js";
+import { buildNativeTts } from "./ttsFactory.js";
 import type { SttStreamLike, TtsStreamLike } from "./types.js";
+
+// Die Provider-Matrix liegt in ttsFactory.ts; hier re-exportiert, damit bestehende
+// Importe und die Testnaht (NativeSessionDeps.createTts) unverändert bleiben.
+export { buildNativeTts };
 
 /** Injizierbare Baustein-Fabriken (Tests reichen Fakes ein — Muster CallHandlerDeps). */
 export interface NativeSessionDeps {
   createStt: (opts: SttStreamOptions, callId: string) => SttStreamLike;
-  /** TTS-Provider-Matrix: Auswahl anhand agent.speak.provider (Aura oder ElevenLabs). */
+  /** TTS-Provider-Matrix: Auswahl anhand agent.speak.provider (siehe ttsFactory.ts). */
   createTts: (agent: ResolvedAgent, callId: string) => TtsStreamLike;
   streamLlm: typeof streamChatCompletion;
   /** One-shot Timer für den Filler (injizierbar: Fake-Clock statt Wall-Clock); gibt Canceler zurück. */
@@ -57,58 +60,6 @@ export interface NativeSessionDeps {
 /** Minimaler Localizer-Vertrag für den Filler (CallLocalizer erfüllt ihn strukturell; Tests: Fake). */
 export interface FillerLocalizer {
   resolve(key: string, index?: number): string;
-}
-
-/**
- * TTS-Auswahl für native: speak.provider "eleven_labs" nutzt ElevenLabs-Streaming
- * (Voice-ID aus speak.voice, Key aus dem Server-Env); unvollständige Konfiguration
- * fällt — wie im Deepgram-Modus (0.6.8) — mit Warnung auf Aura zurück. Ein Anruf
- * scheitert nie an der TTS-Auswahl.
- */
-export function buildNativeTts(agent: ResolvedAgent, callId: string): TtsStreamLike {
-  const log = logger.child({ mod: "native", callId });
-  if (agent.speak.provider === "eleven_labs") {
-    const apiKey = config.elevenlabs.apiKey;
-    const voiceId = agent.speak.voice?.trim();
-    if (apiKey && voiceId) {
-      const modelId =
-        agent.speak.model && !agent.speak.model.startsWith("aura")
-          ? agent.speak.model
-          : "eleven_flash_v2_5";
-      const { stability, similarityBoost, speed } = agent.speak;
-      const hasVoiceSettings =
-        stability !== undefined || similarityBoost !== undefined || speed !== undefined;
-      return new ElevenLabsTtsStream(
-        {
-          baseUrl: config.native.elevenUrl,
-          apiKey,
-          voiceId,
-          modelId,
-          outputFormat: `pcm_${config.audio.sampleRate}`,
-          ...(hasVoiceSettings ? { voiceSettings: { stability, similarityBoost, speed } } : {}),
-        },
-        callId,
-      );
-    }
-    log.warn("ElevenLabs-TTS unvollständig (ELEVENLABS_API_KEY oder Voice-ID fehlt) — Fallback auf Aura", {
-      hasKey: Boolean(apiKey),
-      hasVoice: Boolean(voiceId),
-    });
-  }
-  const auraModel =
-    agent.speak.model && agent.speak.model.startsWith("aura")
-      ? agent.speak.model
-      : config.defaultAgent.speakModel;
-  return new AuraTtsStream(
-    {
-      url: config.native.ttsUrl,
-      apiKey: config.deepgram.apiKey,
-      model: auraModel,
-      encoding: config.audio.encoding,
-      sampleRate: config.audio.sampleRate,
-    },
-    callId,
-  );
 }
 
 const defaultDeps: NativeSessionDeps = {

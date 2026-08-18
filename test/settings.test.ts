@@ -191,3 +191,17 @@ test("buildSettings: eleven_labs ohne Key/Voice-ID → Fallback auf Deepgram-Sti
     config.elevenlabs.apiKey = prevKey;
   }
 });
+
+// Nativ-only-Provider im Deepgram-Voice-Agent-Pfad: ohne den Guard landete
+// "voxtral-mini-tts-latest" als Deepgram-Modellname in der Settings-Message —
+// die Voice-Agent-API lehnt das ab und der Anruf scheitert.
+test("buildSettings: nativ-only-Provider → Fallback auf die Deepgram-Stimme", () => {
+  const s = buildSettings(
+    agent({ speak: { provider: "mistral", model: "voxtral-mini-tts-latest", voice: "de_female" } }),
+    [],
+  );
+  const p = s.agent.speak.provider as Record<string, unknown>;
+  assert.equal(p.type, "deepgram");
+  assert.equal(p.model, config.defaultAgent.speakModel, "kein Fremdmodell durchreichen");
+  assert.equal(s.agent.speak.endpoint, undefined);
+});

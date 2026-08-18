@@ -7,6 +7,18 @@
  *   Init:   {"text":" ", "voice_settings"?}   Text: {"text":"… "}   Flush: {"text":" ","flush":true}
  *   Ende:   {"text":""}                        Server: {"audio":"<base64>"} / {"isFinal":true}
  *
+ * ABWEICHUNG, live gemessen 2026-08-18: `isFinal` kommt NUR nach `{"text":""}`
+ * (Ende des Streams), NICHT als Antwort auf `flush`. Geprüft mit auto_mode=true
+ * und =false — in beiden Fällen gleich. Das `flushed`-Event dieses Adapters
+ * feuert deshalb erst beim close(), nicht am Turn-Ende.
+ *
+ * Folgen heute: keine. Einziger Verbraucher von `flushed` ist `agentAudioDone`
+ * der NativeSession, und das hat produktiv keinen Abnehmer (das Auflegen wartet
+ * über MediaSession.pendingMs(), nicht über dieses Event). Wer künftig ein
+ * verlässliches Turn-Ende von ElevenLabs braucht, muss auf `multi-stream-input`
+ * mit `close_context` wechseln — den Endpoint nutzt der Deepgram-Voice-Agent-Pfad
+ * bereits (siehe deepgram/settings.ts).
+ *
  * Audio wird als pcm_8000 (linear16 @ 8 kHz) angefordert — passt 1:1 in den Media-Pfad.
  * Barge-in: ElevenLabs kennt kein serverseitiges Clear → clear() trennt die Verbindung
  * hart (verwirft damit alles Gepufferte); der nächste Satz verbindet lazy neu.
