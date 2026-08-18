@@ -66,6 +66,12 @@ export interface Config {
   /** ElevenLabs-TTS (optional): Key liegt nur im Server-Env, nie in der DB. */
   elevenlabs: {
     apiKey: string;
+    /**
+     * Basis bis /v1 — gilt für BEIDE Pfade (native Kaskade und die Dritt-TTS-
+     * Durchreiche der Voice-Agent-API). EU-Data-Residency (nur Enterprise):
+     * wss://api.eu.residency.elevenlabs.io/v1
+     */
+    baseUrl: string;
   };
   /**
    * NativeSession (0.6.10): eigene STT→LLM→TTS-Kaskade als voiceProvider "native".
@@ -80,8 +86,6 @@ export interface Config {
     sttUrl: string;
     /** Aura-Streaming-TTS (Speak-WS). */
     ttsUrl: string;
-    /** ElevenLabs-Streaming-TTS (Basis bis /v1; Key kommt aus elevenlabs.apiKey). */
-    elevenUrl: string;
     /** Mistral Voxtral TTS (Basis bis /v1; Key kommt aus mistral.apiKey). */
     mistralUrl: string;
     /**
@@ -247,6 +251,9 @@ export const config: Config = {
   },
   elevenlabs: {
     apiKey: opt("ELEVENLABS_API_KEY"),
+    // NATIVE_TTS_ELEVEN_URL bleibt als Alias gültig: die Variable galt bis 0.8.0 nur
+    // für die native Kaskade, jetzt steuert ELEVENLABS_BASE_URL beide Pfade.
+    baseUrl: opt("ELEVENLABS_BASE_URL") || opt("NATIVE_TTS_ELEVEN_URL", "wss://api.elevenlabs.io/v1"),
   },
   mistral: {
     apiKey: opt("MISTRAL_API_KEY"),
@@ -254,7 +261,6 @@ export const config: Config = {
   native: {
     sttUrl: opt("NATIVE_STT_URL", "wss://api.deepgram.com/v2/listen"),
     ttsUrl: opt("NATIVE_TTS_URL", "wss://api.deepgram.com/v1/speak"),
-    elevenUrl: opt("NATIVE_TTS_ELEVEN_URL", "wss://api.elevenlabs.io/v1"),
     mistralUrl: opt("NATIVE_TTS_MISTRAL_URL", "https://api.mistral.ai/v1"),
     httpTtsConcurrency: int("NATIVE_HTTP_TTS_CONCURRENCY", 1),
     minSentenceChars: int("NATIVE_MIN_SENTENCE_CHARS", 12),

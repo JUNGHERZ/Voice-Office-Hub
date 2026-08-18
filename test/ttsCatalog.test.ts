@@ -68,7 +68,9 @@ test("Katalog: providersForPath trennt native und Deepgram-Pfad", () => {
 test("Katalog: Residency-Einstufung je Provider", () => {
   assert.equal(findTtsProvider("mistral")?.residency, "eu");
   assert.equal(findTtsProvider("deepgram")?.residency, "eu-optional");
-  assert.equal(findTtsProvider("eleven_labs")?.residency, "us");
+  // EU-Data-Residency ist verfügbar, aber nur im Enterprise-Tarif und nur, wenn
+  // ELEVENLABS_BASE_URL gesetzt ist — deshalb "eu-optional" wie bei Deepgram.
+  assert.equal(findTtsProvider("eleven_labs")?.residency, "eu-optional");
   assert.equal(findTtsProvider("speechify")?.residency, "us");
   assert.equal(findTtsProvider("fish_audio")?.residency, "third-country");
   // Drittland muss ausdrücklich freigeschaltet werden.

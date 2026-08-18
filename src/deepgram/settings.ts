@@ -127,7 +127,9 @@ function buildSpeak(agent: ResolvedAgent): SettingsMessage["agent"]["speak"] {
     return {
       provider,
       endpoint: {
-        url: `wss://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/multi-stream-input`,
+        // Basis aus dem Env (ELEVENLABS_BASE_URL) — damit gilt eine EU-Residency-URL
+        // für beide Pfade und nicht nur für die native Kaskade.
+        url: `${config.elevenlabs.baseUrl.replace(/\/$/, "")}/text-to-speech/${encodeURIComponent(voiceId)}/multi-stream-input`,
         headers: { "xi-api-key": apiKey },
       },
     };

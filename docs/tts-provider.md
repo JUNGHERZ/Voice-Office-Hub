@@ -65,19 +65,35 @@ verarbeitet, ist damit eine Frage der Auftragsverarbeitung, nicht des Geschmacks
 |---|---|---|---|
 | **Mistral Voxtral** | Mistral AI SAS, Paris (FR) | EU per Default; 30 Tage Missbrauchs-Retention, Zero Data Retention im Scale-Tarif | 🟢 **EU** — keine Drittlandübermittlung |
 | **Deepgram** (Aura, Flux-STT, Voice Agent) | Deepgram Inc. (US) | `api.eu.deepgram.com` seit 10.01.2026 allgemein verfügbar; unterstützt `/v1/speak`, `/v2/listen`, `/v1/agent/converse`. Gleiche Keys, nur andere Domain | 🟢 **mit EU-Endpoint** — ohne ihn 🟡 |
-| **ElevenLabs** | ElevenLabs Inc. (US) | USA, kein EU-Endpoint dokumentiert | 🟡 SCC/DPF erforderlich |
+| **ElevenLabs** | ElevenLabs Inc. (US) | Mit **EU-Data-Residency** (nur Enterprise) liegt die Speicherung in der EU; zusammen mit Zero Retention Mode auch die Verarbeitung. Ohne sie USA. | 🟢 **mit EU-Residency** — ohne sie 🟡 |
 | **Speechify** *(geplant)* | Speechify Inc. (US) | laut Datenschutzerklärung Verarbeitung und Speicherung in den USA | 🟡 SCC/DPF erforderlich |
 | **Fish Audio** *(geplant)* | Shanghai Qita Dynamic Technology Co., Ltd (CN) | keine Residency-Zusage | 🔴 **Drittland ohne Angemessenheitsbeschluss** |
 | **Deepgram Flux TTS** *(geplant)* | Deepgram Inc. (US) | `/v2/speak` steht **nicht** auf der Liste der EU-Endpoint-Pfade — anders als das bereits genutzte Flux-STT | 🟡 vor Einsatz mit Deepgram klären |
 
-**Empfehlung für deutsche Installationen:** Mistral Voxtral als Standardstimme,
-und für Deepgram (STT wie TTS) den EU-Endpoint konfigurieren:
+**Empfohlene Konfiguration für deutsche Installationen** — alle drei Anbieter auf
+ihre EU-Endpunkte legen:
 
 ```bash
+# Deepgram (STT wie TTS)
 NATIVE_STT_URL=wss://api.eu.deepgram.com/v2/listen
 NATIVE_TTS_URL=wss://api.eu.deepgram.com/v1/speak
 DEEPGRAM_AGENT_URL=wss://api.eu.deepgram.com/v1/agent/converse
+
+# ElevenLabs — NUR mit Enterprise-Vertrag, sonst schlägt die Verbindung fehl
+ELEVENLABS_BASE_URL=wss://api.eu.residency.elevenlabs.io/v1
+
+# Mistral braucht nichts: EU ist dort der Standard
 ```
+
+`ELEVENLABS_BASE_URL` gilt **systemweit** — die native Kaskade und die
+Dritt-TTS-Durchreiche der Voice-Agent-API nutzen dieselbe Basis. Es gibt keinen
+Weg, versehentlich nur den einen Pfad umzustellen.
+
+**Warum die EU-URL nicht der Default ist:** ElevenLabs bietet Data Residency
+ausschließlich im Enterprise-Tarif. Ein normaler Account bekommt auf dem
+Residency-Host keine Verbindung — als Default würde die Variable also jede
+Installation ohne Enterprise-Vertrag beim ersten ElevenLabs-Anruf brechen. Sie
+gehört deshalb bewusst in die `.env` der jeweiligen Installation.
 
 Die Badges im Agenten-Panel zeigen dieselbe Einstufung direkt bei der Auswahl,
 damit die Entscheidung nicht erst in der Doku auffällt.
@@ -208,7 +224,7 @@ gegen echte Gespräche prüfen statt gegen ein Skript.
 | `ELEVENLABS_API_KEY` | *(leer)* | ElevenLabs-TTS; Voice-ID steht am Agenten |
 | `MISTRAL_API_KEY` | *(leer)* | Voxtral-TTS und Voice-Cloning |
 | `NATIVE_TTS_URL` | `wss://api.deepgram.com/v1/speak` | Aura-Endpoint (EU: `api.eu.deepgram.com`) |
-| `NATIVE_TTS_ELEVEN_URL` | `wss://api.elevenlabs.io/v1` | ElevenLabs-Basis |
+| `ELEVENLABS_BASE_URL` | `wss://api.elevenlabs.io/v1` | ElevenLabs-Basis, **systemweit** (EU: `wss://api.eu.residency.elevenlabs.io/v1`, Enterprise) |
 | `NATIVE_TTS_MISTRAL_URL` | `https://api.mistral.ai/v1` | Mistral-Basis |
 | `NATIVE_HTTP_TTS_CONCURRENCY` | `1` | Parallele Synthese-Requests bei HTTP-TTS |
 

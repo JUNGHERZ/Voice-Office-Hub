@@ -6,6 +6,31 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.1] – 2026-08-18
+
+### Changed
+
+**Die ElevenLabs-Basis-URL gilt jetzt systemweit — `ELEVENLABS_BASE_URL`.**
+Bis 0.8.0 war sie halb konfigurierbar: die native Kaskade las `NATIVE_TTS_ELEVEN_URL`,
+die Dritt-TTS-Durchreiche der Voice-Agent-API hatte `wss://api.elevenlabs.io/v1`
+hartkodiert. Wer den einen Pfad umstellte, änderte am anderen nichts — und merkte es
+nicht, weil beide Pfade dieselbe Stimme sprechen.
+
+Anlass ist die **EU-Data-Residency von ElevenLabs**: Unter
+`wss://api.eu.residency.elevenlabs.io/v1` liegt die Speicherung in der EU, zusammen mit
+Zero Retention Mode auch die Verarbeitung. Damit lässt sich die Engine mit der besten
+gemessenen Latenz (146 ms) DSGVO-konform betreiben, ohne sie zu ersetzen. Ein Schalter,
+beide Pfade.
+
+Der Default bleibt bewusst der globale Endpoint: Data Residency ist ein
+Enterprise-Feature, ein normaler Account bekommt auf dem Residency-Host keine
+Verbindung. Als Default würde die Variable jede Installation ohne Enterprise-Vertrag
+beim ersten ElevenLabs-Anruf brechen. `NATIVE_TTS_ELEVEN_URL` bleibt als Alias gültig.
+
+Die DSGVO-Einstufung für ElevenLabs steht damit im Panel und in der Doku auf
+🟢 *mit* EU-Residency (ohne sie unverändert 🟡) — dieselbe Logik wie bei Deepgram.
+
+
 ## [0.8.0] – 2026-08-18
 
 ### Added

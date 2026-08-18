@@ -62,7 +62,7 @@ const buildEleven: TtsBuilder = (agent, callId, log) => {
     stability !== undefined || similarityBoost !== undefined || speed !== undefined;
   return new ElevenLabsTtsStream(
     {
-      baseUrl: config.native.elevenUrl,
+      baseUrl: config.elevenlabs.baseUrl,
       apiKey,
       voiceId,
       modelId,

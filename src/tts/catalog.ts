@@ -207,8 +207,9 @@ export const TTS_PROVIDERS: readonly TtsProviderEntry[] = [
     voices: [],
     voiceFreeText: true,
     knobs: ["speed", "stability", "similarityBoost"],
-    residency: "us",
-    residencyNote: "ElevenLabs Inc. (USA). Kein EU-Endpoint dokumentiert — SCC/DPF erforderlich.",
+    residency: "eu-optional",
+    residencyNote:
+      "ElevenLabs Inc. (USA). Mit EU-Data-Residency (nur Enterprise) läuft die Speicherung in der EU — zusammen mit Zero Retention Mode auch die Verarbeitung. Endpoint über ELEVENLABS_BASE_URL setzen; ohne ihn USA und damit SCC/DPF.",
     costPer1kChars: 0.11,
     costNote: "0,5 Credits/Zeichen bei Flash/Turbo; der Eurobetrag hängt vom gebuchten Tarif ab.",
     envKey: "ELEVENLABS_API_KEY",

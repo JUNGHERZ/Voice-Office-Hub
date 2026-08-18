@@ -205,3 +205,22 @@ test("buildSettings: nativ-only-Provider → Fallback auf die Deepgram-Stimme", 
   assert.equal(p.model, config.defaultAgent.speakModel, "kein Fremdmodell durchreichen");
   assert.equal(s.agent.speak.endpoint, undefined);
 });
+
+// Die ElevenLabs-Basis-URL gilt systemweit (0.8.1): eine EU-Residency-URL muss auch
+// im Voice-Agent-Pfad greifen, nicht nur in der nativen Kaskade.
+test("buildSettings: eleven_labs übernimmt die konfigurierte Basis-URL", () => {
+  const prevKey = config.elevenlabs.apiKey;
+  const prevUrl = config.elevenlabs.baseUrl;
+  config.elevenlabs.apiKey = "xi-test-key";
+  config.elevenlabs.baseUrl = "wss://api.eu.residency.elevenlabs.io/v1";
+  try {
+    const s = buildSettings(agent({ speak: { provider: "eleven_labs", model: "eleven_flash_v2_5", voice: "v1" } }), []);
+    assert.equal(
+      s.agent.speak.endpoint?.url,
+      "wss://api.eu.residency.elevenlabs.io/v1/text-to-speech/v1/multi-stream-input",
+    );
+  } finally {
+    config.elevenlabs.apiKey = prevKey;
+    config.elevenlabs.baseUrl = prevUrl;
+  }
+});

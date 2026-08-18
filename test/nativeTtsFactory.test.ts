@@ -122,3 +122,21 @@ test("ttsFactory: mistral übernimmt Modell und Stimme des Agents", () => {
     tts.close();
   });
 });
+
+// Derselbe Schalter muss die native Kaskade steuern (0.8.1).
+test("ttsFactory: eleven_labs übernimmt die konfigurierte Basis-URL", () => {
+  const prevUrl = config.elevenlabs.baseUrl;
+  config.elevenlabs.baseUrl = "wss://api.eu.residency.elevenlabs.io/v1";
+  try {
+    withKeys({ eleven: "xi-test" }, () => {
+      const tts = buildNativeTts(
+        testAgent({ speak: { provider: "eleven_labs", model: "eleven_flash_v2_5", voice: "v1" } }),
+        "call-eu",
+      ) as ElevenLabsTtsStream;
+      assert.ok(tts.buildUrl().startsWith("wss://api.eu.residency.elevenlabs.io/v1/text-to-speech/v1/stream-input"));
+      tts.close();
+    });
+  } finally {
+    config.elevenlabs.baseUrl = prevUrl;
+  }
+});
