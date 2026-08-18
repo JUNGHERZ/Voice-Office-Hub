@@ -5,9 +5,13 @@ import http from "node:http";
 import { test } from "node:test";
 
 import {
+  AZURE_SPEED_MAX,
+  AZURE_SPEED_MIN,
   AzureTtsStream,
   azureCanServe,
   azureEndpointFor,
+  azureRate,
+  clampAzureSpeed,
   escapeXml,
   localeFromVoice,
   pickOutputFormat,
@@ -196,6 +200,58 @@ test("AzureTtsStream: HTTP-Fehler wird gemeldet", async () => {
   tts.sendText("Ein Satz.");
   await waitFor(() => errors.length === 1);
   assert.match(errors[0] ?? "", /401/);
+  tts.close();
+  await srv.close();
+});
+
+// ── Sprechtempo (0.8.10) ────────────────────────────────────────────────────
+
+test("Azure: speak.speed wird zum prosody-Prozentwert", () => {
+  assert.equal(azureRate(1), "+0%");
+  assert.equal(azureRate(1.2), "+20%");
+  assert.equal(azureRate(0.9), "-10%");
+  // Ausserhalb des bedienten Bereichs wird geklemmt, nicht durchgereicht.
+  assert.equal(azureRate(5), `+${Math.round((AZURE_SPEED_MAX - 1) * 100)}%`);
+  assert.equal(azureRate(0.1), `${Math.round((AZURE_SPEED_MIN - 1) * 100)}%`);
+});
+
+test("Azure: clampAzureSpeed haelt die Grenzen ein", () => {
+  assert.equal(clampAzureSpeed(1.2), 1.2);
+  assert.equal(clampAzureSpeed(9), AZURE_SPEED_MAX);
+  assert.equal(clampAzureSpeed(0), AZURE_SPEED_MIN);
+});
+
+test("AzureTtsStream: gesetztes Tempo landet als prosody im SSML", async () => {
+  const srv = await startServer();
+  const tts = new AzureTtsStream(makeOpts(srv.port, { speed: 1.2 }), "call-speed");
+  tts.on("error", () => {});
+  tts.sendText("Guten Tag.");
+  await waitFor(() => srv.state.bodies.length === 1);
+  const body = srv.state.bodies[0] ?? "";
+  assert.ok(body.includes("<prosody rate='+20%'>"), body);
+  assert.ok(body.includes("</prosody>"), body);
+  tts.close();
+  await srv.close();
+});
+
+test("AzureTtsStream: ohne Tempo bleibt das SSML unveraendert schlank", async () => {
+  const srv = await startServer();
+  const tts = new AzureTtsStream(makeOpts(srv.port), "call-nospeed");
+  tts.on("error", () => {});
+  tts.sendText("Guten Tag.");
+  await waitFor(() => srv.state.bodies.length === 1);
+  assert.ok(!(srv.state.bodies[0] ?? "").includes("prosody"));
+  tts.close();
+  await srv.close();
+});
+
+test("AzureTtsStream: speed=1 erzeugt kein wirkungsloses prosody-Tag", async () => {
+  const srv = await startServer();
+  const tts = new AzureTtsStream(makeOpts(srv.port, { speed: 1 }), "call-speed1");
+  tts.on("error", () => {});
+  tts.sendText("Guten Tag.");
+  await waitFor(() => srv.state.bodies.length === 1);
+  assert.ok(!(srv.state.bodies[0] ?? "").includes("prosody"));
   tts.close();
   await srv.close();
 });

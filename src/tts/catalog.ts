@@ -260,7 +260,7 @@ export const TTS_PROVIDERS: readonly TtsProviderEntry[] = [
     modelFreeText: true,
     voices: [],
     voiceFreeText: false,
-    knobs: [],
+    knobs: ["speed"],
     residency: "eu",
     residencyNote:
       "Microsoft Ireland Operations Ltd. Der Verarbeitungsort ist die gewählte Azure-Region — mit AZURE_SPEECH_REGION=westeurope oder germanywestcentral bleibt alles in der EU. Standard hier ist westeurope.",

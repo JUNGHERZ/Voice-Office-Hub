@@ -207,6 +207,27 @@ einen Einstiegswert — Azure hat über 600 Stimmen, und erfundene Namen hatten 
 schon (siehe Voxtral). Die vollständige, regionsaktuelle Liste holt
 `GET /api/tts/voices?provider=azure` direkt bei Azure ab.
 
+**Sprechtempo (0.8.10).** `speak.speed` wirkt bei Azure als `<prosody rate>` im
+SSML — als Prozentwert relativ zur Standardgeschwindigkeit, also 1.2 → `+20%`.
+Der Multiplikator wird auf 0,5–2,0 geklemmt (darüber rendert Azure die Stimme
+nicht mehr sauber); außerhalb des Bereichs gibt es eine Warnzeile, keinen Fehler.
+Ist nichts gesetzt, bleibt das `prosody`-Tag ganz weg — ein `rate='+0%'` wäre
+wirkungslos, aber zusätzliche Angriffsfläche im XML-Dokument.
+
+Gemessen an `de-DE-SeraphinaMultilingualNeural`, derselbe Satz:
+
+| `speak.speed` | Audiodauer |
+|---|---:|
+| unset / 1.0 | 8,35 s |
+| 1.1 | 7,64 s |
+| 1.2 | 6,94 s |
+| 1.3 | 6,21 s |
+
+Die mehrsprachigen Neural-Stimmen sprechen von Haus aus eher ruhig; 1.1–1.2
+klingt am Telefon flüssiger, ohne gehetzt zu wirken. Die DragonHD-Varianten
+sind schon ohne `prosody` rund 20 % schneller, kosten aber etwa 100 ms mehr bis
+zur ersten Silbe.
+
 ### Speechify: warum simba-3.0 und kein SSML
 
 Default ist `simba-3.0`, nicht das neuere `simba-3.2` — **nur 3.0 spricht

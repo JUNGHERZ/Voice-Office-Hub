@@ -74,6 +74,32 @@ Session-Aufbau, im callHandler wird dort schon `agent.greeting` ersetzt.
 - **Aufwand:** klein (Feld `speak.byLanguage`), sobald geklärt ist, ob pro Sprache eine Voice-ID
   gepflegt oder aus einer Matrix abgeleitet wird.
 
+### 2e. Ambience-Ducking während der Agentensprache
+**Befund aus der Anrufanalyse vom 18.08.2026.** `AmbienceMixer.mix()` addiert den Loop mit
+konstantem Gain auf jedes Frame — auch auf die Sprachframes. Bei `volume: 0.25` liegt das
+Bett bei **−38,9 dBFS RMS**, praktisch auf dem Pegel des Median-Sprachsignals; der Boden in
+Sprechpausen bei **−48,4 dBFS**. Zum Vergleich: das Komfortrauschen ohne Ambience liegt bei
+−73 dBFS, also 25 dB darunter.
+
+- **Symptom:** Der Anrufer beschreibt „Rauschen und Klacken" und hält es für einen Fehler der
+  TTS-Strecke. Gemessen ist es die Ambience selbst — das Raumbett plus die Tipp-Schübe des
+  `office`-Presets (einer alle 4,0 s, je 3–4 Anschläge im Abstand von 180 ms, exakt wie
+  entworfen). Auf einer Freisprecheinrichtung hebt die automatische Verstärkungsregelung das
+  Bett in Sprechpausen zusätzlich an.
+- **Warum Ducking und nicht einfach leiser:** Ein niedrigerer `volume` löst beides zugleich —
+  aber die Ambience soll in Pausen ja hörbar sein, sonst trägt sie nichts bei. Genau dafür ist
+  Ducking da: unter der Sprache absenken (typisch −12 bis −18 dB, Attack ~20 ms, Release
+  ~300 ms), in Pausen auf vollen Pegel. Der eingestellte `volume` bliebe dann der Pausenpegel
+  und wäre bei 0.25 unproblematisch.
+- **Ansatz:** `MediaSession.tick()` weiß bereits, ob gerade ein TTS-Frame läuft (`frame` vs.
+  `null`) — das ist das Steuersignal, ohne neue Verkabelung. Die Hüllkurve gehört in den
+  `AmbienceMixer` (Zustand über Frames hinweg, wie der Loop-Offset), damit `tick()` schlank
+  bleibt. Attack/Release müssen über Frame-Grenzen laufen, sonst klickt die Absenkung selbst.
+- **Aufwand:** klein bis mittel — eine Hüllkurve in `AmbienceMixer`, ein Parameter in
+  `agent.ambience` (z. B. `duckDb`, Default an), Tests analog `test/ambience.test.ts`.
+- **Sofortmaßnahme bis dahin:** `volume` auf 0.10–0.12, oder Preset `room` (gleiches Bett ohne
+  Tippen).
+
 ## STT / Modelle
 
 ### 3. Flux als listen-Modell evaluieren (Turn-Detection)

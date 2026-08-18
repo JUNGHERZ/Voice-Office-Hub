@@ -130,6 +130,7 @@ const buildAzure: TtsBuilder = (agent, callId, log) => {
       apiKey,
       voice,
       ...(agent.speak.language ? { language: agent.speak.language } : {}),
+      ...(agent.speak.speed !== undefined ? { speed: agent.speak.speed } : {}),
       targetRate: config.audio.sampleRate,
       concurrency: config.native.httpTtsConcurrency,
     },

@@ -69,6 +69,26 @@ export function escapeXml(text: string): string {
     .replace(/'/g, "&apos;");
 }
 
+/** Grenzen, innerhalb derer Azure die Stimme noch sauber rendert. */
+export const AZURE_SPEED_MIN = 0.5;
+export const AZURE_SPEED_MAX = 2;
+
+/**
+ * `speak.speed` (Multiplikator, 1 = unverändert) → Azure-`prosody rate`. Azure
+ * nimmt einen Prozentwert relativ zur Standardgeschwindigkeit, 1,2 wird also zu
+ * "+20%". Gemessen an Seraphina (derselbe Satz): Standard 8,35 s, +10 % 7,64 s,
+ * +20 % 6,94 s, +30 % 6,21 s.
+ */
+export function azureRate(speed: number): string {
+  const pct = Math.round((clampAzureSpeed(speed) - 1) * 100);
+  return `${pct >= 0 ? "+" : ""}${pct}%`;
+}
+
+/** Auf den von Azure bedienten Bereich klemmen. */
+export function clampAzureSpeed(speed: number): number {
+  return Math.min(AZURE_SPEED_MAX, Math.max(AZURE_SPEED_MIN, speed));
+}
+
 /** Locale aus dem Stimmnamen ableiten: "de-DE-KatjaNeural" → "de-DE". */
 export function localeFromVoice(voice: string): string {
   const m = /^([a-z]{2,3}-[A-Za-z]{2,4})-/.exec(voice);
@@ -83,6 +103,8 @@ export interface AzureTtsOptions {
   voice: string;
   /** xml:lang; leer = aus dem Stimmnamen abgeleitet. */
   language?: string;
+  /** Sprechtempo als Multiplikator (1 = unverändert); undefined = kein prosody-Tag. */
+  speed?: number;
   targetRate: number;
   concurrency: number;
 }
@@ -100,13 +122,27 @@ export class AzureTtsStream extends HttpTtsStream {
       logger.child({ mod: "native-tts-azure", callId }),
     );
     this.format = format;
+    const speed = opts.speed;
+    if (speed !== undefined && clampAzureSpeed(speed) !== speed) {
+      this.log.warn("speak.speed auf den Azure-Bereich geklemmt", {
+        speed,
+        clamped: clampAzureSpeed(speed),
+      });
+    }
   }
 
   buildSsml(text: string): string {
     const lang = this.opts.language?.trim() || localeFromVoice(this.opts.voice);
+    const speed = this.opts.speed;
+    // Ohne gesetztes Tempo bleibt das SSML so schlank wie bisher — ein
+    // `rate='+0%'` wäre wirkungslos, aber zusätzliche Angriffsfläche im Dokument.
+    const inner =
+      speed !== undefined && clampAzureSpeed(speed) !== 1
+        ? `<prosody rate='${azureRate(speed)}'>${escapeXml(text)}</prosody>`
+        : escapeXml(text);
     return (
       `<speak version='1.0' xml:lang='${escapeXml(lang)}'>` +
-      `<voice name='${escapeXml(this.opts.voice)}'>${escapeXml(text)}</voice>` +
+      `<voice name='${escapeXml(this.opts.voice)}'>${inner}</voice>` +
       `</speak>`
     );
   }

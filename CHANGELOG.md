@@ -6,6 +6,61 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.10] – 2026-08-19
+
+### Untersucht
+
+**„Rauschen und Klacken" auf den Azure-Testanrufen: Es ist die Ambience, und sie
+arbeitet korrekt.** Fünf Anrufe auf die Azure-DDI zeigten durchgehend einen
+Grundpegel von 112–132 RMS. Die pur erzeugte `office`-Ambience bei `volume: 0.25`
+liegt bei **124,8 RMS (−48,4 dBFS)** — die Aufnahmen treffen die Referenz auf die
+Nachkommastelle. Ein Kontrollanruf ohne Ambience liegt bei 7 RMS (−73,4 dBFS),
+also 25 dB darunter; das ist das Komfortrauschen.
+
+Das Klacken ist das Tippen des Presets („Büroatmosphäre (Raumklang + Tippen)"):
+im Hochtonband gemessen 15 Schübe je Minute, einer alle 4,0 s, je 3–4 Anschläge
+im Abstand von 180 ms — exakt das dokumentierte Raster. Verstärkt wird beides
+dadurch, dass `AmbienceMixer.mix()` mit **konstantem Gain** auch auf die
+Sprachframes addiert: bei 0.25 sind das −38,9 dBFS, praktisch der Pegel des
+Median-Sprachsignals. Auf einer Freisprecheinrichtung hebt die automatische
+Verstärkungsregelung das Bett in Sprechpausen zusätzlich an.
+
+**Die naheliegende Vermutung war falsch und ist widerlegt.** Ein HTTP-Provider
+wie Azure erzwingt an jeder Satzgrenze einen möglichen Queue-Underrun, und
+`MediaSession.tick()` blendet bei Underrun aus und beim nächsten Frame wieder
+ein — das war der erwartete Klick-Mechanismus. Gemessen zeigt Azure jedoch **49
+Amplitudeneinbrüche je Sprechminute gegen 58 bei Aura**, ist also eher ruhiger,
+und das Modulationsspektrum der Hüllkurve hat bei 50 Hz keinen Ausschlag, es gibt
+also kein Artefakt im 20-ms-Rahmenraster. Der Head-of-Line-Emitter aus 0.8.0 hält
+die Queue gefüllt.
+
+**Der Abschaltversuch hat keinen der Anrufe erreicht.** Der Agent wurde zuletzt
+um 14:08 gespeichert, alle fünf Anrufe liefen danach, `updatedAt` bewegte sich
+nicht mehr. Der Code-Pfad ist in Ordnung: `agentResolver` liest pro Anruf frisch
+ohne Cache, der Mixer entsteht pro Anruf, und das Agentenformular schreibt
+`ambience.enabled` korrekt in den Body.
+
+### Added
+
+- **Sprechtempo für Azure** (`speak.speed`). Der Adapter baute sein SSML bisher
+  ohne `<prosody>`, das Feld lief also ins Leere — im Katalog stand Azure
+  konsequenterweise mit leeren `knobs`, die UI bot gar keinen Regler an. Jetzt
+  wird der Multiplikator als `<prosody rate>` gesetzt (1.2 → `+20%`), auf 0,5–2,0
+  geklemmt und beim Klemmen einmal je Anruf gewarnt. Gemessen an Seraphina,
+  gleicher Satz: 8,35 s ohne Angabe, 7,64 s bei 1.1, 6,94 s bei 1.2, 6,21 s bei
+  1.3. Ohne gesetztes Tempo bleibt das SSML unverändert schlank — ein
+  wirkungsloses `rate='+0%'` wäre nur zusätzliche Angriffsfläche im XML.
+
+### Notes
+
+Als Rückstand notiert: **Ambience-Ducking** (`docs/backlog.md`, 2e). Dass das
+Bett unter der Sprache in voller Lautstärke weiterläuft, ist der eigentliche
+Grund, warum 0.25 zu viel ist — mit Ducking wäre derselbe Wert als *Pausenpegel*
+unproblematisch. Das Steuersignal liegt in `MediaSession.tick()` bereits vor
+(TTS-Frame oder nicht), die Hüllkurve gehört in den `AmbienceMixer`. Bis dahin
+hilft `volume` auf 0.10–0.12 oder das Preset `room` (gleiches Bett ohne Tippen).
+
+
 ## [0.8.9] – 2026-08-18
 
 ### Gemessen
