@@ -169,8 +169,53 @@ const SPEECHIFY_VOICES: TtsVoiceEntry[] = [
  * Liste holt `GET /api/tts/voices?provider=azure` direkt bei Azure ab; das
  * Freitextfeld nimmt jeden Namen entgegen, auch Custom Neural Voices.
  */
+/**
+ * Kuratierte Einstiegsauswahl. Azure hat in `westeurope` 774 Stimmen, davon 27
+ * deutsche — hier stehen die, die sich am Telefon bewährt haben. Alles Weitere
+ * über das Freitextfeld (`modelFreeText`) oder die Live-Liste unter
+ * `GET /api/tts/voices?provider=azure`.
+ *
+ * `languages` nennt die Hauptsprache; die mehrsprachigen Stimmen beherrschen laut
+ * Azure über 90 weitere Locales und behalten dabei ihre Klangfarbe — genau das,
+ * was die Laufzeit-Übersetzung dieses Projekts braucht (eine Stimmidentität über
+ * übersetzte Ansagen hinweg).
+ *
+ * TTFA-Mediane aus drei Messungen bei warmer Verbindung (westeurope, 2026-08-19),
+ * derselbe Satz, Audiodauer in Klammern: Conrad 61 ms (8,20 s) · Katja 93 ms
+ * (8,80 s) · Florian 97 ms (7,14 s) · Seraphina 132 ms (8,35 s) · Amala 211 ms
+ * (9,12 s) · Seraphina DragonHD 299 ms (7,45 s).
+ */
 const AZURE_VOICES: TtsModelEntry[] = [
+  {
+    id: "de-DE-SeraphinaMultilingualNeural",
+    label: "Seraphina (deutsch, weiblich, mehrsprachig)",
+    languages: ["de"],
+  },
+  {
+    id: "de-DE-FlorianMultilingualNeural",
+    label: "Florian (deutsch, männlich, mehrsprachig)",
+    languages: ["de"],
+  },
   { id: "de-DE-KatjaNeural", label: "Katja (deutsch, weiblich)", languages: ["de"] },
+  { id: "de-DE-ConradNeural", label: "Conrad (deutsch, männlich)", languages: ["de"] },
+  { id: "de-DE-AmalaNeural", label: "Amala (deutsch, weiblich)", languages: ["de"] },
+  {
+    id: "de-DE-Seraphina:DragonHDLatestNeural",
+    label: "Seraphina HD (deutsch, weiblich)",
+    languages: ["de"],
+  },
+  { id: "de-AT-IngridNeural", label: "Ingrid (österreichisch, weiblich)", languages: ["de"] },
+  { id: "de-CH-LeniNeural", label: "Leni (schweizerisch, weiblich)", languages: ["de"] },
+  {
+    id: "en-US-AvaMultilingualNeural",
+    label: "Ava (amerikanisch, weiblich, mehrsprachig)",
+    languages: ["en"],
+  },
+  {
+    id: "en-US-AndrewMultilingualNeural",
+    label: "Andrew (amerikanisch, männlich, mehrsprachig)",
+    languages: ["en"],
+  },
 ];
 
 export const TTS_PROVIDERS: readonly TtsProviderEntry[] = [
@@ -255,8 +300,10 @@ export const TTS_PROVIDERS: readonly TtsProviderEntry[] = [
     label: "Azure Neural TTS",
     paths: ["native"],
     models: AZURE_VOICES,
-    defaultModel: "de-DE-KatjaNeural",
-    // Über 600 Stimmen — die Auswahl oben ist ein Einstieg, nicht der Katalog.
+    // Mehrsprachig als Default: die Laufzeit-Übersetzung wechselt die Sprache
+    // mitten im Gespräch, eine einsprachige Stimme wechselte dabei die Identität.
+    defaultModel: "de-DE-SeraphinaMultilingualNeural",
+    // 774 Stimmen in westeurope — die Auswahl oben ist ein Einstieg, nicht der Katalog.
     modelFreeText: true,
     voices: [],
     voiceFreeText: false,

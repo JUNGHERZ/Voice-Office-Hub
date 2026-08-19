@@ -202,10 +202,48 @@ ein kaufmännisches Und aus der LLM-Antwort („Meyer & Sohn") würde das Dokume
 sonst zerreißen und Azure mit 400 antworten lassen; der Satz fiele stumm aus.
 
 Stimmen stehen bei Azure im **Modellfeld**, nicht im Stimmfeld: der Name *ist* die
-Stimme (`de-DE-KatjaNeural`), genau wie bei Aura. Der Katalog führt bewusst nur
-einen Einstiegswert — Azure hat über 600 Stimmen, und erfundene Namen hatten wir
-schon (siehe Voxtral). Die vollständige, regionsaktuelle Liste holt
-`GET /api/tts/voices?provider=azure` direkt bei Azure ab.
+Stimme (`de-DE-KatjaNeural`), genau wie bei Aura.
+
+**Stimmauswahl (0.8.11).** Der Katalog führt zehn kuratierte Stimmen — acht
+deutschsprachige plus zwei englische —, die im Agenten-Panel als Dropdown
+erscheinen. Region `westeurope` bietet insgesamt 774 Stimmen, davon 27 deutsche;
+alles außerhalb der Auswahl geht weiterhin über das Freitextfeld, und die
+vollständige, regionsaktuelle Liste holt `GET /api/tts/voices?provider=azure`
+direkt bei Azure ab. Der Katalog bleibt bewusst eine Einstiegsauswahl statt einer
+Kopie: eine gepflegte Liste von 774 Einträgen veraltet, und erfundene Namen hatten
+wir schon (siehe Voxtral).
+
+Gemessen in `westeurope` (Median aus drei Läufen bei warmer Verbindung, derselbe
+Satz):
+
+| Stimme | TTFA | Audiodauer |
+|---|---:|---:|
+| `de-DE-ConradNeural` | 61 ms | 8,20 s |
+| `de-DE-KatjaNeural` | 93 ms | 8,80 s |
+| `de-DE-FlorianMultilingualNeural` | 97 ms | 7,14 s |
+| `de-DE-SeraphinaMultilingualNeural` *(Default)* | 132 ms | 8,35 s |
+| `de-DE-AmalaNeural` | 211 ms | 9,12 s |
+| `de-DE-Seraphina:DragonHDLatestNeural` | 299 ms | 7,45 s |
+| `de-DE-Mia:MAI-Voice-2-Flash` | 503 ms | 6,80 s |
+
+**Der Default ist `de-DE-SeraphinaMultilingualNeural`, obwohl Conrad doppelt so
+schnell antwortet.** Grund ist die Laufzeit-Übersetzung: der `callLocalizer`
+wechselt die Sprache mitten im Gespräch, und die mehrsprachigen Stimmen decken
+laut Azure über 90 weitere Locales mit derselben Klangfarbe ab. Eine einsprachige
+Stimme wechselte dabei hörbar die Identität. Für rein deutsche Agenten ohne
+Übersetzung ist Conrad oder Katja die schnellere Wahl.
+
+**Die `MAI-Voice-2`-Stimmen sind trotz des Namenszusatzes „Flash" nichts für die
+Telefonie**: 503 ms bis zur ersten Silbe sind das Vier- bis Achtfache der
+klassischen Neural-Stimmen. Ihre 18 Sprechstile sind für Vorproduktion gedacht,
+nicht für ein Gespräch, das auf die erste Silbe wartet.
+
+Ein Hinweis zur Messung: mit **kalter** Verbindung liegen dieselben Stimmen bei
+233–254 ms statt 61–132 ms — der TLS-Handshake dominiert. Innerhalb eines Anrufs
+mit dicht aufeinanderfolgenden Sätzen ist die Verbindung warm, nach einer längeren
+Hörpause nicht mehr. Das ist derselbe Effekt, den der Abschnitt „HTTP-TTS klingt
+anders als WebSocket-TTS" weiter oben beschreibt; die dortigen Zahlen sind
+entsprechend die pessimistischere Referenz.
 
 **Sprechtempo (0.8.10).** `speak.speed` wirkt bei Azure als `<prosody rate>` im
 SSML — als Prozentwert relativ zur Standardgeschwindigkeit, also 1.2 → `+20%`.

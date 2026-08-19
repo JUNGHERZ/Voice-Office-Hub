@@ -42,7 +42,26 @@ test("Katalog: Einträge sind vollständig und konsistent", () => {
     }
     // Ohne Auswahlliste MUSS Freitext möglich sein, sonst wäre nichts eingebbar.
     if (!p.voices.length && !p.modelFreeText) assert.ok(p.models.length > 0);
+    // Doppelte IDs sind bei wachsenden Listen der wahrscheinlichste Copy-Paste-Fehler:
+    // im Dropdown stünde derselbe Eintrag zweimal, und welcher gewinnt, wäre Zufall.
+    const modelIds = p.models.map((m) => m.id);
+    assert.equal(new Set(modelIds).size, modelIds.length, `${p.id}: doppelte Modell-ID`);
+    const voiceIds = p.voices.map((v) => v.id);
+    assert.equal(new Set(voiceIds).size, voiceIds.length, `${p.id}: doppelte Stimm-ID`);
+    for (const m of p.models) assert.ok(m.label.length, `${p.id}/${m.id}: Label fehlt`);
   }
+});
+
+// Azure: die Stimme steht im MODELLfeld (der Name ist die Stimme). Eine Ein-Eintrag-
+// Liste zwang faktisch zum Abtippen der ID — das war der Auslöser für die Erweiterung.
+test("Katalog: Azure bietet eine echte Stimmauswahl", () => {
+  const azure = findTtsProvider("azure");
+  assert.ok(azure);
+  assert.ok(azure.models.length >= 8, `nur ${azure.models.length} Stimmen im Katalog`);
+  assert.ok(azure.modelFreeText, "Freitext muss bleiben — Azure hat 774 Stimmen");
+  // Default ist mehrsprachig: die Laufzeit-Übersetzung wechselt die Sprache im Gespräch.
+  assert.match(azure.defaultModel, /Multilingual/);
+  assert.ok(azure.models.every((m) => /^[a-z]{2}-[A-Z]{2}-/.test(m.id)), "Azure-Stimmnamen tragen die Locale");
 });
 
 // 3 ─ Speechify fährt auf 3.0, weil nur dieses Modell Deutsch kann.

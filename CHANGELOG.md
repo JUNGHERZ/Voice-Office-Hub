@@ -6,6 +6,58 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.11] – 2026-08-19
+
+### Added
+
+- **Stimmauswahl für Azure.** Der Katalog führte genau eine Stimme
+  (`de-DE-KatjaNeural`) — jede andere musste als ID abgetippt werden, obwohl der
+  Endpoint `GET /api/tts/voices?provider=azure` die Live-Liste längst kennt. Jetzt
+  stehen zehn kuratierte Stimmen im Dropdown: acht deutschsprachige (inkl. je einer
+  österreichischen und schweizerischen) plus zwei englische. Das Freitextfeld
+  bleibt — `westeurope` bietet 774 Stimmen, davon 27 deutsche, und eine gepflegte
+  Vollkopie würde nur veralten.
+
+  Gemessen (Median aus drei Läufen, warme Verbindung, derselbe Satz):
+
+  | Stimme | TTFA | Audiodauer |
+  |---|---:|---:|
+  | `de-DE-ConradNeural` | 61 ms | 8,20 s |
+  | `de-DE-KatjaNeural` | 93 ms | 8,80 s |
+  | `de-DE-FlorianMultilingualNeural` | 97 ms | 7,14 s |
+  | `de-DE-SeraphinaMultilingualNeural` | 132 ms | 8,35 s |
+  | `de-DE-AmalaNeural` | 211 ms | 9,12 s |
+  | `de-DE-Seraphina:DragonHDLatestNeural` | 299 ms | 7,45 s |
+  | `de-DE-Mia:MAI-Voice-2-Flash` | 503 ms | 6,80 s |
+
+### Changed
+
+- **Azure-Default ist jetzt `de-DE-SeraphinaMultilingualNeural`** statt Katja —
+  obwohl Conrad doppelt so schnell antwortet. Grund ist die Laufzeit-Übersetzung:
+  der `callLocalizer` wechselt die Sprache mitten im Gespräch, und die
+  mehrsprachigen Stimmen decken laut Azure über 90 weitere Locales mit derselben
+  Klangfarbe ab. Eine einsprachige Stimme wechselte dabei hörbar die Identität.
+  Für rein deutsche Agenten ohne Übersetzung bleibt Conrad die schnellere Wahl.
+  Betrifft nur neu angelegte Agenten; bestehende behalten ihre Stimme.
+
+### Notes
+
+**Die neuen `MAI-Voice-2`-Stimmen sind trotz des Zusatzes „Flash" nichts für die
+Telefonie.** 503 ms bis zur ersten Silbe sind das Vier- bis Achtfache der
+klassischen Neural-Stimmen; ihre 18 Sprechstile zielen auf Vorproduktion, nicht
+auf ein Gespräch, das auf die erste Silbe wartet. Aufgenommen wurden sie deshalb
+nicht.
+
+Zur Einordnung der Zahlen: mit **kalter** Verbindung liegen dieselben Stimmen bei
+233–254 ms statt 61–132 ms — der TLS-Handshake dominiert. Innerhalb eines Anrufs
+mit dicht aufeinanderfolgenden Sätzen ist die Verbindung warm, nach einer längeren
+Hörpause nicht mehr.
+
+Der Katalogtest prüft neu auf doppelte Modell- und Stimm-IDs. Bei wachsenden
+Listen ist das Copy-Paste-Duplikat der wahrscheinlichste Fehler, und im Dropdown
+stünde derselbe Eintrag dann zweimal.
+
+
 ## [0.8.10] – 2026-08-19
 
 ### Untersucht
