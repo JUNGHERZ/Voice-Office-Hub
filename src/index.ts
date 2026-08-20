@@ -3,6 +3,10 @@
  *   Config laden → MongoDB verbinden → Tools registrieren → ARI verbinden & Stasis starten.
  */
 import { config } from "./config.js";
+import {
+  DEEPGRAM_REGIONS,
+  mismatchedEndpoints,
+} from "./deepgram/endpoints.js";
 import { connectMongo, disconnectMongo } from "./db/mongo.js";
 import { failOrphanedRequests } from "./db/repository.js";
 import { startAri } from "./ari/ariClient.js";
@@ -20,6 +24,15 @@ process.on("uncaughtException", (err) => {
   log.error("Uncaught Exception", { err: String(err) });
 });
 
+/** Host einer URL fürs Log; unparsbare Werte bleiben roh, damit der Fehler sichtbar ist. */
+function hostOrRaw(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
 async function main(): Promise<void> {
   printBanner();
   log.info("Starte Voice-Office-Hub", {
@@ -27,7 +40,32 @@ async function main(): Promise<void> {
     llm: config.llm.provider,
     embedAsterisk: config.ari.embedAsterisk,
     echoTest: config.echoTest,
+    // Wohin das Anruferaudio tatsächlich geht — unabhängig davon, ob es über
+    // DEEPGRAM_REGION oder eine einzelne URL-Variable eingestellt wurde.
+    deepgramRegion: config.deepgram.region,
+    sttHost: hostOrRaw(config.native.sttUrl),
   });
+
+  if (!config.deepgram.regionRecognized) {
+    log.error(
+      `DEEPGRAM_REGION hat einen unbekannten Wert — es gilt "global" (USA). Erlaubt: ${DEEPGRAM_REGIONS.join(", ")}.`,
+      { configured: process.env.DEEPGRAM_REGION },
+    );
+  }
+
+  // Halb gesetzter Zustand: Region sagt EU, eine URL zeigt woanders hin.
+  const drift = mismatchedEndpoints(config.deepgram.region, {
+    sttUrl: config.native.sttUrl,
+    ttsUrl: config.native.ttsUrl,
+    fluxTtsUrl: config.native.fluxTtsUrl,
+    agentUrl: config.deepgram.agentUrl,
+  });
+  if (drift.length) {
+    log.warn("Deepgram-URLs weichen von DEEPGRAM_REGION ab — ein Teil des Verkehrs läuft woanders", {
+      region: config.deepgram.region,
+      abweichend: drift,
+    });
+  }
 
   if (!config.echoTest && !config.deepgram.apiKey) {
     log.warn("DEEPGRAM_API_KEY ist leer — Anrufe scheitern bis ein Key gesetzt ist.");

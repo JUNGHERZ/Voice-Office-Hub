@@ -6,6 +6,56 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.12] – 2026-08-20
+
+### Gemessen
+
+**Das Anruferaudio lief in die USA.** Die Defaults der vier Deepgram-URLs zeigen
+auf `api.deepgram.com`, und auf dem Live-Dev war keine davon überschrieben —
+obwohl `docs/tts-provider.md` den EU-Block seit 0.8.x empfiehlt. Von Nürnberg
+aus gemessen, echter Flux-WebSocket auf `flux-general-multi`:
+
+| Endpunkt | Verbindung offen | TCP-RTT |
+|---|---:|---:|
+| `api.deepgram.com` (USA) | **514 ms** | 143 ms |
+| `api.eu.deepgram.com` (Frankfurt) | **52 ms** | 7 ms |
+
+Die 462 ms schlagen voll auf `timeToFirstAudioMs` durch, weil `start()` die
+Begrüßung erst nach `Promise.all([stt.start(), tts.start()])` spricht — bei
+einem HTTP-TTS wie Azure, das gar keine Verbindung aufbaut, war die STT-Strecke
+der alleinige Flaschenhals. Die laufende Round-Trip-Zeit verzögert zusätzlich
+jedes EndOfTurn um rund 136 ms, auf jedem Turn.
+
+Nebenbei geprüft: **`westeurope` ist Amsterdam, nicht Deutschland.** Azure bietet
+Frankfurt als `germanywestcentral` an, von arm2 aus 8 ms TCP gegen 15 ms. Der
+Gewinn ist real, aber klein gegen eine Synthese-TTFA von 61–132 ms, und
+**Azure-Speech-Keys sind regionsgebunden** (200 gegen `westeurope`, 401 gegen
+`germanywestcentral`) — ein Wechsel braucht eine neue Ressource. DSGVO-seitig
+ändert er nichts: Amsterdam ist EU, Frankfurt ist EU. Anders als bei Deepgram
+war hier also nichts zu reparieren.
+
+### Added
+
+- **`DEEPGRAM_REGION`** (`global` | `eu`, Default `global`) schaltet STT,
+  Aura-TTS, Flux-TTS und die Voice-Agent-API gemeinsam um — gleicher Key, nur
+  andere Domain. Die vier Einzel-URLs bleiben als Escape-Hatch und gewinnen
+  weiterhin.
+
+  Der Grund für einen Schalter statt vier Variablen ist genau der Befund oben:
+  eine vergessene Zeile fällt bei vier Variablen niemandem auf, ein Schalter
+  kann nicht halb greifen. Für den Rest gibt es Diagnose statt Vertrauen — das
+  Startlog nennt jetzt `deepgramRegion` und den **tatsächlich verwendeten**
+  STT-Host, ein unbekannter Regionswert wird als Fehler protokolliert (statt
+  still in den USA zu landen), und laufen Region und einzelne URLs auseinander,
+  warnt die Engine mit den Namen der Abweichler.
+
+  Ein Sonderfall steckt in der Hostwahl: Die Voice-Agent-URL liegt global auf
+  einer **eigenen** Domain (`agent.deepgram.com`), in der EU dagegen auf
+  derselben `api.eu`-Domain wie alles andere. Ein `agent.eu.deepgram.com`
+  existiert nicht — wer beim manuellen Umstellen stumpf ein `eu.` einsetzt, baut
+  eine tote URL. Der Test hält das ausdrücklich fest.
+
+
 ## [0.8.11] – 2026-08-19
 
 ### Added

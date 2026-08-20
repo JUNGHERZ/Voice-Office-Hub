@@ -7,6 +7,12 @@
  */
 import "dotenv/config";
 
+import {
+  deepgramEndpoints,
+  parseDeepgramRegion,
+  type DeepgramRegion,
+} from "./deepgram/endpoints.js";
+
 function opt(name: string, fallback = ""): string {
   return process.env[name] ?? fallback;
 }
@@ -29,6 +35,15 @@ export type LlmProvider = "requesty" | "deepgram";
 export interface Config {
   deepgram: {
     apiKey: string;
+    /**
+     * Verarbeitungsregion. `eu` schaltet STT, Aura-TTS, Flux-TTS und die
+     * Voice-Agent-API gemeinsam auf `api.eu.deepgram.com` — gleicher Key, nur
+     * andere Domain. Ohne sie geht das Anruferaudio in die USA (Drittland), und
+     * der Verbindungsaufbau kostet aus Deutschland rund 460 ms mehr.
+     */
+    region: DeepgramRegion;
+    /** false = DEEPGRAM_REGION trug einen unbekannten Wert; es gilt `global`. */
+    regionRecognized: boolean;
     agentUrl: string;
   };
   llm: {
@@ -250,11 +265,18 @@ export interface Config {
   echoMode: string;
 }
 
+// Region einmal auflösen: die vier URL-Variablen bleiben als Escape-Hatch und
+// gewinnen weiterhin (opt() nimmt den ENV-Wert, sonst den Regions-Default).
+const dgRegion = parseDeepgramRegion(opt("DEEPGRAM_REGION"));
+const dgUrls = deepgramEndpoints(dgRegion.region);
+
 export const config: Config = {
   deepgram: {
     // Optional beim Start (z.B. Echo-Test braucht ihn nicht); beim Anruf erforderlich.
     apiKey: opt("DEEPGRAM_API_KEY"),
-    agentUrl: opt("DEEPGRAM_AGENT_URL", "wss://agent.deepgram.com/v1/agent/converse"),
+    region: dgRegion.region,
+    regionRecognized: dgRegion.recognized,
+    agentUrl: opt("DEEPGRAM_AGENT_URL", dgUrls.agentUrl),
   },
   llm: {
     provider: (opt("LLM_PROVIDER", "requesty") as LlmProvider),
@@ -307,9 +329,9 @@ export const config: Config = {
     endpoint: opt("AZURE_SPEECH_ENDPOINT"),
   },
   native: {
-    sttUrl: opt("NATIVE_STT_URL", "wss://api.deepgram.com/v2/listen"),
-    ttsUrl: opt("NATIVE_TTS_URL", "wss://api.deepgram.com/v1/speak"),
-    fluxTtsUrl: opt("NATIVE_TTS_FLUX_URL", "wss://api.deepgram.com/v2/speak"),
+    sttUrl: opt("NATIVE_STT_URL", dgUrls.sttUrl),
+    ttsUrl: opt("NATIVE_TTS_URL", dgUrls.ttsUrl),
+    fluxTtsUrl: opt("NATIVE_TTS_FLUX_URL", dgUrls.fluxTtsUrl),
     mistralUrl: opt("NATIVE_TTS_MISTRAL_URL", "https://api.mistral.ai/v1"),
     speechifyUrl: opt("NATIVE_TTS_SPEECHIFY_URL", "https://api.speechify.ai/v1"),
     fishUrl: opt("NATIVE_TTS_FISH_URL", "wss://api.fish.audio/v1/tts/live"),

@@ -82,16 +82,44 @@ verarbeitet, ist damit eine Frage der Auftragsverarbeitung, nicht des Geschmacks
 ihre EU-Endpunkte legen:
 
 ```bash
-# Deepgram (STT wie TTS)
-NATIVE_STT_URL=wss://api.eu.deepgram.com/v2/listen
-NATIVE_TTS_URL=wss://api.eu.deepgram.com/v1/speak
-DEEPGRAM_AGENT_URL=wss://api.eu.deepgram.com/v1/agent/converse
+# Deepgram: ein Schalter für STT, Aura-TTS, Flux-TTS und die Voice-Agent-API
+DEEPGRAM_REGION=eu
 
 # ElevenLabs — NUR mit Enterprise-Vertrag, sonst schlägt die Verbindung fehl
 ELEVENLABS_BASE_URL=wss://api.eu.residency.elevenlabs.io/v1
 
-# Mistral braucht nichts: EU ist dort der Standard
+# Mistral und Azure brauchen nichts: EU ist dort der Standard bzw. die Region
 ```
+
+**Warum ein Schalter und nicht vier URLs (0.8.12).** Bis 0.8.11 mussten
+`NATIVE_STT_URL`, `NATIVE_TTS_URL`, `NATIVE_TTS_FLUX_URL` und
+`DEEPGRAM_AGENT_URL` einzeln umgestellt werden — und genau das ging schief:
+Auf dem Live-Dev war keine davon gesetzt, das Anruferaudio lief also monatelang
+über `api.deepgram.com` in die USA, obwohl dieser Abschnitt es anders empfahl.
+Eine vergessene Zeile fällt bei vier Variablen niemandem auf; ein Schalter kann
+nicht halb greifen. Die vier URLs bleiben als Escape-Hatch bestehen und
+gewinnen weiterhin — laufen sie und die Region auseinander, warnt die Engine
+beim Start mit den Namen der Abweichler, und das Startlog nennt immer den
+tatsächlich verwendeten STT-Host.
+
+Der Unterschied ist nicht nur rechtlich. Von Nürnberg aus gemessen, echter
+Flux-WebSocket auf `flux-general-multi`:
+
+| Endpunkt | Verbindung offen | TCP-RTT |
+|---|---:|---:|
+| `api.deepgram.com` (USA) | 514 ms | 143 ms |
+| `api.eu.deepgram.com` (Frankfurt) | 52 ms | 7 ms |
+
+Die 462 ms schlagen voll auf `timeToFirstAudioMs` durch, weil `start()` die
+Begrüßung erst nach `Promise.all([stt.start(), tts.start()])` spricht. Die
+laufende Round-Trip-Zeit verzögert zusätzlich jedes EndOfTurn um rund 136 ms —
+auf jedem Turn, nicht nur beim Verbindungsaufbau.
+
+Ein Sonderfall, der beim manuellen Umstellen leicht danebengeht: Die
+Voice-Agent-URL liegt global auf einer **eigenen** Domain
+(`agent.deepgram.com`), in der EU dagegen auf derselben `api.eu`-Domain wie
+alles andere. Ein `agent.eu.deepgram.com` existiert nicht — wer stumpf ein
+`eu.` einsetzt, baut eine tote URL.
 
 `ELEVENLABS_BASE_URL` gilt **systemweit** — die native Kaskade und die
 Dritt-TTS-Durchreiche der Voice-Agent-API nutzen dieselbe Basis. Es gibt keinen
