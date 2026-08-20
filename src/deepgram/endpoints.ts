@@ -72,25 +72,53 @@ export function parseDeepgramRegion(raw: string): {
 }
 
 /**
- * Meldet URLs, die nicht zur gewählten Region passen. Zielt genau auf den
- * halb gesetzten Zustand: Region auf `eu`, aber eine einzelne URL-Variable zeigt
- * noch woanders hin — dann liefe ein Teil des Verkehrs weiter in die USA, und
- * ohne diese Prüfung fiele das niemandem auf. Liefert die Feldnamen der
- * Abweichler (leer = alles stimmig).
+ * Abweichung zwischen `DEEPGRAM_REGION` und den tatsächlich wirksamen URLs.
+ * Die Unterscheidung ist bewusst dreiteilig, weil die Fälle unterschiedlich
+ * gefährlich sind:
+ *
+ *  - `ok` — Region und URLs sagen dasselbe.
+ *  - `uniform` — alle vier URLs zeigen geschlossen auf eine ANDERE bekannte
+ *    Region. Der Verkehr ist konsistent, nur das Feld `DEEPGRAM_REGION` ist
+ *    dekorativ (die URLs gewinnen). Das ist der Normalfall einer Installation,
+ *    die vor 0.8.12 eingerichtet wurde — kein Fehler, sondern ein Hinweis.
+ *  - `mixed` — die URLs sind untereinander uneinheitlich. Genau hier läuft
+ *    wirklich ein Teil des Verkehrs woanders, und genau das bleibt ohne Prüfung
+ *    unbemerkt.
  */
-export function mismatchedEndpoints(
+export type EndpointDrift =
+  | { kind: "ok" }
+  | { kind: "uniform"; actual: DeepgramRegion }
+  | { kind: "mixed"; fields: Array<keyof DeepgramEndpoints> };
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url; // unparsbar ist selbst schon ein Befund
+  }
+}
+
+/** Felder, deren Host von der Region abweicht (leer = deckungsgleich). */
+function differingFields(
   region: DeepgramRegion,
   effective: DeepgramEndpoints,
-): string[] {
+): Array<keyof DeepgramEndpoints> {
   const expected = deepgramEndpoints(region);
-  const hostOf = (u: string): string => {
-    try {
-      return new URL(u).host;
-    } catch {
-      return u; // unparsbar ist selbst schon ein Befund
-    }
-  };
   return (Object.keys(expected) as Array<keyof DeepgramEndpoints>).filter(
     (k) => hostOf(effective[k]) !== hostOf(expected[k]),
   );
+}
+
+/** Region gegen die wirksamen URLs prüfen — siehe EndpointDrift. */
+export function endpointDrift(
+  region: DeepgramRegion,
+  effective: DeepgramEndpoints,
+): EndpointDrift {
+  if (!differingFields(region, effective).length) return { kind: "ok" };
+  for (const candidate of DEEPGRAM_REGIONS) {
+    if (candidate !== region && !differingFields(candidate, effective).length) {
+      return { kind: "uniform", actual: candidate };
+    }
+  }
+  return { kind: "mixed", fields: differingFields(region, effective) };
 }

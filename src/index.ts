@@ -5,7 +5,7 @@
 import { config } from "./config.js";
 import {
   DEEPGRAM_REGIONS,
-  mismatchedEndpoints,
+  endpointDrift,
 } from "./deepgram/endpoints.js";
 import { connectMongo, disconnectMongo } from "./db/mongo.js";
 import { failOrphanedRequests } from "./db/repository.js";
@@ -53,17 +53,25 @@ async function main(): Promise<void> {
     );
   }
 
-  // Halb gesetzter Zustand: Region sagt EU, eine URL zeigt woanders hin.
-  const drift = mismatchedEndpoints(config.deepgram.region, {
+  const drift = endpointDrift(config.deepgram.region, {
     sttUrl: config.native.sttUrl,
     ttsUrl: config.native.ttsUrl,
     fluxTtsUrl: config.native.fluxTtsUrl,
     agentUrl: config.deepgram.agentUrl,
   });
-  if (drift.length) {
-    log.warn("Deepgram-URLs weichen von DEEPGRAM_REGION ab — ein Teil des Verkehrs läuft woanders", {
+  if (drift.kind === "uniform") {
+    // Die URLs gewinnen und sind untereinander stimmig — der Verkehr ist also in
+    // Ordnung. Gefährlich ist nur die Richtung, in der jemand EU wollte und global
+    // bekommt; umgekehrt ist es bloß eine vor 0.8.12 eingerichtete Installation.
+    const msg =
+      `Deepgram-URLs überschreiben DEEPGRAM_REGION — effektiv gilt "${drift.actual}". ` +
+      `Sauberer: DEEPGRAM_REGION=${drift.actual} setzen und die einzelnen URL-Variablen entfernen.`;
+    if (drift.actual === "global") log.warn(msg, { region: config.deepgram.region });
+    else log.info(msg, { region: config.deepgram.region });
+  } else if (drift.kind === "mixed") {
+    log.warn("Deepgram-URLs sind uneinheitlich — ein Teil des Verkehrs läuft woanders", {
       region: config.deepgram.region,
-      abweichend: drift,
+      abweichend: drift.fields,
     });
   }
 

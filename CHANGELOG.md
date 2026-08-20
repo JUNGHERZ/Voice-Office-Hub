@@ -6,6 +6,63 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.13] – 2026-08-20
+
+### Fixed
+
+- **Die Regionsdiagnose aus 0.8.12 schlug auf der häufigsten legitimen
+  Konfiguration falsch an.** Wer die vier URL-Variablen geschlossen auf die
+  EU-Domain gesetzt hatte — also genau so, wie es vor 0.8.12 gehen musste — bekam
+  beim Start die Warnung „ein Teil des Verkehrs läuft woanders", obwohl
+  ausnahmslos aller Verkehr korrekt nach Frankfurt lief. Beim ersten Redeploy auf
+  dem Live-Dev war das prompt zu sehen.
+
+  Der Fehler lag in der Fragestellung: geprüft wurde nur „weicht eine URL von der
+  Region ab", nicht „weichen die URLs **voneinander** ab". Die Prüfung
+  unterscheidet jetzt drei Fälle, weil sie unterschiedlich gefährlich sind:
+
+  | Lage | Einstufung |
+  |---|---|
+  | Region und URLs decken sich | still |
+  | alle URLs zeigen geschlossen auf eine andere Region | Hinweis, welche Region effektiv gilt |
+  | URLs sind **untereinander** uneinheitlich | Warnung mit den Namen der Abweichler |
+
+  Im mittleren Fall gewinnt die URL, der Verkehr ist konsistent, und `DEEPGRAM_REGION`
+  ist bloß dekorativ — das ist ein Hinweis wert, keine Warnung. Eine Ausnahme
+  bleibt laut: zeigen die URLs geschlossen auf `global`, während die Region `eu`
+  sagt, wollte jemand Europa und bekommt die USA.
+
+- **`transfer_call` leitete mitten in einer laufenden Hilfestellung weiter.** Live
+  beobachtet: Der Agent führte den Anrufer Schritt für Schritt durch `msconfig`,
+  hörte dann „Trojaner a" und „Trojaner b" in der Autostart-Liste, sagte „Lass
+  mich dich mit einem Spezialisten verbinden" — und rief das Tool im selben Zug
+  auf, ohne die Antwort abzuwarten.
+
+  Die Werkzeugbeschreibung beschrieb bis dahin nur, WAS das Tool tut, nie WANN es
+  aufzurufen ist. Damit lag die Auslösung vollständig beim Modell. Sie nennt jetzt
+  die Auslöser (Anrufer verlangt einen Menschen, ist verärgert, oder es ist
+  nachweislich nicht zu helfen), die Gegenanzeige (nicht mitten in einer
+  Schrittfolge; ein schwieriger Befund allein ist kein Grund), und den
+  entscheidenden Unterschied: **Schlägt der Agent die Weiterleitung selbst vor,
+  ist das ein Vorschlag** — er wartet die Antwort ab. Hat der Anrufer darum
+  gebeten, verbindet er direkt.
+
+  Betrifft alle Agenten, weil `transfer_call` ein eingebautes Tool ist.
+
+### Gemessen
+
+**Der EU-Endpunkt wirkt.** Erster Anruf über `api.eu.deepgram.com`:
+`timeToFirstAudioMs` **514 ms** — der niedrigste Wert aller neun Azure-Anrufe,
+vorher 629–1381 ms bei einem Median von 811. Das sind rund 300 ms am Median und
+115 ms gegenüber dem bisherigen Bestwert. Die erwarteten 462 ms wurden nicht ganz
+erreicht: der Verbindungsaufbau ist nur ein Teil von `timeToFirstAudioMs`, daneben
+stehen ARI-/AudioSocket-Aufbau und die Synthese der Begrüßung.
+
+Bei `turnLatencyMs` (1323 ms gegen zuletzt 1369/1377/1392) ist die erwartete
+Verbesserung um ~136 ms von der Streuung eines Einzelanrufs nicht zu trennen —
+dafür braucht es mehr Anrufe.
+
+
 ## [0.8.12] – 2026-08-20
 
 ### Gemessen

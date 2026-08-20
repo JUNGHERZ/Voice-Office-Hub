@@ -6,7 +6,7 @@ import { test } from "node:test";
 import {
   DEEPGRAM_REGIONS,
   deepgramEndpoints,
-  mismatchedEndpoints,
+  endpointDrift,
   parseDeepgramRegion,
 } from "../src/deepgram/endpoints.js";
 
@@ -53,25 +53,53 @@ test("parseDeepgramRegion ist tolerant, aber nicht raterisch", () => {
   assert.deepEqual(parseDeepgramRegion("eu-central-1"), { region: "global", recognized: false });
 });
 
-test("mismatchedEndpoints erkennt den halb gesetzten Zustand", () => {
+test("endpointDrift: Region und URLs decken sich", () => {
+  assert.deepEqual(endpointDrift("eu", deepgramEndpoints("eu")), { kind: "ok" });
+  assert.deepEqual(endpointDrift("global", deepgramEndpoints("global")), { kind: "ok" });
+});
+
+// Der Normalfall einer vor 0.8.12 eingerichteten Installation: alle vier URLs
+// stehen geschlossen auf EU, DEEPGRAM_REGION ist nie gesetzt worden. Der Verkehr
+// ist völlig in Ordnung — hier zu warnen wäre schlicht falsch.
+test("endpointDrift: geschlossen abweichende URLs melden die tatsaechliche Region", () => {
+  assert.deepEqual(endpointDrift("global", deepgramEndpoints("eu")), {
+    kind: "uniform",
+    actual: "eu",
+  });
+  // Umgekehrte Richtung: jemand wollte EU und bekommt global — dieselbe Klasse,
+  // aber der Aufrufer stuft sie hoeher ein.
+  assert.deepEqual(endpointDrift("eu", deepgramEndpoints("global")), {
+    kind: "uniform",
+    actual: "global",
+  });
+});
+
+// Der wirklich gefaehrliche Fall: eine einzelne vergessene Variable.
+test("endpointDrift: uneinheitliche URLs nennen die Abweichler", () => {
   const eu = deepgramEndpoints("eu");
-  assert.deepEqual(mismatchedEndpoints("eu", eu), []);
-  // Eine einzelne vergessene URL-Variable — genau der Fall, der unbemerkt blieb.
+  assert.deepEqual(endpointDrift("eu", { ...eu, ttsUrl: "wss://api.deepgram.com/v1/speak" }), {
+    kind: "mixed",
+    fields: ["ttsUrl"],
+  });
   assert.deepEqual(
-    mismatchedEndpoints("eu", { ...eu, ttsUrl: "wss://api.deepgram.com/v1/speak" }),
-    ["ttsUrl"],
-  );
-  // Mehrere gleichzeitig, Reihenfolge stabil.
-  assert.deepEqual(
-    mismatchedEndpoints("eu", {
+    endpointDrift("eu", {
       ...eu,
       sttUrl: "wss://api.deepgram.com/v2/listen",
       agentUrl: "wss://agent.deepgram.com/v1/agent/converse",
     }),
-    ["sttUrl", "agentUrl"],
+    { kind: "mixed", fields: ["sttUrl", "agentUrl"] },
   );
-  // Abweichender Pfad bei gleichem Host ist KEIN Regionsproblem.
-  assert.deepEqual(mismatchedEndpoints("eu", { ...eu, sttUrl: "wss://api.eu.deepgram.com/v1/listen" }), []);
   // Unparsbares faellt auf und wird gemeldet statt verschluckt.
-  assert.deepEqual(mismatchedEndpoints("eu", { ...eu, ttsUrl: "kaputt" }), ["ttsUrl"]);
+  assert.deepEqual(endpointDrift("eu", { ...eu, ttsUrl: "kaputt" }), {
+    kind: "mixed",
+    fields: ["ttsUrl"],
+  });
+});
+
+// Ein anderer Pfad bei gleichem Host ist KEIN Regionsproblem.
+test("endpointDrift: abweichender Pfad bei gleichem Host zaehlt nicht", () => {
+  const eu = deepgramEndpoints("eu");
+  assert.deepEqual(endpointDrift("eu", { ...eu, sttUrl: "wss://api.eu.deepgram.com/v1/listen" }), {
+    kind: "ok",
+  });
 });

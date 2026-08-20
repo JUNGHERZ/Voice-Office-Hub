@@ -9,10 +9,23 @@ import type { Tool } from "../registry.js";
 
 export const transferCall: Tool = {
   name: "transfer_call",
+  // Die Beschreibung sagt bewusst WANN, nicht nur WAS: eine rein beschreibende
+  // Fassung ("verbindet den Anrufer…") überlässt dem Modell die Auslösung, und das
+  // führt zu Weiterleitungen mitten in einer laufenden Hilfestellung (live beobachtet
+  // 2026-08-20: der Agent schlug bei einem Malware-Verdacht einen Spezialisten vor
+  // und leitete im selben Zug weiter, ohne die Antwort des Anrufers abzuwarten).
   description:
-    "Verbindet den Anrufer mit einem Menschen/einer Durchwahl. Gib in 'target' die Ziel-Durchwahl " +
-    "an (nur eine im System bekannte Durchwahl verwenden, keine erfundene Nummer). Nimmt niemand an, " +
-    "kehrt das Gespräch automatisch zum Assistenten zurück.",
+    "Verbindet den Anrufer mit einem Menschen/einer Durchwahl. " +
+    "AUFRUFEN, wenn der Anrufer selbst nach einem Menschen verlangt, verärgert ist, oder " +
+    "du bei seinem Anliegen nachweislich nicht weiterhelfen kannst. " +
+    "NICHT AUFRUFEN, solange du den Anrufer noch durch Schritte führst oder das Problem " +
+    "gerade eingrenzt — ein schwieriger Befund ist für sich noch kein Grund weiterzuleiten. " +
+    "Schlägst DU die Weiterleitung vor, ist das ein Vorschlag: sprich ihn aus und warte die " +
+    "Antwort des Anrufers ab, bevor du dieses Tool aufrufst. Hat der Anrufer selbst darum " +
+    "gebeten, verbinde direkt. " +
+    "Gib in 'target' die Ziel-Durchwahl an (nur eine im System bekannte Durchwahl verwenden, " +
+    "keine erfundene Nummer). Nimmt niemand an, kehrt das Gespräch automatisch zum " +
+    "Assistenten zurück.",
   parameters: {
     type: "object",
     properties: {
