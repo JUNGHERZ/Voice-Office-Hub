@@ -166,5 +166,31 @@ async function mergeOverlay(
   // Defaults (transfer_call/end_call) — genau das würde eine reine Ansage aushebeln.
   const tools = (overlay as Record<string, unknown>).tools;
   if (Array.isArray(tools)) resolved.tools = tools.map(String);
+
+  const speak = (overlay as Record<string, unknown>).speak;
+  if (speakOverlayIsIncomplete(speak, agent.speak.provider, resolved.speak.provider)) {
+    log.warn(
+      "Overlay wechselt speak.provider ohne speak.model — das Modell gehört noch zum vorherigen Anbieter",
+      { agent: agent.name, provider: resolved.speak.provider, model: resolved.speak.model },
+    );
+  }
   return resolved;
+}
+
+/**
+ * Ein `speak`-Overlay ersetzt das Feld **vollständig** (flach je Top-Level-Feld). Wer darin
+ * nur den Anbieter tauscht, erbt kein passendes Modell: `fromDoc` füllt `speak.model` aus dem
+ * Dokument bzw. `DEFAULT_SPEAK_MODEL`, und dieser Default ist anbieter-unabhängig. Heraus käme
+ * etwa `provider: "azure"` mit einem Aura-Modellnamen — bei Azure **ist** der Modellname aber
+ * die Stimme. Das ist ein Konfigurationsfehler des Aufrufers, kein Grund, den Anruf fallen zu
+ * lassen: einmal warnen, weiterlaufen (die TTS-Auswahl fällt im Zweifel auf Aura zurück).
+ */
+export function speakOverlayIsIncomplete(
+  overlaySpeak: unknown,
+  previousProvider: string,
+  effectiveProvider: string,
+): boolean {
+  if (!overlaySpeak || typeof overlaySpeak !== "object") return false;
+  if ((overlaySpeak as Record<string, unknown>).model) return false;
+  return effectiveProvider !== previousProvider;
 }

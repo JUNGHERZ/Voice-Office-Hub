@@ -28,14 +28,23 @@ Die bestehende Testsuite lief unverändert durch; das war die Bedingung.
   **Das Overlay legt sich auf das gespeicherte Dokument, nicht auf den fertig
   aufgelösten Agenten.** Dadurch greifen für überlagerte Felder exakt dieselben
   Normalisierungen und Defaults wie für gespeicherte (ein Overlay
-  `speak: {provider:"azure"}` bekommt so das Default-Modell), und die `id` kann
-  gar nicht erst überschrieben werden — sie entsteht ausschließlich aus `_id`.
-  Der Agent bleibt damit ein normales Dokument: Anrufliste, Übersetzungen,
-  Anrufer-Gedächtnis und der `agentId`-Eintrag im Tool-Envelope hängen weiter an
-  derselben Kennung. Eine Ausnahme ist ausdrücklich verdrahtet: ein übergebenes
-  `tools: []` bleibt leer, weil die Auflösung bei leerer Liste sonst
-  `transfer_call`/`end_call` nachsetzt — und damit eine reine Ansage aushebeln
-  würde.
+  `listen: {model:"flux-general-multi"}` bekommt so die üblichen Sprachhinweise
+  und `smart_format`), und die `id` kann gar nicht erst überschrieben werden —
+  sie entsteht ausschließlich aus `_id`. Der Agent bleibt damit ein normales
+  Dokument: Anrufliste, Übersetzungen, Anrufer-Gedächtnis und der `agentId`-Eintrag
+  im Tool-Envelope hängen weiter an derselben Kennung.
+
+  Eine Ausnahme ist ausdrücklich verdrahtet: ein übergebenes `tools: []`
+  bleibt leer, weil die Auflösung bei leerer Liste sonst
+  `transfer_call`/`end_call` nachsetzt — und damit eine reine Ansage
+  aushebeln würde.
+
+  Ersetzt wird flach je Feld, und das gilt wörtlich: Zusammengesetzte Felder
+  (`speak`, `listen`, `think`) gehören vollständig in ein Overlay. Wechselt eines
+  nur `speak.provider` ohne `speak.model`, greift der anbieter-unabhängige Default
+  aus `DEFAULT_SPEAK_MODEL` — bei Azure ist der Modellname aber die Stimme. Die
+  Engine protokolliert diesen Fall als `warn` und führt den Anruf weiter, statt
+  ihn fallen zu lassen.
 
   **Fail-open.** Timeout, Verbindungsfehler, Nicht-200, unlesbare Antwort oder
   ein unbekanntes `verdict` → der gespeicherte Agent gilt unverändert und der

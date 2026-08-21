@@ -6,7 +6,12 @@ import type { AddressInfo } from "node:net";
 import { after, test } from "node:test";
 
 import { applyOverlay } from "../src/ari/agentResolver.js";
-import { resolveOverlay, type ResolveContext } from "../src/ari/callResolver.js";
+import { config } from "../src/config.js";
+import {
+  resolveOverlay,
+  speakOverlayIsIncomplete,
+  type ResolveContext,
+} from "../src/ari/callResolver.js";
 import { signBody } from "../src/util/signature.js";
 import { testAgent } from "./helpers/fakes.js";
 
@@ -215,4 +220,37 @@ test("applyOverlay: flache Ersetzung, verworfene Schlüssel werden gemeldet", ()
   assert.equal(doc.name, "Stub");
   assert.equal(doc._id, AGENT_ID);
   assert.deepEqual(ignored.sort(), ["_id", "name"]);
+});
+
+// 10 ─ Teil-Overlay auf `speak`: flach ersetzt heißt, das Modell bleibt das alte. Der Fall
+// ist ein Konfigurationsfehler des Aufrufers — er wird gemeldet, nicht repariert, und er
+// bricht den Anruf nicht ab.
+test("Teil-Overlay auf speak: Anbieter getauscht, Modell bleibt — wird erkannt", async () => {
+  respond = () => ({
+    status: 200,
+    body: JSON.stringify({ verdict: "allow", overlay: { speak: { provider: "azure" } } }),
+  });
+  const res = await resolveOverlay(testAgent({ id: AGENT_ID }), ctx, opts());
+  assert.equal(res.kind, "run");
+  if (res.kind !== "run") return;
+  assert.equal(res.agent.speak.provider, "azure");
+  assert.equal(
+    res.agent.speak.model,
+    config.defaultAgent.speakModel,
+    "flach ersetzt heißt: das Modell des Stubs ist weg und der anbieter-UNABHÄNGIGE " +
+      "Config-Default greift — bei Azure wäre der Modellname aber die Stimme",
+  );
+
+  assert.equal(speakOverlayIsIncomplete({ provider: "azure" }, "deepgram", "azure"), true);
+  assert.equal(
+    speakOverlayIsIncomplete({ provider: "azure", model: "de-DE-KatjaNeural" }, "deepgram", "azure"),
+    false,
+    "mit Modell ist das Overlay vollständig",
+  );
+  assert.equal(
+    speakOverlayIsIncomplete({ speed: 1.1 }, "deepgram", "deepgram"),
+    false,
+    "kein Anbieterwechsel — nichts zu melden",
+  );
+  assert.equal(speakOverlayIsIncomplete(undefined, "deepgram", "deepgram"), false);
 });

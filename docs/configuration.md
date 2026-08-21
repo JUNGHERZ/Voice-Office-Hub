@@ -324,6 +324,13 @@ Antworten (immer HTTP 200):
   ein unbekannter Schlüssel bricht **nie** einen Anruf ab. Der Agent bleibt damit der
   gespeicherte Agent: Anrufliste, Übersetzungen und Anrufer-Gedächtnis hängen weiter an
   seiner `id`.
+
+  „Flach" heißt wörtlich: ein Overlay `speak: {provider:"azure"}` ersetzt das **ganze**
+  `speak`-Objekt, das Modell des gespeicherten Agenten ist damit weg und es greift der
+  anbieter-**unabhängige** Default aus `DEFAULT_SPEAK_MODEL` — bei Azure ist der Modellname
+  aber die Stimme. Zusammengesetzte Felder (`speak`, `listen`, `think`) also immer vollständig
+  senden. Wechselt ein Overlay `speak.provider` ohne `speak.model`, protokolliert die Engine
+  das als `warn` und führt den Anruf weiter (die TTS-Auswahl fällt im Zweifel auf Aura zurück).
 - **`agentRef`** wird am `requests`-Dokument vermerkt und unverändert in allen Ereignissen
   gespiegelt — der Aufrufer erkennt seine eigene Kennung wieder.
 - **`verdict: "reject"`** lehnt **vor** dem Answer mit `unallocated` ab und übergeht

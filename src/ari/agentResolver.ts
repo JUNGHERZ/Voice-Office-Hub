@@ -126,7 +126,8 @@ export const OVERLAY_FIELDS = [
 /**
  * Overlay auf das lean-Dokument legen, BEVOR `fromDoc()` läuft. Bewusst so herum:
  *   - es greifen exakt dieselben Normalisierungen und Defaults wie im gespeicherten Fall
- *     (ein Overlay `speak: {provider:"azure"}` bekommt so das Default-Modell),
+ *     (ein Overlay `listen: {model:"flux-general-multi"}` bekommt so die üblichen
+ *     Sprachhinweise und `smart_format`),
  *   - `id` entsteht ausschließlich aus `doc._id` und ist damit strukturell unantastbar.
  * Ersetzt wird flach je Top-Level-Feld: das Overlay-Feld gilt vollständig, nicht gemischt.
  * Liefert das bereinigte Dokument und die Namen der verworfenen Schlüssel (der Aufrufer
