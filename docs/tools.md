@@ -54,6 +54,13 @@ Anlegen/ändern per `PATCH /api/agents/:id` (Feld `customTools`) oder ab 0.6.2 i
 }
 ```
 
+> `callId` ist hier die **Request-ID** (`_id` des `requests`-Dokuments), aus der sich z. B.
+> `<base>/api/requests/<id>/recording` bauen lässt. Nicht zu verwechseln mit der Kanal-Kennung
+> `channelId` aus dem Overlay-Hook und den Ereignissen (siehe
+> [configuration.md](configuration.md#externe-anbindung-overlay--ereignisse)). Bei Anrufen, die
+> laut Overlay-Hook nicht protokolliert werden (`report: false`), trägt `callId` eine erkennbare
+> Ersatzkennung der Form `unreported:<channelId>` — sie ist bewusst **keine** ObjectId.
+
 **GET** — Argumente flach als Query-Parameter (Nicht-Strings JSON-serialisiert) plus
 `call_id` und `caller_number`:
 

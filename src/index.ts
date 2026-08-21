@@ -14,6 +14,7 @@ import { audioSocketServer } from "./ari/audiosocketServer.js";
 import { registerAllTools } from "./tools/index.js";
 import { printBanner } from "./util/banner.js";
 import { logger } from "./util/logger.js";
+import { notifier } from "./webhooks/notifier.js";
 
 const log = logger.child({ mod: "bootstrap" });
 
@@ -99,6 +100,9 @@ async function main(): Promise<void> {
       client.stop?.();
     } catch { /* ignore */ }
     await audioSocketServer.stop().catch(() => undefined);
+    // Offene Ereignis-Zustellungen kurz auslaufen lassen: die Warteschlange liegt im
+    // Speicher, ein Redeploy mitten im Backoff würde sie sonst verlieren.
+    await notifier.flush(5000).catch(() => undefined);
     await disconnectMongo().catch(() => undefined);
     process.exit(0);
   };

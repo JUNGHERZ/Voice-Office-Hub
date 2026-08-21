@@ -27,6 +27,12 @@ export interface VoiceSessionOptions {
    * keinen Zugriff auf die Medienstrecke (Muster wie FillerLocalizer/setTimer).
    */
   pendingPlayoutMs?: () => number;
+  /**
+   * false = der Agent spricht nur (reine Ansage, siehe verdict "announce"). Die native
+   * Kaskade öffnet dann keinen STT-Strom; gebündelte Provider ignorieren die Angabe,
+   * weil dort ein Transport beide Richtungen trägt.
+   */
+  listen?: boolean;
 }
 
 export function createVoiceAgentSession(
@@ -46,6 +52,7 @@ export function createVoiceAgentSession(
         undefined,
         opts.localizer,
         opts.pendingPlayoutMs,
+        opts.listen ?? true,
       );
     // Geplante Adapter — Enum im Agent-Schema erst bei Implementierung freischalten:
     case "elevenlabs":

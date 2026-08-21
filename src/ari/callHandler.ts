@@ -12,6 +12,7 @@ import type { AriChannel, AriClient } from "ari-client";
 
 import { createAmbienceMixer } from "../audio/ambience.js";
 import { config } from "../config.js";
+import { callRepo } from "../db/callRepo.js";
 import * as repo from "../db/repository.js";
 import { uploadRecording } from "../db/gridfs.js";
 import { CallLocalizer, type CallLocalizerLike } from "../llm/callLocalizer.js";
@@ -24,6 +25,7 @@ import { logger } from "../util/logger.js";
 import { createVoiceAgentSession } from "../voice/factory.js";
 import type { VoiceAgentSession } from "../voice/types.js";
 import { findAgent, defaultAgent } from "./agentResolver.js";
+import { resolveOverlay } from "./callResolver.js";
 import { IdleWatcher } from "./idleWatcher.js";
 import { MediaBridge } from "./media.js";
 import { audioSocketServer } from "./audiosocketServer.js";
@@ -93,6 +95,13 @@ export type CallRepo = Pick<
 export interface CallHandlerDeps {
   findAgent: typeof findAgent;
   defaultAgent: typeof defaultAgent;
+  /**
+   * Konfigurations-Overlay pro Anruf (0.9.0). Bewusst eine eigene Naht NEBEN findAgent:
+   * so lassen sich „vom Hook abgelehnt" und „keine DDI-Zuordnung" nicht verwechseln — ein
+   * abgelehnter Anruf darf auch mit UNKNOWN_NUMBER_BEHAVIOR=agent nicht doch beantwortet
+   * werden. Ohne RESOLVER_URL ist der Hook inert und reicht den Agenten unverändert durch.
+   */
+  resolveOverlay: typeof resolveOverlay;
   handlePassthrough: typeof handlePassthrough;
   createMedia: (callId: string, uuid: string, ambience?: ResolvedAmbience) => CallMedia;
   createSession: typeof createVoiceAgentSession;
@@ -120,12 +129,15 @@ export interface CallHandlerDeps {
 export const defaultDeps: CallHandlerDeps = {
   findAgent,
   defaultAgent,
+  resolveOverlay,
   handlePassthrough,
   createMedia,
   createSession: createVoiceAgentSession,
   createLocalizer: (agent, requestId) => new CallLocalizer(agent, requestId),
   buildCallToolset,
-  repo,
+  // Gekapseltes Repo: identische API plus Ereignis-Zustellung (0.9.0). Ohne WEBHOOK_URL
+  // ist es dasselbe Modul.
+  repo: callRepo,
   startBridgeRecording,
   uploadRecording,
   runPostCallSummary,
@@ -167,25 +179,61 @@ export async function handleStasisStart(
   }
 
   let agent = await deps.findAgent(targetNumber);
+  // Ohne konfigurierten Hook bleibt es bei diesen Vorgaben — der Anruf wird protokolliert
+  // und normal geführt, exakt wie bisher.
+  let overlay: OverlayDecision = { report: true, announce: false };
 
-  // Keine DDI-Zuordnung → konfiguriertes Verhalten (Default: ablehnen). Verhindert, dass
-  // Scanner-/Fehlanrufe eine kostenpflichtige Default-Agent-Session + Logeintrag auslösen.
-  if (!agent) {
-    if (config.unknownNumber.behavior === "agent") {
-      log.info("Kein Agent für DDI — Default-Agent (Dev)", { targetNumber });
-      agent = deps.defaultAgent();
-    } else {
-      await handleUnknownNumber(client, channel, { targetNumber, callerNumber, log });
+  if (agent) {
+    // Overlay-Hook auf dem Klingelpfad: läuft NUR auf einem DB-Treffer und VOR dem Answer.
+    const decision = await deps.resolveOverlay(agent, {
+      channel: widgetToken ? "web" : "phone",
+      channelId: channel.id,
+      targetNumber,
+      callerNumber,
+    });
+    if (decision.kind === "reject") {
+      // Ablehnung geht ausdrücklich VOR UNKNOWN_NUMBER_BEHAVIOR: kein Answer, kein
+      // requests-Dokument, kein Default-Agent. Das Netz des Anrufers spielt die Standardansage.
+      log.info("Anruf vom Overlay-Hook abgelehnt", { targetNumber, callerNumber });
+      try {
+        await channel.hangup({ reason: "unallocated" });
+      } catch {
+        try { await channel.hangup(); } catch { /* ignore */ }
+      }
       return;
     }
-  }
-
-  if (agent.mode === "passthrough") {
-    await deps.handlePassthrough(client, channel, agent, { targetNumber, callerNumber });
+    agent = decision.agent;
+    overlay = decision;
+  } else if (config.unknownNumber.behavior === "agent") {
+    // Keine DDI-Zuordnung → konfiguriertes Verhalten (Default: ablehnen). Verhindert, dass
+    // Scanner-/Fehlanrufe eine kostenpflichtige Default-Agent-Session + Logeintrag auslösen.
+    log.info("Kein Agent für DDI — Default-Agent (Dev)", { targetNumber });
+    agent = deps.defaultAgent();
+  } else {
+    await handleUnknownNumber(client, channel, { targetNumber, callerNumber, log });
     return;
   }
 
-  await runAgentCall(client, channel, agent, { targetNumber, callerNumber, widgetToken, log }, deps);
+  if (agent.mode === "passthrough") {
+    // Durchleitung kennt weder Prompt noch Ansage — vom Overlay bleiben nur die beiden
+    // Kennzeichen am Request. `report:false` wäre hier ein Widerspruch (eine Durchleitung
+    // ist genau der Mitschnitt) und wird deshalb nicht ausgewertet.
+    await deps.handlePassthrough(client, channel, agent, {
+      targetNumber,
+      callerNumber,
+      ...(overlay.agentRef ? { agentRef: overlay.agentRef } : {}),
+      ...(overlay.resolverStatus ? { resolverStatus: overlay.resolverStatus } : {}),
+    });
+    return;
+  }
+
+  await runAgentCall(
+    client,
+    channel,
+    agent,
+    { targetNumber, callerNumber, widgetToken, log, ...overlay },
+    deps,
+  );
 }
 
 /**
@@ -411,12 +459,42 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
   ]);
 }
 
-interface CallMeta {
+/** Was der Overlay-Hook (0.9.0) über den gespeicherten Agenten hinaus entschieden hat. */
+interface OverlayDecision {
+  /** Opake Kennung des Aufrufers; landet am Request und in allen Ereignissen. */
+  agentRef?: string;
+  /** Fehlt, wenn kein Hook konfiguriert ist. */
+  resolverStatus?: "ok" | "unavailable";
+  /** false = dieser Anruf hinterlässt keine Spur (kein Dokument, keine Aufnahme, keine Ereignisse). */
+  report: boolean;
+  /** true = nur die Begrüßung ausspielen, danach auflegen. */
+  announce: boolean;
+}
+
+interface CallMeta extends Partial<OverlayDecision> {
   targetNumber?: string;
   callerNumber?: string;
   /** Vom Web-Widget pro Anruf generiertes Token (SIP-Header → Dialplan → Stasis-Arg 3). */
   widgetToken?: string;
   log: ReturnType<typeof logger.child>;
+}
+
+/**
+ * Repo-Attrappe für Anrufe, die laut Overlay-Hook nicht protokolliert werden (report:false).
+ * Statt den ganzen Anrufpfad mit Bedingungen zu durchziehen, bekommt er ein Repo, das nichts
+ * schreibt. Die Korrelations-ID ist absichtlich KEINE ObjectId-Form — sie taucht in Logs und
+ * im Tool-Envelope auf und soll dort nicht für eine Request-ID gehalten werden.
+ */
+function nullRepo(channelId: string): CallRepo {
+  return {
+    createRequest: async () => `unreported:${channelId}`,
+    appendTranscript: async () => {},
+    appendFunctionCall: async () => {},
+    setTransfer: async () => {},
+    setRecording: async () => {},
+    setLanguage: async () => {},
+    finalizeRequest: async () => {},
+  };
 }
 
 async function runAgentCall(
@@ -430,13 +508,19 @@ async function runAgentCall(
   const startTime = Date.now();
   const elapsed = () => (Date.now() - startTime) / 1000;
 
-  const requestId = await deps.repo.createRequest({
+  // report:false → nichts schreiben, nichts aufnehmen, nichts nacharbeiten.
+  const reported = meta.report !== false;
+  const store: CallRepo = reported ? deps.repo : nullRepo(channel.id);
+
+  const requestId = await store.createRequest({
     channelId: channel.id,
     mode: "agent",
     callerNumber: meta.callerNumber,
     targetNumber: meta.targetNumber,
     ...(meta.widgetToken ? { widgetToken: meta.widgetToken } : {}),
     ...(agent.id ? { agentId: agent.id as unknown as never } : {}),
+    ...(meta.agentRef ? { agentRef: meta.agentRef } : {}),
+    ...(meta.resolverStatus ? { resolverStatus: meta.resolverStatus } : {}),
   });
 
   // Laufzeit-Lokalisierung der Filler-/System-Ansagen (aktiv nur bei mehrsprachigem Agent;
@@ -529,7 +613,7 @@ async function runAgentCall(
       try {
         const gridFsId = await deps.uploadRecording(recording.filePath, `${requestId}.wav`, { requestId });
         const durationSec = await wavDurationSec(recording.filePath).catch(() => 0);
-        await deps.repo.setRecording(requestId, { gridFsId, filename: `${requestId}.wav`, durationSec });
+        await store.setRecording(requestId, { gridFsId, filename: `${requestId}.wav`, durationSec });
         await rm(recording.filePath, { force: true });
       } catch (err) {
         log.warn("GridFS-Upload fehlgeschlagen", { err: String(err) });
@@ -542,14 +626,14 @@ async function runAgentCall(
       metrics.priorConfirmed = lang.priorLang ? lang.priorLang === lang.lang : undefined;
     }
 
-    await deps.repo.finalizeRequest(requestId, status, metrics);
+    await store.finalizeRequest(requestId, status, metrics);
 
     // Post-Call-Arbeiten, alle asynchron — der Anruf ist zu diesem Zeitpunkt beendet.
-    if (status === "completed" && agent.summary.enabled) {
+    if (reported && status === "completed" && agent.summary.enabled) {
       void deps.runPostCallSummary(requestId, agent, log);
     }
     // Nur LLM-bestätigte Sprachen: Eine Scorer-Vermutung darf keine Begrüßung steuern.
-    if (status === "completed" && lang.lang && lang.confirmed) {
+    if (reported && status === "completed" && lang.lang && lang.confirmed) {
       void deps.rememberLanguage(agent, meta.callerNumber, lang.lang, lang.priorLang);
       // Fehlt die Vorübersetzung dieser Sprache noch, entsteht sie jetzt — ab dem nächsten
       // Anruf derselben Nummer sitzt damit auch die Begrüßung.
@@ -590,6 +674,8 @@ async function runAgentCall(
       // media steht hier bereits — die Sonde meldet, wie viel Agent-Audio noch
       // in der Playout-Queue liegt und damit NICHT gehört wurde.
       pendingPlayoutMs: () => media?.pendingMs?.() ?? 0,
+      // Reine Ansage: nur sprechen, nicht zuhören.
+      ...(meta.announce ? { listen: false } : {}),
     });
 
     /**
@@ -631,9 +717,9 @@ async function runAgentCall(
         // Intern vs. extern (über den Trunk) auflösen + Absender-CLI bestimmen.
         const dial = deps.resolveOutboundTransfer(agent, target, meta.callerNumber);
         if (dial.callerId) log.info("Externer Transfer über Trunk", { target, callerId: dial.callerId });
-        await deps.repo.setTransfer(requestId, { attempted: true, target });
+        await store.setTransfer(requestId, { attempted: true, target });
         const result = await deps.transferIntoBridge(client, bridge, dial.target, { callerId: dial.callerId });
-        await deps.repo.setTransfer(requestId, { attempted: true, target, connected: result.connected });
+        await store.setTransfer(requestId, { attempted: true, target, connected: result.connected });
         transferRinging = false;
         if (result.connected) {
           // Mensch hat übernommen → Agent voll stumm, hört NICHT mit. Anruf läuft Anrufer ↔ Mitarbeiter.
@@ -727,7 +813,7 @@ async function runAgentCall(
     });
     session.on("conversationText", (ev) => {
       const speaker = ev.role === "assistant" ? "agent" : "caller";
-      void deps.repo.appendTranscript(requestId, { t: elapsed(), speaker, text: ev.content });
+      void store.appendTranscript(requestId, { t: elapsed(), speaker, text: ev.content });
       // Sprach-/Register-Erkennung füttern (beide Rollen; Caller treibt Trigger, Agent = Register-Kontext).
       localizer.observeTurn(speaker, ev.content);
       if (speaker === "caller") {
@@ -769,7 +855,7 @@ async function runAgentCall(
         // der Provider eine zweite Abschiedsrunde (doppeltes "Auf Wiederhören"). Der Abschied ist
         // bereits vor dem Tool-Aufruf gesprochen worden; danach wird aufgelegt.
         if (!endRequested) session?.sendFunctionResponse(fn.id, fn.name, result);
-        void deps.repo.appendFunctionCall(requestId, {
+        void store.appendFunctionCall(requestId, {
           name: fn.name,
           arguments: safeParse(fn.argumentsJson),
           result,
@@ -781,8 +867,8 @@ async function runAgentCall(
     });
     session.on("error", (desc) => log.error("Voice-Session-Fehler", { desc }));
 
-    // Aufnahme starten (best effort).
-    recording = await deps.startBridgeRecording(bridge, requestId);
+    // Aufnahme starten (best effort) — bei report:false gar nicht erst.
+    recording = reported ? await deps.startBridgeRecording(bridge, requestId) : null;
 
     // ── Hangup-Handling ──────────────────────────────────────────────────────
     client.on("StasisEnd", onEnd);
@@ -792,6 +878,12 @@ async function runAgentCall(
     // frühen Events verloren, und ein Connect-Fehler läuft in den catch → cleanup("failed")
     // (vorher blieb der Anruf bei WS-Connect-Fehlern stumm hängen).
     await session.start();
+
+    // Reine Ansage (Overlay-Hook, verdict "announce"): Der Agent spricht seine Begrüßung und
+    // legt danach auf. Bewusst kein eigener Ausspielweg — requestHangup wartet über dieselbe
+    // Drain-Logik wie end_call, bis der Playout-Puffer leer ist. Ein zweiter Weg müsste genau
+    // das neu lösen, und die abgeschnittene Schlusssilbe ist dort der klassische Fehler.
+    if (meta.announce) void requestHangup("announce");
   } catch (err) {
     log.error("Fehler im Anrufaufbau", { err: String(err) });
     await cleanup("failed");

@@ -259,6 +259,37 @@ export interface Config {
     /** ARI-Media-ID für die Ansage im "announce"-Modus (z. B. "sound:custom/kein-anschluss"). */
     announcement: string;
   };
+  /**
+   * Konfigurations-Overlay pro Anruf (0.9.0): Vor dem Answer fragt die Engine einen
+   * externen Dienst, ob der Anruf laufen darf und ob ein Teil der Agent-Konfiguration
+   * für genau diesen Anruf ersetzt wird (v. a. der Systemprompt mit Laufzeitwerten).
+   * Leere URL = Feature aus (Default) — der Klingelpfad verhält sich dann wie bisher.
+   */
+  resolver: {
+    url: string;
+    /** HMAC-Schlüssel für X-VOH-Signature. Leer = unsigniert senden. */
+    secret: string;
+    /**
+     * Hartes Zeitbudget. Der Hook liegt auf dem Klingelpfad — läuft er ab, gilt der
+     * gespeicherte Agent (Fail-open), damit ein Ausfall der Gegenstelle nicht alle
+     * Anschlüsse stumm schaltet.
+     */
+    timeoutMs: number;
+  };
+  /**
+   * Ausgehende Ereignis-Zustellung (0.9.0): Gesprächsereignisse werden an einen
+   * externen Empfänger geschickt, statt dass dieser /api/requests pollen muss.
+   * Leere URL = Feature aus (Default), dann entsteht kein ausgehender Verkehr.
+   */
+  webhooks: {
+    url: string;
+    secret: string;
+    timeoutMs: number;
+    /** Wiederholungen bei Timeout/5xx/429 (exponentieller Backoff). */
+    maxRetries: number;
+    /** Obergrenze der Warteschlange; darüber wird verworfen und laut geloggt. */
+    queueLimit: number;
+  };
   /** Spike/Diagnose: Anrufer-Audio direkt zurückspielen (ohne Deepgram). */
   echoTest: boolean;
   /** Echo-Variante: "packet" = re-paketisiert (eigene seq/ts), "raw" = 1:1 zurück. */
@@ -428,6 +459,18 @@ export const config: Config = {
   unknownNumber: {
     behavior: opt("UNKNOWN_NUMBER_BEHAVIOR", "reject").toLowerCase(),
     announcement: opt("UNKNOWN_NUMBER_ANNOUNCEMENT", "sound:custom/kein-anschluss"),
+  },
+  resolver: {
+    url: opt("RESOLVER_URL"),
+    secret: opt("RESOLVER_SECRET"),
+    timeoutMs: int("RESOLVER_TIMEOUT_MS", 2500),
+  },
+  webhooks: {
+    url: opt("WEBHOOK_URL"),
+    secret: opt("WEBHOOK_SECRET"),
+    timeoutMs: int("WEBHOOK_TIMEOUT_MS", 5000),
+    maxRetries: int("WEBHOOK_MAX_RETRIES", 5),
+    queueLimit: int("WEBHOOK_QUEUE_LIMIT", 500),
   },
   echoTest: bool("ECHO_TEST", false),
   echoMode: opt("ECHO_MODE", "packet"),

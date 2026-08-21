@@ -15,6 +15,10 @@ export interface NewRequestInput {
   /** Web-Widget: Token für das öffentliche Live-Transkript des Anrufs. */
   widgetToken?: string;
   agentId?: Types.ObjectId;
+  /** Opake Kennung aus dem Overlay-Hook (0.9.0); wird in allen Ereignissen gespiegelt. */
+  agentRef?: string;
+  /** Ob das Overlay griff. Nur gesetzt, wenn ein Hook konfiguriert ist. */
+  resolverStatus?: "ok" | "unavailable";
 }
 
 export interface TranscriptTurn {
@@ -41,6 +45,8 @@ export async function createRequest(input: NewRequestInput): Promise<string> {
     targetNumber: input.targetNumber,
     widgetToken: input.widgetToken,
     agentId: input.agentId,
+    agentRef: input.agentRef,
+    resolverStatus: input.resolverStatus,
     startedAt: new Date(),
     status: "in_progress",
   });

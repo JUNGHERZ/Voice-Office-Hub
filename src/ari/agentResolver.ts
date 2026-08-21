@@ -107,6 +107,49 @@ export function defaultAgent(): ResolvedAgent {
   };
 }
 
+/**
+ * Felder, die ein Overlay pro Anruf ersetzen darf (Whitelist, 0.9.0). Alles andere —
+ * insbesondere `_id`/`id`, `name`, `targetNumbers` und die Tool-Anbindungen — bleibt
+ * Sache des gespeicherten Agenten: Ein Anruf soll die Konfiguration überlagern, nicht
+ * die Identität des Assistenten tauschen.
+ */
+export const OVERLAY_FIELDS = [
+  "prompt",
+  "greeting",
+  "tools",
+  "language",
+  "speak",
+  "think",
+  "listen",
+] as const;
+
+/**
+ * Overlay auf das lean-Dokument legen, BEVOR `fromDoc()` läuft. Bewusst so herum:
+ *   - es greifen exakt dieselben Normalisierungen und Defaults wie im gespeicherten Fall
+ *     (ein Overlay `speak: {provider:"azure"}` bekommt so das Default-Modell),
+ *   - `id` entsteht ausschließlich aus `doc._id` und ist damit strukturell unantastbar.
+ * Ersetzt wird flach je Top-Level-Feld: das Overlay-Feld gilt vollständig, nicht gemischt.
+ * Liefert das bereinigte Dokument und die Namen der verworfenen Schlüssel (der Aufrufer
+ * loggt sie einmal pro Anruf — ein unbekanntes Feld bricht nie einen Anruf ab).
+ */
+export function applyOverlay(
+  doc: Record<string, any>,
+  overlay: Record<string, unknown> | undefined,
+): { doc: Record<string, any>; ignored: string[] } {
+  if (!overlay || typeof overlay !== "object") return { doc, ignored: [] };
+  const allowed = new Set<string>(OVERLAY_FIELDS);
+  const merged = { ...doc };
+  const ignored: string[] = [];
+  for (const [key, value] of Object.entries(overlay)) {
+    if (!allowed.has(key) || value === undefined) {
+      ignored.push(key);
+      continue;
+    }
+    merged[key] = value;
+  }
+  return { doc: merged, ignored };
+}
+
 /** Mongoose-Map | Plain-Object → Plain-Object (lean() liefert je nach Pfad beides). */
 function toPlainStringRecord(value: unknown): Record<string, string> {
   if (!value) return {};

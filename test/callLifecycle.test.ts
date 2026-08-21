@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { handleStasisStart, resetCallDedup, type CallHandlerDeps } from "../src/ari/callHandler.js";
+import { config } from "../src/config.js";
 import { registerAllTools } from "../src/tools/index.js";
 import type { ResolvedAgent } from "../src/types.js";
 import {
@@ -801,4 +802,108 @@ test("Post-Call: Widerspruch zum Prior wird mitgegeben", async () => {
 
   assert.deepEqual(seen, [{ lang: "de", prior: "en" }]);
   assert.equal(s.repo.metrics?.priorConfirmed, false, "der Prior lag daneben — messbar machen");
+});
+
+// ── Konfigurations-Overlay pro Anruf (0.9.0) ─────────────────────────────────
+
+// 34 ─ Der Normalfall: ein überlagerter Prompt greift, und die Vorübersetzung läuft weiter.
+// Letzteres ist die eigentliche Falle: Ein Overlay trägt IMMER einen Prompt — würde das
+// Vorübersetzen deshalb aussetzen, wäre die Mehrsprachigkeit still abgeschaltet.
+test("Overlay: Prompt erreicht die Session, agentRef am Request, Vorübersetzung läuft weiter", async () => {
+  const ensured: string[] = [];
+  const s = capturingCall({
+    resolveOverlay: async (agent) => ({
+      kind: "run",
+      agent: { ...agent, prompt: "Laufzeit-Prompt" },
+      agentRef: "cust-7",
+      resolverStatus: "ok",
+      report: true,
+      announce: false,
+    }),
+    ensureTranslations: async (_a, lang) => {
+      ensured.push(lang);
+    },
+  });
+  await s.start();
+  assert.equal(s.builtAgent()?.prompt, "Laufzeit-Prompt");
+  assert.equal(s.builtAgent()?.name, "test", "Identität bleibt der gespeicherte Agent");
+  assert.equal(s.repo.requests[0]?.agentRef, "cust-7");
+  assert.equal(s.repo.requests[0]?.resolverStatus, "ok");
+
+  s.localizer.state = { lang: "en", confirmed: true };
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+  assert.deepEqual(ensured, ["en"], "ein Overlay darf die Vorübersetzung nicht stilllegen");
+});
+
+// 35 ─ Ablehnung geht VOR UNKNOWN_NUMBER_BEHAVIOR: kein Answer, kein Default-Agent.
+test("Overlay reject: kein Answer, kein Request — auch mit UNKNOWN_NUMBER_BEHAVIOR=agent", async () => {
+  const before = config.unknownNumber.behavior;
+  config.unknownNumber.behavior = "agent";
+  try {
+    let sessions = 0;
+    const s = makeCall({
+      deps: {
+        resolveOverlay: async () => ({ kind: "reject" }),
+        createSession: () => { sessions++; return new FakeVoiceAgentSession(); },
+      },
+    });
+    await s.start();
+    assert.equal(s.channel.answered, false, "vor dem Answer abgelehnt");
+    assert.equal(s.channel.hangups.length, 1);
+    assert.equal((s.channel.hangups[0] as Record<string, unknown>)?.reason, "unallocated");
+    assert.equal(s.repo.requests.length, 0);
+    assert.equal(sessions, 0);
+  } finally {
+    config.unknownNumber.behavior = before;
+  }
+});
+
+// 36 ─ Ansage: Der Satz wird zu Ende gesprochen (Drain), erst danach wird aufgelegt.
+test("Overlay announce: Ansage läuft aus, dann genau ein Hangup (Mock-Timer)", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 100_000 });
+  const s = makeCall({
+    deps: {
+      resolveOverlay: async (agent) => ({ kind: "run", agent, report: true, announce: true }),
+    },
+  });
+  await s.start();
+  assert.equal(s.session.started, true);
+  assert.equal(s.channel.hangups.length, 0, "die Ansage läuft noch");
+
+  s.session.emitAudio(); // die Begrüßung fließt
+  s.media.pending = 0;
+  t.mock.timers.tick(150);
+  await settle();
+  assert.equal(s.channel.hangups.length, 0, "Audio kam gerade — noch nicht auflegen");
+
+  t.mock.timers.tick(900);
+  await settle();
+  assert.equal(s.channel.hangups.length, 1, "nach dem Drain genau ein Hangup");
+});
+
+// 37 ─ report:false hinterlässt keine Spur.
+test("Overlay report:false: kein Request, keine Aufnahme, keine Post-Call-Arbeiten", async () => {
+  let recordings = 0;
+  let summaries = 0;
+  const ensured: string[] = [];
+  const s = capturingCall({
+    resolveOverlay: async (agent) => ({ kind: "run", agent, report: false, announce: false }),
+    startBridgeRecording: async () => { recordings++; return null; },
+    runPostCallSummary: async () => { summaries++; },
+    ensureTranslations: async (_a, lang) => { ensured.push(lang); },
+  });
+  await s.start();
+  s.session.emitConversationText("assistant", "Hallo");
+  await settle();
+  s.localizer.state = { lang: "en", confirmed: true };
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+
+  assert.deepEqual(s.repo.requests, [], "kein requests-Dokument");
+  assert.deepEqual(s.repo.transcript, [], "kein Transkript");
+  assert.deepEqual(s.repo.finalized, [], "kein Abschluss-Write");
+  assert.equal(recordings, 0, "keine Aufnahme");
+  assert.equal(summaries, 0);
+  assert.deepEqual(ensured, []);
 });

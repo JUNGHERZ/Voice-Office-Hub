@@ -11,7 +11,10 @@ import { rm } from "node:fs/promises";
 import type { AriChannel, AriClient } from "ari-client";
 
 import { uploadRecording } from "../db/gridfs.js";
-import * as repo from "../db/repository.js";
+// Gekapseltes Repo: identische API, zusätzlich die Ereignis-Zustellung (0.9.0). Ohne
+// WEBHOOK_URL ist es dasselbe Modul — durchgestellte Anrufe sollen aber nicht der eine
+// Pfad sein, den der Empfänger nie zu sehen bekommt.
+import { callRepo as repo } from "../db/callRepo.js";
 import { transcribeRecording } from "../deepgram/transcribe.js";
 import { runPostCallSummary } from "../llm/summarize.js";
 import type { ResolvedAgent } from "../types.js";
@@ -23,7 +26,13 @@ export async function handlePassthrough(
   client: AriClient,
   channel: AriChannel,
   agent: ResolvedAgent,
-  meta: { targetNumber?: string; callerNumber?: string },
+  meta: {
+    targetNumber?: string;
+    callerNumber?: string;
+    /** Kennung und Status aus dem Overlay-Hook (0.9.0), falls einer konfiguriert ist. */
+    agentRef?: string;
+    resolverStatus?: "ok" | "unavailable";
+  },
 ): Promise<void> {
   const log = logger.child({ mod: "passthrough", channel: channel.id });
   const target = agent.passthroughTarget;
@@ -34,6 +43,8 @@ export async function handlePassthrough(
     callerNumber: meta.callerNumber,
     targetNumber: meta.targetNumber,
     ...(agent.id ? { agentId: agent.id as unknown as never } : {}),
+    ...(meta.agentRef ? { agentRef: meta.agentRef } : {}),
+    ...(meta.resolverStatus ? { resolverStatus: meta.resolverStatus } : {}),
   });
 
   if (!target) {

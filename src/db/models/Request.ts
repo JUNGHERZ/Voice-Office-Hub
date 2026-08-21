@@ -105,6 +105,13 @@ const RequestSchema = new Schema(
     // Web-Widget: pro Anruf generiertes Zufalls-Token — Schlüssel für das öffentliche,
     // token-gebundene Live-Transkript (GET /api/widget/call/:token). Sparse: Telefonie hat keins.
     widgetToken: { type: String, index: { sparse: true } },
+    // Konfigurations-Overlay pro Anruf (0.9.0): opake Kennung des externen Dienstes, die
+    // dieser beim Auflösen mitgegeben hat — geht unverändert in alle Ereignisse zurück.
+    // Sparse: ohne konfigurierten Hook trägt kein Dokument das Feld.
+    agentRef: { type: String, index: { sparse: true } },
+    // "ok" = Overlay wurde angewendet, "unavailable" = der Hook war nicht erreichbar und
+    // der gespeicherte Agent galt (Fail-open). Fehlt, wenn kein Hook konfiguriert ist.
+    resolverStatus: { type: String, enum: ["ok", "unavailable"] },
     forwardedTo: { type: String },
     language: { type: String },
     dgRequestId: { type: String },

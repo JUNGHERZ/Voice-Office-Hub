@@ -53,6 +53,10 @@ von einem KI-Agenten angenommen, natürlich geführt und bei Bedarf an Menschen 
 - 🗂️ **Transkript & Aufnahme** — Volltext + Audio (MongoDB/GridFS) + Post-Call-Zusammenfassung
 - ☎️ **Passthrough-Modus** — reine Durchleitung + Mitschnitt + Batch-Transkription
 - 🎯 **Multi-Agent / DDI-Routing** — pro Rufnummer ein eigener Agent
+- 🔗 **Anbindung externer Systeme** — optional pro Anruf einen Teil der Agent-Konfiguration
+  überlagern (und den Anruf freigeben, auf eine Ansage umleiten oder ablehnen) sowie
+  Gesprächsereignisse zustellen lassen statt zu pollen; beides standardmäßig aus, und ein
+  ausgefallener Endpunkt legt nie einen Anschluss lahm
 - 🖥️ **Admin-UI + API** — Glas-Look-Oberfläche + JSON-API (OpenAPI) zur Verwaltung & Integration
 - 📦 **Single-Container-Appliance** — Asterisk + Engine + DB + UI; ein Image, lokal wie Produktion
 - 🔒 **Self-hosted & DSGVO** — Anrufe, Aufnahmen, Transkripte bleiben in deiner Infrastruktur

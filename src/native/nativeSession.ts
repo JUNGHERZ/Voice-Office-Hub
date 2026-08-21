@@ -166,6 +166,12 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     private readonly localizer?: FillerLocalizer,
     /** Noch nicht abgespieltes Agent-Audio (ms) — siehe VoiceSessionOptions. */
     private readonly pendingPlayoutMs?: () => number,
+    /**
+     * false = reine Ansage: Es wird nur gesprochen, nicht zugehört (siehe VoiceSessionOptions).
+     * Der STT-Strom wird dann gar nicht erst geöffnet — das spart nicht nur den Posten,
+     * es verhindert auch, dass eine Ansage in ein Gespräch kippt.
+     */
+    private readonly listen: boolean = true,
   ) {
     super();
     this.deps = { ...defaultDeps, ...depsOverride };
@@ -222,7 +228,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     if (this.started || this.closed) return;
     this.started = true;
     // Beide Beine parallel; ein Fehler → reject → callHandler räumt auf (cleanup("failed")).
-    await Promise.all([this.stt.start(), this.tts.start()]);
+    await Promise.all([...(this.listen ? [this.stt.start()] : []), this.tts.start()]);
 
     this.emit("open");
     this.emit("welcome", randomUUID());
@@ -238,7 +244,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   }
 
   sendAudio(chunk: Buffer): void {
-    if (!this.closed) this.stt.sendAudio(chunk);
+    if (!this.closed && this.listen) this.stt.sendAudio(chunk);
   }
 
   sendFunctionResponse(id: string, _name: string, result: unknown): void {

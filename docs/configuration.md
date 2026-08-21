@@ -77,6 +77,14 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `UI_PORT` | `8080` | Port der Admin-UI + Management-API (Node/Fastify). |
 | `ADMIN_API_KEY` | — | Optionaler API-Key für externen `/api`-Zugriff (Header `x-api-key`). Leer = nur UI-Session. |
 | `ADMIN_SESSION_SECRET` | =`ADMIN_PASSWORD` | Secret zum Signieren des Session-Cookies (in Prod eigenes setzen). |
+| `RESOLVER_URL` *(0.9.0)* | — | Endpunkt für das **Konfigurations-Overlay pro Anruf**. Leer = aus (Default), dann verhält sich der Klingelpfad wie bisher. Siehe [Externe Anbindung](#externe-anbindung-overlay--ereignisse). |
+| `RESOLVER_SECRET` *(0.9.0)* | — | HMAC-Schlüssel für `X-VOH-Signature` des Overlay-Aufrufs. Leer = unsigniert. |
+| `RESOLVER_TIMEOUT_MS` *(0.9.0)* | `2500` | Hartes Zeitbudget. Der Hook liegt auf dem Klingelpfad; läuft er ab, gilt der gespeicherte Agent (Fail-open). |
+| `WEBHOOK_URL` *(0.9.0)* | — | Endpunkt für die **Ereignis-Zustellung**. Leer = aus (Default), dann entsteht kein ausgehender Verkehr. |
+| `WEBHOOK_SECRET` *(0.9.0)* | — | HMAC-Schlüssel für `X-VOH-Signature` der Ereignisse (darf identisch zu `RESOLVER_SECRET` sein). |
+| `WEBHOOK_TIMEOUT_MS` *(0.9.0)* | `5000` | Zeitbudget je Zustellversuch. |
+| `WEBHOOK_MAX_RETRIES` *(0.9.0)* | `5` | Wiederholungen bei Timeout, 5xx und 429 (exponentieller Backoff). Bei 4xx außer 429 wird **nicht** wiederholt. |
+| `WEBHOOK_QUEUE_LIMIT` *(0.9.0)* | `500` | Obergrenze der Warteschlange. Darüber wird das älteste Ereignis verworfen und laut protokolliert. |
 | `LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error`. |
 
 ## Betriebsmodi & Agent-Routing
@@ -257,6 +265,146 @@ Log-Spam erzeugen:
 
 > Der Default-Agent ist damit **kein** stiller Catch-all mehr. Für Produktion `reject` (oder `announce`)
 > verwenden und echte Nummern als Agents in der DB anlegen.
+
+## Externe Anbindung (Overlay & Ereignisse)
+
+Zwei voneinander unabhängige Erweiterungen (0.9.0), mit denen eine übergeordnete Verwaltung
+mit der Engine zusammenarbeiten kann. **Beide sind ohne gesetzte URL aus** — ohne
+`RESOLVER_URL`/`WEBHOOK_URL` verhält sich die Engine exakt wie vorher: kein ausgehender
+Verkehr, keine zusätzlichen Felder, keine geänderte Entscheidungslogik.
+
+Beide signieren ihren Body mit HMAC-SHA256 im Header `X-VOH-Signature: sha256=<hex>`.
+Signiert wird der **rohe** Body — der Empfänger muss also über die empfangenen Bytes prüfen,
+nicht über ein neu serialisiertes JSON.
+
+### Konfigurations-Overlay pro Anruf (`agent.resolve`)
+
+Nach dem DDI-Treffer, aber **vor** dem Answer, fragt die Engine den unter `RESOLVER_URL`
+konfigurierten Endpunkt:
+
+```http
+POST <RESOLVER_URL>
+Content-Type: application/json
+X-VOH-Signature: sha256=<hex>
+
+{ "event": "agent.resolve",
+  "channel": "phone",                       // "web" = Anruf aus dem eingebetteten Widget
+  "agentId": "6a411b273d84ad5c5d4d28ef",
+  "to": "+4923629838194123",
+  "from": "+491711234567",
+  "channelId": "1755769964.42",
+  "callId": "1755769964.42",                // veraltet, s. u.
+  "receivedAt": "2026-08-21T09:12:44.120Z" }
+```
+
+> **`channelId` statt `callId` lesen.** Zum Zeitpunkt des Aufrufs gibt es noch kein
+> `requests`-Dokument, `callId` trägt hier deshalb die **Kanal**-Kennung — im
+> Custom-Tool-Envelope (siehe [tools.md](tools.md)) ist `callId` dagegen die Request-ID.
+> `channelId` ist eindeutig und taucht in jedem Ereignis als `call.channelId` wieder auf.
+
+Antworten (immer HTTP 200):
+
+```jsonc
+{ "verdict": "allow",
+  "agentRef": "<opake Kennung des Aufrufers>",
+  "overlay": { "prompt": "…" } }
+
+{ "verdict": "announce",          // kurze Ansage, danach auflegen
+  "agentRef": "…",
+  "report": false,                // kein Gespräch anlegen, keine Ereignisse
+  "overlay": { "greeting": "…", "prompt": "…", "tools": [] } }
+
+{ "verdict": "reject" }           // vor dem Answer ablehnen
+```
+
+- **Overlay-Felder (Whitelist):** `prompt`, `greeting`, `tools`, `language`, `speak`, `think`,
+  `listen`. Ersetzt wird flach je Feld: ein gesetztes Feld gilt vollständig, ein nicht
+  gesetztes bleibt aus dem gespeicherten Agenten. Alles andere — insbesondere `id`/`_id`,
+  `name` und die Rufnummern — wird verworfen und einmal pro Anruf als `warn` protokolliert;
+  ein unbekannter Schlüssel bricht **nie** einen Anruf ab. Der Agent bleibt damit der
+  gespeicherte Agent: Anrufliste, Übersetzungen und Anrufer-Gedächtnis hängen weiter an
+  seiner `id`.
+- **`agentRef`** wird am `requests`-Dokument vermerkt und unverändert in allen Ereignissen
+  gespiegelt — der Aufrufer erkennt seine eigene Kennung wieder.
+- **`verdict: "reject"`** lehnt **vor** dem Answer mit `unallocated` ab und übergeht
+  `UNKNOWN_NUMBER_BEHAVIOR` ausdrücklich: es entsteht weder ein Anruf noch ein Eintrag.
+- **`verdict: "announce"`** spricht die Begrüßung aus dem Overlay und legt danach auf. Der
+  Satz wird vollständig ausgespielt (dieselbe Drain-Logik wie bei `end_call`). Mit
+  `tools: []` hört der Agent gar nicht zu — die Ansage kann nicht in ein Gespräch kippen.
+  Anders als `UNKNOWN_NUMBER_BEHAVIOR=announce` (feste WAV-Datei) ist der Text frei wählbar;
+  gesprochen wird er über den Assistenten, es entsteht also eine kurze Provider-Session.
+- **Fail-open.** Timeout, Verbindungsfehler, Nicht-200, unlesbare Antwort oder ein unbekanntes
+  `verdict` → der gespeicherte Agent gilt unverändert, der Anruf läuft. Am Request steht dann
+  `resolverStatus: "unavailable"` (sonst `"ok"`), damit der Aufrufer erkennt, dass sein Overlay
+  nicht griff. Begründung: Der Hook liegt auf dem Klingelpfad; ein Ausfall der Gegenstelle darf
+  nicht alle Anschlüsse stumm schalten.
+
+**Einschränkung:** Ein überlagerter `greeting`-Text ist nicht vorübersetzt und wird deshalb in
+`contentLanguage` gesprochen, auch wenn für die Rufnummer eine andere Sprache bekannt ist. Die
+gespeicherten Ansagen des Agenten sind davon nicht betroffen.
+
+### Ereignis-Zustellung
+
+Ist `WEBHOOK_URL` gesetzt, stellt die Engine Gesprächsereignisse zu, statt dass der Empfänger
+`/api/requests` pollen muss.
+
+| Ereignis | ausgelöst durch |
+|---|---|
+| `call.started` | Anruf wird angelegt |
+| `call.ended` | Anruf regulär beendet |
+| `call.failed` | Anruf fehlgeschlagen |
+| `recording.ready` | Aufnahme liegt in GridFS |
+| `tool.called` | ein Tool wurde ausgeführt |
+
+Kein Ereignis für einzelne Transkript-Turns — die kommen gesammelt in `call.ended`. Kein
+Ereignis, wenn der Overlay-Hook `report: false` geliefert hat (dann entsteht auch kein
+`requests`-Dokument, keine Aufnahme und keine Nacharbeit).
+Ausnahme: Agents im **Passthrough-Modus** werten `report: false` nicht aus — eine reine
+Durchleitung ist genau der Mitschnitt, den das Kennzeichen unterdrücken würde. Overlay-Felder
+und `announce` bleiben dort ebenfalls wirkungslos; `reject` und `agentRef` wirken.
+
+```http
+POST <WEBHOOK_URL>
+X-VOH-Signature: sha256=<hex>
+X-VOH-Event: call.ended
+X-VOH-Delivery: <uuid, bei Wiederholung identisch>
+
+{ "event": "call.ended",
+  "seq": 3,
+  "sentAt": "2026-08-21T09:18:02.400Z",
+  "agentId": "…", "agentRef": "…",
+  "call": {
+    "id": "<requests-_id>", "channelId": "…",
+    "mode": "agent", "from": "+49…", "to": "+49…",
+    "startedAt": "…", "endedAt": "…", "durationSec": 213,
+    "language": "en", "resolverStatus": "ok"
+  },
+  "transcript": [ { "t": 0.0, "end": 2.4, "speaker": "agent", "text": "…" } ],
+  "functionCalls": [ … ],
+  "transfer": { "attempted": true, "target": "+49…", "connected": true },
+  "recording": { "available": true, "durationSec": 213 },
+  "metrics": { … } }
+```
+
+`call.id` ist die `_id` des `requests`-Dokuments und steht in **jedem** Ereignis — daraus baut
+der Empfänger z. B. `<base>/api/requests/<id>/recording`.
+
+**Zustellung:**
+
+- Asynchron; ein Anruf wartet nie auf den Empfänger.
+- `seq` zählt je Anruf aufwärts, die **Reihenfolge ist nicht zugesichert** (mehrere parallele
+  Zustellungen, Wiederholungen). Der Empfänger dedupliziert über (`call.id`, `event`, `seq`)
+  und sollte `call.ended` vor `call.started` vertragen.
+- Wiederholung bei Timeout, 5xx und 429 mit exponentiellem Backoff bis `WEBHOOK_MAX_RETRIES`;
+  `X-VOH-Delivery` bleibt dabei konstant. Bei 4xx außer 429 wird **nicht** wiederholt — das ist
+  ein Vertragsfehler und wird einmal als `error` protokolliert.
+- Die Warteschlange liegt **im Speicher** und ist auf `WEBHOOK_QUEUE_LIMIT` begrenzt; darüber
+  wird das älteste Ereignis verworfen und laut protokolliert. Ein Redeploy mitten in einem
+  Backoff verliert offene Zustellungen (beim Shutdown werden sie bis zu 5 s ausgeliefert).
+  Wer Lückenlosigkeit braucht, gleicht periodisch gegen `/api/requests` ab.
+
+**Datenschutz:** Die Ereignisse enthalten Rufnummern und das vollständige Transkript. Der
+Empfänger ist damit Teil der Verarbeitung — Endpunkt und Aufbewahrung entsprechend wählen.
 
 ## SIP-Trunk (Appliance)
 

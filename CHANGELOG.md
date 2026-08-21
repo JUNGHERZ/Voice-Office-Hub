@@ -6,6 +6,102 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.9.0] – 2026-08-21
+
+Zwei neue Nähte nach außen, mit denen eine übergeordnete Verwaltung mit der
+Engine zusammenarbeiten kann. **Beide sind ohne gesetzte URL aus** — ohne
+`RESOLVER_URL`/`WEBHOOK_URL` verhält sich die Engine exakt wie in 0.8.13: kein
+ausgehender Verkehr, kein zusätzliches Feld, keine geänderte Entscheidungslogik.
+Die bestehende Testsuite lief unverändert durch; das war die Bedingung.
+
+### Added
+
+- **Konfigurations-Overlay pro Anruf** (`RESOLVER_URL`, `RESOLVER_SECRET`,
+  `RESOLVER_TIMEOUT_MS`). Nach dem DDI-Treffer, aber **vor** dem Answer, darf ein
+  externer Endpunkt mitentscheiden: den Anruf freigeben (`allow`), auf eine kurze
+  Ansage umleiten (`announce`) oder ablehnen (`reject`) — und dabei einzelne
+  Felder des Agenten für genau diesen Anruf ersetzen, typischerweise den
+  Systemprompt mit eingesetzten Laufzeitwerten.
+
+  Zwei Entscheidungen tragen den Rest:
+
+  **Das Overlay legt sich auf das gespeicherte Dokument, nicht auf den fertig
+  aufgelösten Agenten.** Dadurch greifen für überlagerte Felder exakt dieselben
+  Normalisierungen und Defaults wie für gespeicherte (ein Overlay
+  `speak: {provider:"azure"}` bekommt so das Default-Modell), und die `id` kann
+  gar nicht erst überschrieben werden — sie entsteht ausschließlich aus `_id`.
+  Der Agent bleibt damit ein normales Dokument: Anrufliste, Übersetzungen,
+  Anrufer-Gedächtnis und der `agentId`-Eintrag im Tool-Envelope hängen weiter an
+  derselben Kennung. Eine Ausnahme ist ausdrücklich verdrahtet: ein übergebenes
+  `tools: []` bleibt leer, weil die Auflösung bei leerer Liste sonst
+  `transfer_call`/`end_call` nachsetzt — und damit eine reine Ansage aushebeln
+  würde.
+
+  **Fail-open.** Timeout, Verbindungsfehler, Nicht-200, unlesbare Antwort oder
+  ein unbekanntes `verdict` → der gespeicherte Agent gilt unverändert und der
+  Anruf läuft; am Request steht `resolverStatus: "unavailable"` statt `"ok"`.
+  Der Hook liegt auf dem Klingelpfad, und ein Ausfall der Gegenstelle darf nicht
+  alle Anschlüsse stumm schalten. Nur `reject` ist eine eigene
+  Entscheidungsform — „abgelehnt" und „keine DDI-Zuordnung" dürfen sich nicht
+  verwechseln lassen, sonst würde `UNKNOWN_NUMBER_BEHAVIOR=agent` einen
+  abgelehnten Anruf doch noch beantworten.
+
+  `announce` spricht die überlagerte Begrüßung und legt danach auf — über
+  dieselbe Drain-Logik wie `end_call`, damit die Schlusssilbe nicht abgeschnitten
+  wird. Mit `tools: []` hört der Agent gar nicht erst zu (die native Kaskade
+  öffnet dann keinen STT-Strom), eine Ansage kann also nicht in ein Gespräch
+  kippen. Anders als `UNKNOWN_NUMBER_BEHAVIOR=announce` (feste WAV) ist der Text
+  frei wählbar; er wird gesprochen, kostet also eine kurze Provider-Session.
+
+  Mit `report: false` hinterlässt ein Anruf **keine** Spur: kein
+  `requests`-Dokument, keine Aufnahme, keine Ereignisse, keine Nacharbeit. Statt
+  den Anrufpfad mit Bedingungen zu durchziehen, bekommt er ein Repository, das
+  nichts schreibt.
+
+- **Ereignis-Zustellung** (`WEBHOOK_URL`, `WEBHOOK_SECRET`,
+  `WEBHOOK_TIMEOUT_MS`, `WEBHOOK_MAX_RETRIES`, `WEBHOOK_QUEUE_LIMIT`):
+  `call.started`, `call.ended`, `call.failed`, `recording.ready` und
+  `tool.called` gehen an einen externen Empfänger, statt dass der
+  `/api/requests` pollen muss. Kein Ereignis je Transkript-Turn — die kommen
+  gesammelt in `call.ended`.
+
+  Die Ereignisse hängen **nicht** im callHandler, sondern als Dekorator um das
+  Repository. Dort liegen alle Schreibpfade an einer Stelle, kein Aufrufer muss
+  daran denken, und der `passthrough`-Modus ist ohne Sonderfall mit abgedeckt —
+  sonst wäre ausgerechnet der durchgestellte Anruf der eine, den der Empfänger
+  nie zu sehen bekommt.
+
+  Zugestellt wird asynchron; ein Anruf wartet nie auf einen fremden Endpunkt.
+  Wiederholt wird bei Timeout, 5xx und 429 mit exponentiellem Backoff, wobei
+  `X-VOH-Delivery` konstant bleibt; bei 4xx außer 429 **nicht** — das ist ein
+  Vertragsfehler und wird einmal laut protokolliert statt endlos wiederholt. Die
+  Warteschlange ist gedeckelt und verwirft hörbar: ein endliches Limit ohne
+  Verwerfen erzeugt genau die Hänger, die es verhindern soll. Sie liegt im
+  Speicher — ein Redeploy mitten im Backoff verliert offene Zustellungen (beim
+  Shutdown werden sie bis zu 5 s ausgeliefert), wer Lückenlosigkeit braucht,
+  gleicht periodisch gegen `/api/requests` ab.
+
+- **`requests.agentRef` und `requests.resolverStatus`.** `agentRef` ist die opake
+  Kennung, die der externe Endpunkt beim Auflösen mitgibt; sie wird gespiegelt,
+  nicht interpretiert. `resolverStatus` macht sichtbar, ob ein Overlay überhaupt
+  griff — ohne das Feld wäre ein stiller Fail-open von einem angewendeten
+  Overlay nicht zu unterscheiden. Beide Felder sind sparse und entstehen nur bei
+  konfiguriertem Hook; Bestandsdokumente bleiben unberührt.
+
+### Notes
+
+- Im Umschlag des Overlay-Aufrufs steht die Kanal-Kennung neu als `channelId`;
+  das gleichnamige `callId` bleibt aus Kompatibilität gesetzt, gilt aber als
+  veraltet. Hintergrund: Zum Zeitpunkt des Aufrufs gibt es noch kein
+  `requests`-Dokument, während `callId` im Custom-Tool-Envelope seit jeher die
+  Request-ID meint. Dieselbe Kanal-Kennung taucht in jedem Ereignis als
+  `call.channelId` wieder auf, `call.id` ist die Request-ID.
+- Ein überlagerter `greeting`-Text ist nicht vorübersetzt und wird deshalb in
+  `contentLanguage` gesprochen, auch wenn für die Rufnummer eine andere Sprache
+  bekannt ist. Die gespeicherten Ansagen des Agenten sind davon nicht betroffen;
+  das Vorübersetzen läuft unverändert weiter.
+
+
 ## [0.8.13] – 2026-08-20
 
 ### Fixed

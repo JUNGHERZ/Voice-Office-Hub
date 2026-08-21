@@ -855,3 +855,31 @@ test("Filler: Ansage kommt über den Localizer", async () => {
   assert.ok(s.tts.texts.includes("One moment, please."), "Localizer-Übersetzung gesprochen");
   s.session.close();
 });
+
+// ── Reine Ansage (0.9.0) ─────────────────────────────────────────────────────
+
+// Bei verdict "announce" spricht der Agent einen Satz und legt auf. Der STT-Strom wird
+// dann gar nicht erst geöffnet: das spart den einzigen unnötigen Posten und verhindert
+// zugleich, dass eine Ansage in ein Gespräch kippt, wenn der Anrufer dazwischenredet.
+test("listen:false: kein STT-Strom, Anrufer-Audio wird verworfen", async () => {
+  const stt = new FakeStt();
+  const tts = new FakeTts();
+  const session = new NativeSession(
+    testAgent({ voiceProvider: "native", greeting: "Kein Guthaben." }),
+    [],
+    "call-announce",
+    { createStt: () => stt, createTts: () => tts },
+    undefined,
+    undefined,
+    false,
+  );
+  await session.start();
+
+  assert.equal(stt.started, false, "kein STT-Strom für eine reine Ansage");
+  assert.equal(tts.started, true, "gesprochen wird trotzdem");
+  assert.deepEqual(tts.texts, ["Kein Guthaben."]);
+
+  session.sendAudio(Buffer.alloc(320));
+  assert.equal(stt.audio.length, 0, "Anrufer-Audio läuft ins Leere");
+  session.close();
+});

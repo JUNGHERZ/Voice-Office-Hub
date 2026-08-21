@@ -53,6 +53,9 @@ data center**, in a **single** Docker container.
 - 🗂️ **Transcript & recording** — full text + audio (MongoDB/GridFS) + post-call summary
 - ☎️ **Passthrough mode** — pure forwarding + recording + batch transcription
 - 🎯 **Multi-agent / DDI routing** — a dedicated agent per phone number
+- 🔗 **Hooks for external systems** — optionally overlay part of an agent's configuration per
+  call (and allow, announce, or reject it), and have call events delivered instead of polling;
+  both off by default, and a hook that is down never silences a line
 - 🖥️ **Admin UI + API** — glass-look interface + JSON API (OpenAPI) for management & integration
 - 📦 **Single-container appliance** — Asterisk + engine + DB + UI; one image, local as in production
 - 🔒 **Self-hosted & GDPR** — calls, recordings, transcripts stay in your infrastructure
