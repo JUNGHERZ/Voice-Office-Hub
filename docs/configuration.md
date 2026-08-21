@@ -471,10 +471,18 @@ Drei Felder kamen mit 0.10.0 dazu:
 - **`call.endedReason`** — warum das Gespräch endete. Bekannte Werte: `caller` (Anrufer hat
   aufgelegt), `agent` (`end_call`), `transfer` (an einen Menschen übergeben — beide
   Auflegerichtungen), `idle` (Stille-Leiter), `announce` (reine Ansage), `maxDuration`,
+  `abandoned` (aufgelegt, bevor das Gespräch zustande kam — siehe unten),
   `failed`. **Die Liste ist offen**: Das Feld ist ein freier String und wird nicht validiert;
   ein künftig ergänzter Grund darf einen Empfänger nicht in einen Fehler laufen lassen.
   Behandle Unbekanntes wie „sonstiges", nicht wie einen Fehler.
 - **`greetingText`** — der tatsächlich gesprochene Eröffnungssatz (nur in `call.ended`/`call.failed`).
+
+**Vor der Annahme aufgelegte Anrufe** (0.10.1) melden sich als `call.ended` mit
+`endedReason: "abandoned"` — nicht als `call.failed`. Der Anrufer war zwischen `call.started`
+und dem Abheben wieder weg; das ist ein regulärer Ausgang und keine Störung. Erkennbar ist er
+zusätzlich am leeren Transkript und an `durationSec` im Sekundenbereich. Ein Empfänger, der
+daraus kein Gespräch anlegen will, filtert auf diesen Grund. Ganz ohne Ereignis bliebe das
+bereits gesendete `call.started` unbeantwortet, deshalb entfällt es nicht.
 
 **Zustellung:**
 

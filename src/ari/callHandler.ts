@@ -26,6 +26,7 @@ import { logger } from "../util/logger.js";
 import { createVoiceAgentSession } from "../voice/factory.js";
 import type { VoiceAgentSession } from "../voice/types.js";
 import { findAgent, defaultAgent } from "./agentResolver.js";
+import { isChannelGone } from "./ariErrors.js";
 import { resolveOverlay } from "./callResolver.js";
 import { IdleWatcher } from "./idleWatcher.js";
 import { MediaBridge } from "./media.js";
@@ -497,9 +498,13 @@ async function resolveGreeting(
         log.warn("Begrüßung leer — statischer Text gilt", { lang });
       }
     } catch (err) {
+      // Zwei sehr verschiedene Gründe, dieselbe Ausnahme: Hat der Anrufer aufgelegt, ist
+      // nichts schiefgegangen — der Abbruch ist genau das Gewollte und keine Warnung wert.
+      // Nur Zeitüberschreitung und Modellfehler sind eine.
+      if (signal.aborted) log.info("Begrüßung abgebrochen — Anrufer hat aufgelegt");
       // Genau dafür bleibt `greeting` Pflichtfeld: Es ist nicht mehr der Normalfall,
       // aber das Netz darunter.
-      log.warn("Begrüßung nicht erzeugt — statischer Text gilt", { err: String(err) });
+      else log.warn("Begrüßung nicht erzeugt — statischer Text gilt", { err: String(err) });
     }
   }
 
@@ -608,8 +613,18 @@ async function runAgentCall(
   // Bricht die Begrüßungs-Erzeugung ab, sobald der Kanal weg ist (auch schon im Rufton).
   const greetingAbort = new AbortController();
   const abortGreeting = () => greetingAbort.abort();
+  // Der Anrufer ist während des Aufbaus verschwunden. Das Flag ist nötig, weil in diesem
+  // Fenster noch KEIN cleanup-Handler hängt (onEnd wird erst nach der Verdrahtung
+  // registriert) — ohne es liefe der Aufbau weiter und liefe in einen ARI-Fehler.
+  let channelGone = false;
   const onEarlyEnd = (_ev: unknown, ch: AriChannel) => {
-    if (ch?.id === channel.id) abortGreeting();
+    if (ch?.id !== channel.id) return;
+    channelGone = true;
+    abortGreeting();
+  };
+  const onEarlyDestroyed = () => {
+    channelGone = true;
+    abortGreeting();
   };
   let lastAudioAt = 0; // Zeitpunkt des zuletzt empfangenen Agent-Audios (für Drain-Erkennung)
   // Geschätztes Ende der Agent-Sprache aus der Textlänge. Nötig, weil nur der AudioSocket einen
@@ -644,13 +659,14 @@ async function runAgentCall(
   const onEnd = (_ev: unknown, ch: AriChannel) => {
     if (ch.id === channel.id) void cleanup("completed");
   };
+  const onChannelDestroyed = () => void cleanup("completed");
 
   // Durchgeschaltete Beendigung: legt der durchverbundene Mitarbeiter (Ziel) auf, endet der Anruf.
   const onCalleeGone = (_ev: unknown, ch: AriChannel) => {
     if (calleeChannel && ch?.id === calleeChannel.id) void cleanup("completed");
   };
 
-  const cleanup = async (status: "completed" | "failed") => {
+  const cleanup = async (status: repo.CallEndStatus) => {
     if (cleaned) return;
     cleaned = true;
     log.info("Teardown", { status });
@@ -692,6 +708,11 @@ async function runAgentCall(
     }
     abortGreeting(); // wirkungslos, wenn die Begrüßung längst steht
     client.removeListener("StasisEnd", onEarlyEnd);
+    // Instanz-Listener MÜSSEN einzeln abgemeldet werden: ari-client hält sie in einer
+    // Liste pro Ereignistyp, die es bei jedem ChannelDestroyed komplett durchläuft und
+    // von sich aus nie kürzt — ohne das hier wüchse sie mit jedem Anruf weiter.
+    channel.removeListener("ChannelDestroyed", onEarlyDestroyed);
+    channel.removeListener("ChannelDestroyed", onChannelDestroyed);
     session?.close();
     localizer.close(); // laufende Sprach-Erkennung abbrechen, späte Ergebnisse verwerfen
     media?.close();
@@ -725,7 +746,9 @@ async function runAgentCall(
     // requestHangup (beide Beine legen einfach auf) und sähe sonst aus wie ein Anrufer,
     // der auflegt — für die Auswertung der wichtigste Unterschied überhaupt.
     const endedReason =
-      hangupReason ?? (transferActive ? "transfer" : status === "failed" ? "failed" : "caller");
+      status === "abandoned"
+        ? "abandoned"
+        : hangupReason ?? (transferActive ? "transfer" : status === "failed" ? "failed" : "caller");
     await store.finalizeRequest(requestId, status, metrics, endedReason);
 
     // Post-Call-Arbeiten, alle asynchron — der Anruf ist zu diesem Zeitpunkt beendet.
@@ -749,7 +772,20 @@ async function runAgentCall(
     // Legt der Anrufer währenddessen auf, bricht `greetingAbort` den Modellaufruf ab —
     // sonst zahlte jeder Klingelabbrecher ein Modell für ein Gespräch, das nie stattfand.
     client.on("StasisEnd", onEarlyEnd);
-    channel.on("ChannelDestroyed", abortGreeting);
+    channel.on("ChannelDestroyed", onEarlyDestroyed);
+
+    // 180 Ringing, damit aus dem Fenster echter RUFTON wird. Der Dialplan schickt vor
+    // Stasis() bewusst keine Antwort (unbekannte DDIs sollen mit 404 abgelehnt werden
+    // können) — bis 0.9.x folgte 1 ms später das 200 OK, seit 0.10.0 sind es 1,2–1,6 s.
+    // Ohne dieses Ringing hört der Anrufer in der ganzen Zeit NICHTS: kein Klingeln, kein
+    // Freizeichen, nur eine tote Leitung, die zum Auflegen einlädt. Best effort — ein
+    // Kanal, der schon weg ist, wird zwei Zeilen weiter unten ohnehin abgefangen.
+    try {
+      await channel.ring();
+    } catch (err) {
+      log.debug("Rufton nicht gesetzt", { err: String(err) });
+    }
+
     const greeting = await resolveGreeting(
       agent,
       meta,
@@ -759,6 +795,15 @@ async function runAgentCall(
       deps,
       greetingAbort.signal,
     );
+
+    // Der Anrufer hat während der Begrüßung aufgelegt: hier aussteigen, statt abzuheben
+    // und Bridge, Medienkanal und Voice-Session für ein Gespräch zu bauen, das es nicht
+    // mehr gibt (jeder dieser ARI-Aufrufe scheiterte gleich darauf).
+    if (channelGone) {
+      log.info("Anrufer hat vor der Annahme aufgelegt", { nachMs: Date.now() - startTime });
+      await cleanup("abandoned");
+      return;
+    }
 
     await channel.answer();
     answeredAt = Date.now();
@@ -1014,7 +1059,7 @@ async function runAgentCall(
 
     // ── Hangup-Handling ──────────────────────────────────────────────────────
     client.on("StasisEnd", onEnd);
-    channel.on("ChannelDestroyed", () => void cleanup("completed"));
+    channel.on("ChannelDestroyed", onChannelDestroyed);
 
     // Verbindung zum Voice-Provider erst NACH kompletter Verdrahtung aufbauen — so gehen keine
     // frühen Events verloren, und ein Connect-Fehler läuft in den catch → cleanup("failed")
@@ -1027,6 +1072,14 @@ async function runAgentCall(
     // das neu lösen, und die abgeschnittene Schlusssilbe ist dort der klassische Fehler.
     if (meta.announce) void requestHangup("announce");
   } catch (err) {
+    // Ein Kanal, der nicht mehr in Stasis ist, heißt: Der Anrufer ist weg. Das ist ein
+    // regulärer Ausgang und keine Störung — sonst meldete jeder Klingelabbrecher dem
+    // Betreiber einen Systemfehler und dem Empfänger ein gescheitertes Gespräch.
+    if (channelGone || isChannelGone(err)) {
+      log.info("Anrufer hat vor der Annahme aufgelegt", { nachMs: Date.now() - startTime });
+      await cleanup("abandoned");
+      return;
+    }
     log.error("Fehler im Anrufaufbau", { err: String(err) });
     await cleanup("failed");
     try { await channel.hangup(); } catch { /* ignore */ }

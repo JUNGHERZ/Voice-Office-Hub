@@ -8,6 +8,7 @@ import { config } from "../src/config.js";
 import { registerAllTools } from "../src/tools/index.js";
 import type { ResolvedAgent } from "../src/types.js";
 import {
+  channelGoneError,
   FakeChannel,
   FakeClient,
   FakeLocalizer,
@@ -1024,6 +1025,54 @@ test("greetingPrompt: Auflegen im Rufton bricht die Erzeugung ab", async () => {
   await settle(4);
   assert.equal(signal?.aborted, true, "Modellaufruf abgebrochen");
   await running;
+
+  // Der Abbruch allein genügte nicht: Bis 0.10.0 lief der Aufbau danach weiter, hob ab
+  // und scheiterte am nächsten ARI-Aufruf — mit `failed` und einer Fehlermeldung für
+  // einen Anruf, bei dem schlicht der Anrufer aufgelegt hatte.
+  assert.equal(s.channel.answered, false, "es wird nicht mehr abgehoben");
+  assert.deepEqual(s.repo.finalized, [
+    { id: "req-1", status: "abandoned", endedReason: "abandoned" },
+  ]);
+});
+
+// Der Anrufer verschwindet NACH dem Abheben, mitten im Aufbau: Asterisk beantwortet ab
+// da jeden ARI-Aufruf mit „Channel not in Stasis application". Auch das ist ein
+// aufgelegter Anrufer und kein Systemfehler.
+test("Kanal verschwindet im Aufbau: regulärer Abschluss statt Fehlschlag", async () => {
+  const s = makeCall({
+    deps: {
+      createMedia: () => {
+        throw channelGoneError();
+      },
+    },
+  });
+  await s.start();
+  assert.deepEqual(s.repo.finalized, [
+    { id: "req-1", status: "abandoned", endedReason: "abandoned" },
+  ]);
+});
+
+// Gegenprobe: Ein echter Fehler bleibt ein Fehler. Ohne sie hätte die Nachsicht oben
+// jeden kaputten Anrufaufbau stillgelegt.
+test("Echter Aufbaufehler bleibt failed", async () => {
+  const s = makeCall({
+    deps: {
+      createMedia: () => {
+        throw new Error("AudioSocket-Port belegt");
+      },
+    },
+  });
+  await s.start();
+  assert.deepEqual(s.repo.finalized, [{ id: "req-1", status: "failed", endedReason: "failed" }]);
+});
+
+// Vor dem Answer schickt der Dialplan keine Antwort — ohne dieses Ringing hört der
+// Anrufer während der Begrüßungserzeugung eine tote Leitung statt eines Ruftons.
+test("Vor dem Answer wird geklingelt", async () => {
+  const s = makeCall();
+  await s.start();
+  assert.equal(s.channel.ringing, true);
+  assert.equal(s.channel.answered, true);
 });
 
 // Der Prior trägt die Sprache auch dann, wenn es KEINE Greeting-Übersetzung gibt: Der Satz

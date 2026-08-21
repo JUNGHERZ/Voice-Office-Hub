@@ -6,6 +6,55 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.10.1] – 2026-08-22
+
+Ein aufgelegter Klingelversuch ist kein Systemfehler mehr — und er klingelt jetzt
+auch. Beides sind Folgen davon, dass die Begrüßung seit 0.10.0 **vor** dem Answer
+entsteht: Zwischen `StasisStart` und dem Abheben lagen bis dahin ~1 ms, seitdem sind
+es 1,2–1,6 s. In diesem Fenster wurde ein Auflegen erstmals wahrscheinlich, und die
+Engine war darauf nicht vorbereitet.
+
+### Added
+
+- **Rufton während des Aufbaus.** Der Dialplan schickt vor `Stasis()` bewusst keine
+  Antwort, damit unbekannte Rufnummern noch mit 404 abgelehnt werden können. Bis
+  0.10.0 folgte 1 ms später das 200 OK, seitdem hörte der Anrufer in der gesamten
+  Erzeugungszeit **nichts** — keinen Rufton, kein Freizeichen, eine tote Leitung, die
+  zum Auflegen einlädt. Die Engine setzt jetzt vor der Begrüßung ein 180 Ringing
+  (`channel.ring()`, best effort). Die Ablehnung unbekannter Nummern bleibt
+  unverändert; sie greift vor diesem Punkt.
+- **Anrufstatus `abandoned`.** Weder `completed` noch `failed` beschreibt einen
+  Anrufer, der vor dem Zustandekommen auflegt: Das eine erfindet ein Gespräch und
+  verfälscht jede Auswertung über `status`, das andere meldet dem Betreiber eine
+  Störung. Die Admin-UI zeigt „Nicht angenommen" in neutralem Badge; der Filter
+  `GET /api/requests?status=abandoned` kennt den Wert.
+
+### Fixed
+
+- **Aufgelegter Anrufer beendet den Anrufaufbau, statt in einen ARI-Fehler zu laufen.**
+  Zwischen `StasisStart` und der fertigen Verdrahtung hing bisher **kein**
+  Hangup-Handler — `StasisEnd` brach nur die Begrüßungserzeugung ab. Der Aufbau lief
+  danach weiter, hob ab, baute Bridge und Medienkanal und scheiterte am nächsten
+  ARI-Aufruf mit „Channel not in Stasis application": ein `error` im Log, `status:
+  "failed"` und ein `call.failed` beim Empfänger — für einen Anruf, bei dem nur jemand
+  aufgelegt hatte. Jetzt steigt der Aufbau nach dem Verschwinden des Kanals aus, und ein
+  Kanal-weg-Fehler aus einem der fünf ARI-Aufrufe wird als das gedeutet, was er ist
+  (`info`, `abandoned`, `call.ended`). Ein echter Aufbaufehler bleibt `failed`.
+  Gilt gleichermaßen für den Passthrough-Modus, wo der Anrufer während der Wählzeit
+  zum Ziel auflegen kann.
+- **Instanz-Listener werden wieder abgemeldet.** Pro Anruf registrierte der callHandler
+  zwei `ChannelDestroyed`-Listener am Kanal und entfernte keinen davon. `ari-client`
+  hält solche Listener in einer Liste je Ereignistyp, kürzt sie von sich aus nie und
+  läuft sie bei **jedem** `ChannelDestroyed` komplett durch — auf einer Appliance, die
+  wochenlang läuft, wuchs damit Speicher und Aufwand mit jedem Anruf.
+
+### Notes
+
+- Der `AbortController` aus 0.10.0 funktioniert wie vorgesehen; der beobachtete
+  Fehlschlag lag nicht an ihm. Ungetestet war, was **nach** dem Abbruch geschieht — der
+  Fake-Kanal ließ `answer()` immer gelingen und bildete damit den entscheidenden Teil
+  des echten ARI nicht ab. Die Fakes modellieren einen verschwundenen Kanal jetzt.
+
 ## [0.10.0] – 2026-08-22
 
 Vier Ergänzungen am Agenten, eine Aufbewahrungsgrenze für Aufnahmen und ein

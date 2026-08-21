@@ -15,12 +15,14 @@ import { uploadRecording } from "../db/gridfs.js";
 // WEBHOOK_URL ist es dasselbe Modul — durchgestellte Anrufe sollen aber nicht der eine
 // Pfad sein, den der Empfänger nie zu sehen bekommt.
 import { callRepo as repo } from "../db/callRepo.js";
+import type { CallEndStatus } from "../db/repository.js";
 import { transcribeRecording } from "../deepgram/transcribe.js";
 import { runPostCallSummary } from "../llm/summarize.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
 import { startBridgeRecording, wavDurationSec, type ActiveRecording } from "./recording.js";
 import { transferIntoBridge } from "./transfer.js";
+import { isChannelGone } from "./ariErrors.js";
 
 export async function handlePassthrough(
   client: AriClient,
@@ -68,7 +70,7 @@ export async function handlePassthrough(
     if (calleeChannel && ch?.id === calleeChannel.id) void cleanup("completed");
   };
 
-  const cleanup = async (status: "completed" | "failed") => {
+  const cleanup = async (status: CallEndStatus) => {
     if (cleaned) return;
     cleaned = true;
     log.info("Passthrough-Teardown", { status });
@@ -134,6 +136,14 @@ export async function handlePassthrough(
     client.on("StasisEnd", onCallerGone);
     client.on("ChannelDestroyed", onCalleeGone);
   } catch (err) {
+    // Der Anrufer kann während des Klingelns beim Ziel auflegen — hier laufen mehrere
+    // Sekunden Wählzeit, in denen noch kein Hangup-Handler hängt. Ein verschwundener
+    // Kanal ist auch hier ein regulärer Ausgang, kein Fehlschlag.
+    if (isChannelGone(err)) {
+      log.info("Anrufer hat vor dem Durchstellen aufgelegt");
+      await cleanup("abandoned");
+      return;
+    }
     log.error("Passthrough-Fehler", { err: String(err) });
     await cleanup("failed");
   }

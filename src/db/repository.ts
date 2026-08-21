@@ -155,9 +155,20 @@ export interface CallMetrics {
   priorConfirmed?: boolean;
 }
 
+/**
+ * Wie ein Anruf endet.
+ *
+ * `abandoned` (0.10.1) ist weder das eine noch das andere: Der Anrufer war vor dem
+ * Zustandekommen wieder weg — kein Gespräch, aber auch kein Fehler. Ohne diesen Wert
+ * müsste ein aufgelegter Klingelversuch entweder als `failed` (eine Falschmeldung, die
+ * den Betreiber alarmiert) oder als `completed` (ein Gespräch, das nie stattfand, und
+ * das jede Auswertung über `status` verfälscht) verbucht werden.
+ */
+export type CallEndStatus = "completed" | "failed" | "abandoned";
+
 export async function finalizeRequest(
   id: string,
-  status: "completed" | "failed",
+  status: CallEndStatus,
   metrics?: CallMetrics,
   /** Warum das Gespräch endete — freier String, siehe `endedReason` im Request-Schema. */
   endedReason?: string,

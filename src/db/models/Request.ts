@@ -132,14 +132,17 @@ const RequestSchema = new Schema(
     greetingText: { type: String },
     // Warum das Gespräch endete (0.10.0) — bewusst OHNE enum: ein künftig ergänzter Grund
     // darf weder ein Bestandsdokument noch einen älteren Empfänger in einen Fehler laufen
-    // lassen. Bekannte Werte: caller | agent | transfer | idle | announce | maxDuration | failed.
+    // lassen. Bekannte Werte: caller | agent | transfer | idle | announce | maxDuration |
+    // abandoned | failed.
     endedReason: { type: String },
     forwardedTo: { type: String },
     language: { type: String },
     dgRequestId: { type: String },
+    // `abandoned`: Der Anrufer hat aufgelegt, bevor das Gespräch zustande kam (0.10.1) —
+    // kein Fehler und kein geführtes Gespräch. Siehe CallEndStatus in repository.ts.
     status: {
       type: String,
-      enum: ["in_progress", "completed", "failed"],
+      enum: ["in_progress", "completed", "failed", "abandoned"],
       default: "in_progress",
     },
     startedAt: { type: Date, default: Date.now, index: true },

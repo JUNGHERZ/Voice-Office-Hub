@@ -214,6 +214,23 @@ test("finalizeRequest(failed) → call.failed", async () => {
   assert.deepEqual(events.map((e) => e.event), ["call.started", "call.failed"]);
 });
 
+// 8b ─ Vor der Annahme aufgelegt: KEIN call.failed. Der Empfänger würde daraus sonst eine
+// Störung ableiten, obwohl nur jemand den Hörer aufgelegt hat. Das Ereignis entfällt aber
+// auch nicht — call.started ist längst draußen und bliebe sonst unbeantwortet.
+test("finalizeRequest(abandoned) → call.ended, erkennbar am endedReason", async () => {
+  const { sink, events } = fakeSink();
+  const r = createEventRepo(fakeBase(), sink, {
+    enabled: true,
+    loadRequest: async () => ({ ...endedDoc, endedReason: "abandoned", transcript: [] }),
+  });
+  const id = await r.createRequest({ channelId: "chan-10", mode: "agent" });
+  await r.finalizeRequest(id, "abandoned", undefined, "abandoned");
+  assert.deepEqual(events.map((e) => e.event), ["call.started", "call.ended"]);
+  const ended = events[1].payload as any;
+  assert.equal(ended.call.endedReason, "abandoned");
+  assert.deepEqual(ended.transcript, []);
+});
+
 // 9 ─ Ohne konfigurierte URL ist der Dekorator gar nicht erst im Weg.
 test("Ohne URL reicht der Dekorator das Repo unverändert durch", async () => {
   const { sink, events } = fakeSink();

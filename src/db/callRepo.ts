@@ -9,7 +9,7 @@
  * | Ereignis          | ausgelöst durch                            |
  * | ----------------- | ------------------------------------------ |
  * | `call.started`    | createRequest                              |
- * | `call.ended`      | finalizeRequest mit status "completed"     |
+ * | `call.ended`      | finalizeRequest mit "completed"/"abandoned"|
  * | `call.failed`     | finalizeRequest mit status "failed"        |
  * | `recording.ready` | setRecording                               |
  * | `tool.called`     | appendFunctionCall                         |
@@ -186,7 +186,7 @@ export function createEventRepo(
 
     async finalizeRequest(
       id: string,
-      status: "completed" | "failed",
+      status: repo.CallEndStatus,
       metrics?: repo.CallMetrics,
       endedReason?: string,
     ): Promise<void> {
@@ -202,8 +202,13 @@ export function createEventRepo(
       contexts.delete(id);
       // Aus dem Dokument, sonst aus dem Aufruf (falls das Nachlesen scheiterte).
       const endReason = doc?.endedReason ?? endedReason;
+      // Nur ein echter Fehlschlag meldet `call.failed`. Ein vor der Annahme aufgelegter
+      // Anruf ist ein regulärer Ausgang und kommt als `call.ended` mit
+      // `endedReason: "abandoned"` — sonst löste jeder Klingelabbrecher beim Empfänger
+      // eine Störungsmeldung aus. Das Ereignis entfällt nicht, weil `call.started` bereits
+      // draußen ist und sonst unbeantwortet bliebe.
       sink.emit(
-        status === "completed" ? "call.ended" : "call.failed",
+        status === "failed" ? "call.failed" : "call.ended",
         envelope(
           ctx,
           {

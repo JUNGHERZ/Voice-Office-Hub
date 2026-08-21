@@ -21,7 +21,7 @@ const listQuery = {
     limit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
     skip: { type: "integer", minimum: 0, default: 0 },
     mode: { type: "string", enum: ["agent", "passthrough"] },
-    status: { type: "string", enum: ["in_progress", "completed", "failed"] },
+    status: { type: "string", enum: ["in_progress", "completed", "failed", "abandoned"] },
   },
 } as const;
 

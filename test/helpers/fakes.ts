@@ -9,6 +9,7 @@ import type { AriChannel, AriClient } from "ari-client";
 
 import type { CallRepo } from "../../src/ari/callHandler.js";
 import type {
+  CallEndStatus,
   CallMetrics,
   FunctionCallRecord,
   NewRequestInput,
@@ -134,14 +135,31 @@ export class FakeMedia extends EventEmitter {
 
 // ── ARI ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Asterisks Antwort auf einen ARI-Aufruf gegen einen Kanal, der die Stasis-Anwendung
+ * verlassen hat (answer → 409, addChannel → 422). Der ari-client legt den JSON-Körper
+ * unverändert in `err.message` — genau diese Form muss die Engine deuten können.
+ */
+export function channelGoneError(): Error {
+  return new Error('{\n  "message": "Channel not in Stasis application"\n}');
+}
+
 export class FakeChannel extends EventEmitter {
   answered = false;
+  ringing = false;
   hangups: Array<Record<string, unknown> | undefined> = [];
+  /** Kanal hat Stasis verlassen: ab jetzt scheitert jeder ARI-Aufruf wie am echten ARI. */
+  gone = false;
 
   constructor(public readonly id: string = "chan-1") {
     super();
   }
+  async ring(): Promise<void> {
+    if (this.gone) throw channelGoneError();
+    this.ringing = true;
+  }
   async answer(): Promise<void> {
+    if (this.gone) throw channelGoneError();
     this.answered = true;
   }
   async hangup(opts?: Record<string, unknown>): Promise<void> {
@@ -156,8 +174,11 @@ export class FakeChannel extends EventEmitter {
 export class FakeBridge {
   channels: string[] = [];
   destroyed = 0;
+  /** Vom Client gestellt: Ist dieser Kanal noch in Stasis? */
+  isGone: (id: string) => boolean = () => false;
 
   async addChannel(opts: { channel: string }): Promise<void> {
+    if (this.isGone(opts.channel)) throw channelGoneError();
     this.channels.push(opts.channel);
   }
   async destroy(): Promise<void> {
@@ -171,11 +192,26 @@ export class FakeClient extends EventEmitter {
   bridges = { create: async (_opts: Record<string, unknown>) => this.bridge };
   channels = { externalMedia: async (_params: Record<string, unknown>) => this.externalChannel };
 
+  constructor() {
+    super();
+    // Ein aufgelegter Kanal lässt sich auch nicht mehr in eine Bridge hängen — ohne diese
+    // Kopplung wäre der Aufbau im Test erfolgreich, während er in der Realität scheitert.
+    this.bridge.isGone = (id) => this.goneChannels.has(id);
+  }
+
+  private readonly goneChannels = new Set<string>();
+
   asAri(): AriClient {
     return this as unknown as AriClient;
   }
-  /** StasisEnd für einen Kanal feuern (Anrufer hat aufgelegt). */
+  /**
+   * StasisEnd für einen Kanal feuern (Anrufer hat aufgelegt). Der Kanal gilt danach als
+   * weg — echtes ARI liefert für ihn ab diesem Moment Fehler, und genau daran hing der
+   * Live-Fehlschlag, den ein Fake mit immer gelingendem answer() nicht zeigen konnte.
+   */
   emitStasisEnd(channel: FakeChannel): void {
+    channel.gone = true;
+    this.goneChannels.add(channel.id);
     this.emit("StasisEnd", {}, channel);
   }
   /** ChannelDestroyed auf Client-Ebene feuern (z. B. Callee nach Transfer aufgelegt). */
@@ -191,7 +227,7 @@ export class FakeRepo implements CallRepo {
   transcript: TranscriptTurn[] = [];
   functionCalls: FunctionCallRecord[] = [];
   transfers: Array<{ attempted: boolean; target?: string; connected?: boolean }> = [];
-  finalized: Array<{ id: string; status: "completed" | "failed"; endedReason?: string }> = [];
+  finalized: Array<{ id: string; status: CallEndStatus; endedReason?: string }> = [];
   metrics: CallMetrics | undefined;
   languages: Array<{ id: string; language: string }> = [];
   requestId = "req-1";
@@ -222,7 +258,7 @@ export class FakeRepo implements CallRepo {
   };
   finalizeRequest = async (
     id: string,
-    status: "completed" | "failed",
+    status: CallEndStatus,
     metrics?: CallMetrics,
     endedReason?: string,
   ): Promise<void> => {

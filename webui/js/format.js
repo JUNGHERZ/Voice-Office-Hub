@@ -102,6 +102,9 @@ export function modeLabel(mode) {
 export function statusVariant(status) {
   if (status === "completed") return "success";
   if (status === "failed") return "error";
+  // Vor der Annahme aufgelegt: kein Erfolg, aber auch keine Störung — deshalb ohne
+  // Variante (neutrales Badge). Rot wäre eine Falschmeldung, grün eine Beschönigung.
+  if (status === "abandoned") return "";
   return "primary"; // in_progress
 }
 
@@ -112,6 +115,8 @@ export function statusLabel(status) {
       return "Abgeschlossen";
     case "failed":
       return "Fehlgeschlagen";
+    case "abandoned":
+      return "Nicht angenommen";
     case "in_progress":
       return "Läuft";
     default:
