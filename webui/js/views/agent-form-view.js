@@ -1,7 +1,7 @@
 /*
  * Agent-Formular (Anlegen/Bearbeiten). Felder: name, targetNumbers (Komma→Array),
  * mode, voiceProvider, language, listen.model (nova-3/flux + eot-Felder), greeting,
- * prompt, speak.model, Tools (Built-in-Toggles + Custom-HTTP-Tools mit Modal-Editor,
+ * greetingPrompt, prompt, speak.model, Tools (Built-in-Toggles + Custom-HTTP-Tools mit Modal-Editor,
  * inkl. optionaler Per-Tool-Filler-Phrase), transferFailedAnnouncement, fillers (Timer-
  * Filler bei Tool-Wartezeiten), idlePrompts (Nachfassen bei Stille, optional mit
  * Auflegen), summary.enabled, enabled. Speichern → POST/PATCH,
@@ -129,6 +129,7 @@ function emptyForm() {
     eotThreshold: "",
     eotTimeoutMs: "",
     greeting: "",
+    greetingPrompt: "",
     prompt: "",
     speakProvider: "deepgram",
     // Modell und Stimme je Provider getrennt halten: beim Umschalten geht kein
@@ -196,6 +197,7 @@ function toForm(a) {
     eotThreshold: listen.eot_threshold != null ? String(listen.eot_threshold) : "",
     eotTimeoutMs: listen.eot_timeout_ms != null ? String(listen.eot_timeout_ms) : "",
     greeting: a.greeting || "",
+    greetingPrompt: a.greetingPrompt || "",
     prompt: a.prompt || "",
     speakProvider: (a.speak && a.speak.provider) || "deepgram",
     // Der gespeicherte Wert gehört per Definition dem aktiven Provider — damit
@@ -262,6 +264,7 @@ function toBody(f) {
     passthroughTarget: f.mode === "passthrough" ? f.passthroughTarget.trim() || undefined : undefined,
     language: f.language.trim() || undefined,
     greeting: f.greeting,
+    greetingPrompt: f.greetingPrompt.trim(),
     prompt: f.prompt,
     // Subdokumente vollständig zurückschreiben (Merge über _listen/_speak); eot_* nur bei
     // Flux — undefined lässt JSON.stringify die Keys fallen (Rückwechsel auf nova-3 räumt auf).
@@ -998,10 +1001,28 @@ export default define({
                 `}
 
                 <glk-input
-                  label="Begrüßung"
+                  label="${f.greetingPrompt.trim() ? "Begrüßung (Rückfall)" : "Begrüßung"}"
                   value="${f.greeting}"
                   onglk-input="${(host, e) => setField(host, "greeting", e.detail.value)}"
                 ></glk-input>
+                ${f.greetingPrompt.trim()
+                  ? html`<div class="empty-hint">
+                      Wird nur gesprochen, wenn die Erzeugung unten scheitert oder zu lange
+                      braucht.
+                    </div>`
+                  : ""}
+
+                <glk-textarea
+                  label="Begrüßungs-Prompt (optional)"
+                  rows="2"
+                  value="${f.greetingPrompt}"
+                  onglk-input="${(host, e) => setField(host, "greetingPrompt", e.detail.value)}"
+                ></glk-textarea>
+                <div class="empty-hint">
+                  Anweisung statt festem Text — für Eröffnungen, die nicht konstant sind
+                  (Tageszeit, wechselnde Angaben). Der Satz entsteht je Anruf, in der Sprache
+                  des Anrufers, noch während es klingelt. Leer lassen = feste Begrüßung oben.
+                </div>
 
                 <glk-select
                   id="contentLanguageSelect"

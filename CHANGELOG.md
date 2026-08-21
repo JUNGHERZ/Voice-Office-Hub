@@ -59,6 +59,14 @@ Variable gesetzt wurde.
   auch wenn er unverändert vom Agenten stammt. Ein später geänderter
   `greeting`-Text würde sonst rückwirkend etwas belegen, das nie gesagt wurde.
 
+- **Admin-UI:** Schalter „Gespräch aufzeichnen" im Agenten-Formular (mit dem
+  Passthrough-Hinweis), Feld „Begrüßungs-Prompt" direkt unter der Begrüßung — die
+  dann als „Begrüßung (Rückfall)" beschriftet wird, sobald ein Prompt gesetzt ist,
+  weil sie sonst etwas anzeigt, das im Anruf gar nicht gesprochen wird. In der
+  Agentenliste erscheint `externalRef` als Kennzeichen (nur Anzeige: Das Feld
+  gehört dem anlegenden System, ein editierbares Duplikat lädt zu Abweichungen
+  ein). `maxDurationSec` bleibt bewusst API-seitig.
+
 - **`externalRef` am Agenten.** Freie Kennung des anlegenden Systems; VOH wertet
   sie nie aus, führt sie aber überall mit — im Agent-Dokument, in der
   Agentenliste der Oberfläche und in **jedem** Ereignis zu diesem Agenten. Bis
