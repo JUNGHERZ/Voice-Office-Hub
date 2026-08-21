@@ -54,6 +54,8 @@ const FunctionCallSchema = new Schema(
 const MetricsSchema = new Schema(
   {
     // Answer → erstes TTS-Audio des Agenten (i. d. R. die Begrüßung), in Millisekunden.
+    // Ab 0.10.0 wirklich ab dem Answer gemessen: Die Erzeugung der Begrüßung liegt davor
+    // (Rufton) und soll diesen Wert nicht aufblähen.
     timeToFirstAudioMs: { type: Number },
     // Turn-Latenzen (0.8.0): Median über alle Agenten-Turns des Anrufs, in Millisekunden.
     // Der Provider-Vergleich (ElevenLabs ↔ Voxtral ↔ Aura) soll aus Produktionsdaten
@@ -73,6 +75,14 @@ const MetricsSchema = new Schema(
     ttsModel: { type: String },
     ttsCharacters: { type: Number },
     ttsCredits: { type: Number },
+    // LLM-/STT-Mengen (0.10.0) — Grundlage der Einkaufsrechnung auf dem native-Pfad.
+    // Beim gebündelten Voice-Agent bleiben sie leer: dort denkt der Anbieter selbst.
+    llmModel: { type: String },
+    llmPromptTokens: { type: Number },
+    llmCachedPromptTokens: { type: Number },
+    llmCompletionTokens: { type: Number },
+    llmRequests: { type: Number },
+    sttSeconds: { type: Number },
     // Stille-Reengagement (0.6.27): Nachfass-Ansagen und ob der Anruf daran endete.
     idlePrompts: { type: Number },
     idleHangup: { type: Boolean },
@@ -109,9 +119,21 @@ const RequestSchema = new Schema(
     // dieser beim Auflösen mitgegeben hat — geht unverändert in alle Ereignisse zurück.
     // Sparse: ohne konfigurierten Hook trägt kein Dokument das Feld.
     agentRef: { type: String, index: { sparse: true } },
+    // Kennung des anlegenden Systems, zum Zeitpunkt des Anrufs vom Agenten übernommen
+    // (0.10.0). Denormalisiert: Ein Ereignis soll zeigen, was DAMALS galt, und der
+    // Ereignis-Dekorator soll dafür keinen Agenten nachlesen müssen.
+    externalRef: { type: String, index: { sparse: true } },
     // "ok" = Overlay wurde angewendet, "unavailable" = der Hook war nicht erreichbar und
     // der gespeicherte Agent galt (Fail-open). Fehlt, wenn kein Hook konfiguriert ist.
     resolverStatus: { type: String, enum: ["ok", "unavailable"] },
+    // Der TATSÄCHLICH gesprochene Eröffnungssatz (0.10.0). Bewusst am Gespräch und nicht
+    // nur am Agenten: Beide werden zu verschiedenen Zeitpunkten gelesen, und ein seither
+    // geändertes `greeting` würde sonst rückwirkend eine Antwort belegen, die nie fiel.
+    greetingText: { type: String },
+    // Warum das Gespräch endete (0.10.0) — bewusst OHNE enum: ein künftig ergänzter Grund
+    // darf weder ein Bestandsdokument noch einen älteren Empfänger in einen Fehler laufen
+    // lassen. Bekannte Werte: caller | agent | transfer | idle | announce | maxDuration | failed.
+    endedReason: { type: String },
     forwardedTo: { type: String },
     language: { type: String },
     dgRequestId: { type: String },

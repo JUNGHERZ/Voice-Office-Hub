@@ -58,6 +58,22 @@ export interface VoiceSessionUsage {
   ttsModel?: string;
   ttsCharacters?: number;
   ttsCredits?: number;
+  /**
+   * LLM-Mengen der Session (0.10.0) — nur auf dem `native`-Pfad. Beim gebündelten
+   * Voice-Agent denkt der Anbieter selbst und meldet keine Token; die Felder bleiben dort
+   * leer, und die Abrechnungsbasis ist dort ohnehin die Gesprächsdauer.
+   *
+   * `llmModel` ist das TATSÄCHLICH benutzte Modell (nach Anwendung der Defaults), nicht das
+   * womöglich leere Feld am Agenten — sonst wäre es genau dort leer, wo die Modellwahl
+   * bewusst der Engine überlassen wurde.
+   */
+  llmModel?: string;
+  llmPromptTokens?: number;
+  /** Anteil der Prompt-Token, der aus dem Cache kam (billiger, siehe LLM_PROMPT_CACHE). */
+  llmCachedPromptTokens?: number;
+  llmCompletionTokens?: number;
+  /** Anzahl LLM-Aufrufe: Turns UND Tool-Runden. */
+  llmRequests?: number;
 }
 
 /** Latenz-Angaben des Providers zum Sprechbeginn (sofern geliefert), in Sekunden. */

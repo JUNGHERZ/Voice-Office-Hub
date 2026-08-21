@@ -57,3 +57,18 @@ test("callerMemory: Default aus, gespeicherter Wert wird übernommen", () => {
     true,
   );
 });
+
+// ── Aufnahme (0.10.0) ────────────────────────────────────────────────────────
+
+// Der Default trägt die Bestandsdokumente: Agents, die vor diesem Feld angelegt wurden,
+// kennen es nicht — würde „fehlt" als „aus" gelesen, hörte eine bestehende Appliance nach
+// dem Update stillschweigend auf aufzunehmen.
+test("recording: fehlendes Feld gilt als aktiv, gespeichertes false gewinnt", () => {
+  assert.equal(defaultAgent().recording.enabled, true);
+  assert.equal(fromDoc({ _id: "x", name: "a" }).recording.enabled, true);
+  assert.equal(fromDoc({ _id: "x", name: "a", recording: {} }).recording.enabled, true);
+  assert.equal(
+    fromDoc({ _id: "x", name: "a", recording: { enabled: false } }).recording.enabled,
+    false,
+  );
+});

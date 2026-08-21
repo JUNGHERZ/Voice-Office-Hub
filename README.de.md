@@ -53,6 +53,9 @@ von einem KI-Agenten angenommen, natürlich geführt und bei Bedarf an Menschen 
 - 🗂️ **Transkript & Aufnahme** — Volltext + Audio (MongoDB/GridFS) + Post-Call-Zusammenfassung
 - ☎️ **Passthrough-Modus** — reine Durchleitung + Mitschnitt + Batch-Transkription
 - 🎯 **Multi-Agent / DDI-Routing** — pro Rufnummer ein eigener Agent
+- 🕘 **Begrüßung aus einem Prompt** — für Eröffnungen, die nicht konstant sind (Tageszeit,
+  wechselnde Angaben): Der Agent formuliert den ersten Satz je Anruf, in der Sprache des
+  Anrufers und noch während es klingelt — mit dem hinterlegten Text als Sicherheitsnetz
 - 🔗 **Anbindung externer Systeme** — optional pro Anruf einen Teil der Agent-Konfiguration
   überlagern (und den Anruf freigeben, auf eine Ansage umleiten oder ablehnen) sowie
   Gesprächsereignisse zustellen lassen statt zu pollen; beides standardmäßig aus, und ein

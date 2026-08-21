@@ -87,6 +87,11 @@ export default define({
                       ${a.mode === "passthrough" ? ICON_PASSTHROUGH : ICON_AGENT}
                     </span>
                     <span slot="trailing">
+                      ${a.externalRef
+                        ? html`<glk-badge title="${`Kennung des anlegenden Systems: ${a.externalRef}`}">
+                            ${a.externalRef}
+                          </glk-badge>`
+                        : ""}
                       <glk-badge variant="${a.mode === "passthrough" ? "primary" : "success"}">
                         ${modeLabel(a.mode)}
                       </glk-badge>

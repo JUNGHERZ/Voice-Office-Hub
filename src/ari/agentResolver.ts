@@ -92,6 +92,7 @@ export function defaultAgent(): ResolvedAgent {
       prompt: config.summary.prompt,
       model: config.summary.model,
     },
+    recording: { enabled: true },
     ambience: { enabled: false, preset: "office", volume: 0.25 },
     fillers: { enabled: false, delayMs: config.native.fillerDelayMs, phrases: [] },
     idlePrompts: {
@@ -116,6 +117,8 @@ export function defaultAgent(): ResolvedAgent {
 export const OVERLAY_FIELDS = [
   "prompt",
   "greeting",
+  "greetingPrompt",
+  "maxDurationSec",
   "tools",
   "language",
   "speak",
@@ -167,6 +170,7 @@ export function fromDoc(doc: Record<string, any>): ResolvedAgent {
   return {
     id: String(doc._id),
     name: doc.name,
+    externalRef: doc.externalRef || undefined,
     mode: doc.mode ?? "agent",
     voiceProvider: (doc.voiceProvider as VoiceProvider) ?? "deepgram",
     passthroughTarget: doc.passthroughTarget ?? config.transfer.passthroughTarget ?? undefined,
@@ -177,6 +181,8 @@ export function fromDoc(doc: Record<string, any>): ResolvedAgent {
     // der konkrete Wert entsteht beim nächsten Speichern über den Agent-Endpoint.
     contentLanguage: doc.contentLanguage || config.defaultAgent.contentLanguage,
     greeting: doc.greeting ?? config.defaultAgent.greeting,
+    greetingPrompt: doc.greetingPrompt || undefined,
+    maxDurationSec: doc.maxDurationSec || undefined,
     prompt: doc.prompt ?? config.defaultAgent.prompt,
     listen: {
       model: doc.listen?.model ?? config.defaultAgent.listenModel,
@@ -235,6 +241,9 @@ export function fromDoc(doc: Record<string, any>): ResolvedAgent {
       prompt: doc.summary?.prompt || config.summary.prompt,
       model: doc.summary?.model || config.summary.model,
     },
+    // Fehlendes Feld = aufnehmen (Bestandsdokumente kennen es nicht) — deshalb `??`
+    // und ausdrücklich KEIN `||`: ein gespeichertes `false` muss gewinnen.
+    recording: { enabled: doc.recording?.enabled ?? true },
     ambience: {
       enabled: doc.ambience?.enabled ?? false,
       preset: doc.ambience?.preset ?? "office",

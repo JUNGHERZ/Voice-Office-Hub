@@ -164,6 +164,7 @@ function emptyForm() {
     mcpServers: [],
     useTransferCallerId: false,
     summaryEnabled: false,
+    recordingEnabled: true,
     enabled: true,
     // Carry-along: komplette Subdokumente des geladenen Agents (siehe Kopfkommentar).
     _listen: {},
@@ -227,6 +228,9 @@ function toForm(a) {
     mcpServers: (a.mcpServers || []).map((s) => ({ ...s })),
     useTransferCallerId: !!a.useTransferCallerId,
     summaryEnabled: !!(a.summary && a.summary.enabled),
+    // Fehlendes Feld = aufnehmen: Agents von vor 0.10.0 kennen es nicht, und ein
+    // ausgeschalteter Schalter wäre dort schlicht falsch.
+    recordingEnabled: !(a.recording && a.recording.enabled === false),
     enabled: a.enabled !== false,
     _listen: { ...listen },
     _speak: { ...(a.speak || {}) },
@@ -283,6 +287,7 @@ function toBody(f) {
     mcpServers: f.mcpServers,
     useTransferCallerId: f.useTransferCallerId,
     summary: { enabled: f.summaryEnabled },
+    recording: { enabled: f.recordingEnabled },
     ambience: {
       ...f._ambience,
       enabled: f.ambienceEnabled,
@@ -1413,6 +1418,19 @@ export default define({
                   checked="${f.summaryEnabled}"
                   onglk-change="${(host, e) => setField(host, "summaryEnabled", e.detail.checked)}"
                 ></glk-toggle>
+
+                <glk-toggle
+                  label="Gespräch aufzeichnen"
+                  checked="${f.recordingEnabled}"
+                  onglk-change="${(host, e) => setField(host, "recordingEnabled", e.detail.checked)}"
+                ></glk-toggle>
+                ${!f.recordingEnabled
+                  ? html`<div class="empty-hint">
+                      Ohne Aufnahme entsteht kein Mitschnitt in der Anrufliste. Im
+                      Passthrough-Modus entfällt damit auch das Transkript — es wird dort aus
+                      der Aufnahme erzeugt.
+                    </div>`
+                  : ""}
 
                 <glk-toggle
                   label="Aktiv"

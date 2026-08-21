@@ -8,6 +8,7 @@ import {
   endpointDrift,
 } from "./deepgram/endpoints.js";
 import { connectMongo, disconnectMongo } from "./db/mongo.js";
+import { startRecordingRetention } from "./db/recordingRetention.js";
 import { failOrphanedRequests } from "./db/repository.js";
 import { startAri } from "./ari/ariClient.js";
 import { audioSocketServer } from "./ari/audiosocketServer.js";
@@ -87,6 +88,10 @@ async function main(): Promise<void> {
   // in der Live-Ansicht als „laufend" erscheinen.
   const orphaned = await failOrphanedRequests();
   if (orphaned > 0) log.warn("Verwaiste in_progress-Requests als failed markiert", { count: orphaned });
+
+  // Aufbewahrungsgrenze für Aufnahmen (0.10.0): ein Lauf beim Start, danach stündlich.
+  // Ohne RECORDING_TTL_DAYS wird nicht einmal ein Timer gestellt.
+  startRecordingRetention();
 
   registerAllTools();
   if (config.audio.transport === "audiosocket") {

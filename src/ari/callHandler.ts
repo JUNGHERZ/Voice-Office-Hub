@@ -17,6 +17,7 @@ import * as repo from "../db/repository.js";
 import { uploadRecording } from "../db/gridfs.js";
 import { CallLocalizer, type CallLocalizerLike } from "../llm/callLocalizer.js";
 import { lookupLanguage, rememberLanguage } from "../llm/callerProfile.js";
+import { generateGreeting } from "../llm/greetingPrompt.js";
 import { runPostCallSummary } from "../llm/summarize.js";
 import { ensureTranslations, loadUsable } from "../llm/translationStore.js";
 import { buildCallToolset, type CallToolset, type ToolContext } from "../tools/index.js";
@@ -85,6 +86,7 @@ export type CallRepo = Pick<
   | "setTransfer"
   | "setRecording"
   | "setLanguage"
+  | "setGreetingText"
   | "finalizeRequest"
 >;
 
@@ -118,6 +120,8 @@ export interface CallHandlerDeps {
   random: () => number;
   /** Bekannte Sprache dieser Rufnummer (Anrufer-Gedächtnis) — steuert die Begrüßung. */
   lookupLanguage: typeof lookupLanguage;
+  /** Begrüßung aus `agent.greetingPrompt` erzeugen (0.10.0). Inert ohne gesetzten Prompt. */
+  generateGreeting: typeof generateGreeting;
   /** Vorübersetzte Ansagen einer Sprache, nur soweit ihr Original unverändert ist. */
   loadTranslations: typeof loadUsable;
   /** Nach dem Gespräch: Sprache im Anrufer-Profil festhalten. */
@@ -144,6 +148,7 @@ export const defaultDeps: CallHandlerDeps = {
   resolveOutboundTransfer,
   transferIntoBridge,
   lookupLanguage,
+  generateGreeting,
   loadTranslations: loadUsable,
   rememberLanguage,
   ensureTranslations,
@@ -405,47 +410,100 @@ async function runEchoTest(
 
 /** Obergrenze für den Profil-/Übersetzungs-Lookup vor dem Session-Aufbau. */
 const PRIOR_LOOKUP_TIMEOUT_MS = 200;
+/**
+ * Obergrenze für die Erzeugung der Begrüßung. Großzügiger als der Profil-Lookup, weil hier
+ * ein Modell antwortet (gemessen 300–800 ms) — aber hart, weil der Anrufer währenddessen
+ * klingeln hört. Danach gilt der statische Text.
+ */
+const GREETING_TIMEOUT_MS = 4000;
+
+/** Ergebnis der Begrüßungs-Auflösung: der Agent für die Session + der Satz, der fällt. */
+interface ResolvedGreeting {
+  agent: ResolvedAgent;
+  text?: string;
+}
 
 /**
- * Sprache aus dem Anrufer-Gedächtnis anwenden: Begrüßung austauschen und den Localizer
- * vorwärmen, damit auch die ersten Ansagen sitzen. Liefert den Agenten, mit dem die Session
- * gebaut wird — bei jedem Fehlschlag unverändert den Original-Agenten.
+ * Begrüßung für diesen Anruf bestimmen. Zwei Quellen, in dieser Reihenfolge:
  *
- * Bewusst mit Timeout: Eine hängende Datenbank darf den Anrufaufbau nie verzögern. Das Greeting
- * ist ein Komfortgewinn, kein Grund, den Anrufer warten zu lassen.
+ *  1. **Anrufer-Gedächtnis** (0.7.0): Kennen wir die Nummer, steht die Sprache schon VOR dem
+ *     ersten Wort fest — die Laufzeit-Erkennung käme fürs Greeting immer zu spät. Die
+ *     vorübersetzten Ansagen wärmen zugleich den Localizer vor.
+ *  2. **Begrüßungs-Prompt** (0.10.0): Ist `greetingPrompt` gesetzt, wird der Satz in der
+ *     Sprache aus (1) ERZEUGT statt nachgeschlagen. Nur die Begrüßung — `transferFailed`,
+ *     Filler- und Stille-Ansagen kommen weiterhin aus dem Übersetzungs-Cache.
+ *
+ * Beide Wege sind Komfortgewinne, keiner darf den Anruf kosten: Jeder Fehlschlag endet beim
+ * gespeicherten Text. Beide Provider bauen ihre Begrüßung aus dem übergebenen Agenten
+ * (nativeSession.start() bzw. deepgram/settings.ts), ein getauschtes `greeting` wirkt
+ * deshalb ohne Provider-Code.
+ *
+ * `signal` bricht die Erzeugung ab, wenn der Anrufer noch im Rufton auflegt.
  */
-async function applyLanguagePrior(
+async function resolveGreeting(
   agent: ResolvedAgent,
   meta: CallMeta,
   localizer: CallLocalizerLike,
   metrics: repo.CallMetrics,
   log: ReturnType<typeof logger.child>,
   deps: CallHandlerDeps,
-): Promise<ResolvedAgent> {
+  signal: AbortSignal,
+): Promise<ResolvedGreeting> {
+  let sessionAgent = agent;
+  // Sprache, in der gesprochen wird: bis auf Weiteres die Katalogsprache des Agenten.
+  let lang = agent.contentLanguage;
+  const generated = !!agent.greetingPrompt;
+
   try {
     const prior = await withTimeout(
       deps.lookupLanguage(agent, meta.callerNumber),
       PRIOR_LOOKUP_TIMEOUT_MS,
     );
-    if (!prior || prior.lang === agent.contentLanguage) return agent;
-
-    const phrases = await withTimeout(
-      deps.loadTranslations(agent, prior.lang),
-      PRIOR_LOOKUP_TIMEOUT_MS,
-    );
-    // Ohne gültige Übersetzung der Begrüßung bleibt es bei der Standardsprache: lieber deutsch
-    // als eine veraltete englische Fassung (translationStore.ts prüft den Quelltext-Hash).
-    if (!phrases?.greeting) return agent;
-
-    localizer.preload(prior.lang, phrases);
-    metrics.greetingLanguage = prior.lang;
-    metrics.priorSource = prior.source;
-    log.info("Begrüßung aus Anrufer-Profil", { lang: prior.lang, ansagen: Object.keys(phrases).length });
-    return { ...agent, greeting: phrases.greeting };
+    if (prior && prior.lang !== agent.contentLanguage) {
+      const phrases =
+        (await withTimeout(deps.loadTranslations(agent, prior.lang), PRIOR_LOOKUP_TIMEOUT_MS)) ?? {};
+      // Ohne gültige Übersetzung der Begrüßung bleibt es bei der Standardsprache: lieber
+      // deutsch als eine veraltete englische Fassung (translationStore.ts prüft den
+      // Quelltext-Hash). Wird die Begrüßung ohnehin erzeugt, trägt der Prior trotzdem die
+      // Sprache — und die übrigen Ansagen sind trotzdem vorzuladen.
+      if (phrases.greeting || (generated && Object.keys(phrases).length)) {
+        localizer.preload(prior.lang, phrases);
+      }
+      if (phrases.greeting || generated) {
+        lang = prior.lang;
+        metrics.greetingLanguage = prior.lang;
+        metrics.priorSource = prior.source;
+        if (phrases.greeting) sessionAgent = { ...agent, greeting: phrases.greeting };
+        log.info("Begrüßung aus Anrufer-Profil", {
+          lang: prior.lang,
+          ansagen: Object.keys(phrases).length,
+        });
+      }
+    }
   } catch (err) {
     log.warn("Sprach-Prior übersprungen", { err: String(err) });
-    return agent;
   }
+
+  if (generated) {
+    try {
+      const text = await deps.generateGreeting(agent.greetingPrompt as string, lang, {
+        // Zwei Abbruchgründe in einem Signal: der Anrufer legt auf, oder es dauert zu lange.
+        signal: AbortSignal.any([signal, AbortSignal.timeout(GREETING_TIMEOUT_MS)]),
+      });
+      if (text) {
+        sessionAgent = { ...sessionAgent, greeting: text };
+        log.info("Begrüßung erzeugt", { lang, zeichen: text.length });
+      } else {
+        log.warn("Begrüßung leer — statischer Text gilt", { lang });
+      }
+    } catch (err) {
+      // Genau dafür bleibt `greeting` Pflichtfeld: Es ist nicht mehr der Normalfall,
+      // aber das Netz darunter.
+      log.warn("Begrüßung nicht erzeugt — statischer Text gilt", { err: String(err) });
+    }
+  }
+
+  return { agent: sessionAgent, text: sessionAgent.greeting };
 }
 
 /** Rennen gegen die Uhr; bei Zeitüberschreitung `undefined` statt eines hängenden Anrufaufbaus. */
@@ -493,6 +551,7 @@ function nullRepo(channelId: string): CallRepo {
     setTransfer: async () => {},
     setRecording: async () => {},
     setLanguage: async () => {},
+    setGreetingText: async () => {},
     finalizeRequest: async () => {},
   };
 }
@@ -507,6 +566,10 @@ async function runAgentCall(
   const { log } = meta;
   const startTime = Date.now();
   const elapsed = () => (Date.now() - startTime) / 1000;
+  // Zeitpunkt des Answers. Getrennt von `startTime`, seit die Begrüßung VOR dem Answer
+  // entsteht (0.10.0): `timeToFirstAudioMs` soll die Stille messen, die der Anrufer NACH
+  // dem Abheben erlebt — die Wartezeit davor hört er als Rufton, nicht als Loch.
+  let answeredAt = 0;
 
   // report:false → nichts schreiben, nichts aufnehmen, nichts nacharbeiten.
   const reported = meta.report !== false;
@@ -519,6 +582,7 @@ async function runAgentCall(
     targetNumber: meta.targetNumber,
     ...(meta.widgetToken ? { widgetToken: meta.widgetToken } : {}),
     ...(agent.id ? { agentId: agent.id as unknown as never } : {}),
+    ...(agent.externalRef ? { externalRef: agent.externalRef } : {}),
     ...(meta.agentRef ? { agentRef: meta.agentRef } : {}),
     ...(meta.resolverStatus ? { resolverStatus: meta.resolverStatus } : {}),
   });
@@ -537,11 +601,25 @@ async function runAgentCall(
   let transferRinging = false; // während des Klingelns: Agent hört nicht zu, Ansage darf noch raus
   let calleeChannel: any; // bei erfolgreichem Transfer: der durchverbundene Ziel-Kanal
   let endRequested = false;
+  // Warum der Anruf endet. Gesetzt wird er dort, wo die Engine selbst auflegt; bleibt er
+  // leer, hat der Anrufer aufgelegt (oder ein durchgestelltes Gespräch endete, s. u.).
+  let hangupReason: string | undefined;
+  let maxDurationTimer: NodeJS.Timeout | undefined;
+  // Bricht die Begrüßungs-Erzeugung ab, sobald der Kanal weg ist (auch schon im Rufton).
+  const greetingAbort = new AbortController();
+  const abortGreeting = () => greetingAbort.abort();
+  const onEarlyEnd = (_ev: unknown, ch: AriChannel) => {
+    if (ch?.id === channel.id) abortGreeting();
+  };
   let lastAudioAt = 0; // Zeitpunkt des zuletzt empfangenen Agent-Audios (für Drain-Erkennung)
   // Geschätztes Ende der Agent-Sprache aus der Textlänge. Nötig, weil nur der AudioSocket einen
   // Playout-Puffer (pendingMs) führt — die RTP-Bridge feuert alles sofort raus (media.ts:sendAudio),
   // dort wird lastAudioAt stale, während der Anrufer noch hört. Verzögert nur, verfrüht nie.
   let agentSpeechUntil = 0;
+  // An den Sprach-Provider gestreamte Anrufer-Bytes → Abrechnungsgrundlage der STT-Seite.
+  // Hier und nicht im Adapter: Es ist die eine Stelle, an der Audio in die Session geht,
+  // und die Transfer-Stummschaltung wird dadurch automatisch mitgezählt (bzw. eben nicht).
+  let callerAudioBytes = 0;
   let toolsInFlight = 0; // läuft gerade ein Tool-Dispatch? (Stille-Ansage muss dann schweigen)
   // Per-Call-Metriken — lokal gesammelt, EIN Write beim Finalisieren (cleanup).
   const metrics: repo.CallMetrics = {
@@ -577,6 +655,7 @@ async function runAgentCall(
     cleaned = true;
     log.info("Teardown", { status });
     if (hangupTimer) clearTimeout(hangupTimer);
+    if (maxDurationTimer) clearTimeout(maxDurationTimer);
     if (drainInterval) clearInterval(drainInterval);
     if (idleInterval) clearInterval(idleInterval);
     client.removeListener("StasisEnd", onEnd);
@@ -592,12 +671,27 @@ async function runAgentCall(
       metrics.ttsCharacters = usage.ttsCharacters;
       if (usage.ttsCredits !== undefined) metrics.ttsCredits = usage.ttsCredits;
     }
+    // LLM-Mengen kennt nur die native Kaskade — beim gebündelten Provider denkt der
+    // Anbieter selbst und meldet keine Token.
+    if (usage?.llmRequests) {
+      metrics.llmModel = usage.llmModel;
+      metrics.llmPromptTokens = usage.llmPromptTokens;
+      metrics.llmCachedPromptTokens = usage.llmCachedPromptTokens;
+      metrics.llmCompletionTokens = usage.llmCompletionTokens;
+      metrics.llmRequests = usage.llmRequests;
+    }
+    // 16 Bit mono → 2 Bytes je Sample. Provider-neutral, deshalb immer gesetzt.
+    if (callerAudioBytes > 0) {
+      metrics.sttSeconds = Math.round(callerAudioBytes / (config.audio.sampleRate * 2));
+    }
     if (turnLatencies.length) {
       metrics.turns = turnLatencies.length;
       metrics.turnLatencyMs = medianMs(turnLatencies.map((l) => l.total));
       metrics.turnThinkMs = medianMs(turnLatencies.map((l) => l.ttt));
       metrics.turnTtsMs = medianMs(turnLatencies.map((l) => l.tts));
     }
+    abortGreeting(); // wirkungslos, wenn die Begrüßung längst steht
+    client.removeListener("StasisEnd", onEarlyEnd);
     session?.close();
     localizer.close(); // laufende Sprach-Erkennung abbrechen, späte Ergebnisse verwerfen
     media?.close();
@@ -626,7 +720,13 @@ async function runAgentCall(
       metrics.priorConfirmed = lang.priorLang ? lang.priorLang === lang.lang : undefined;
     }
 
-    await store.finalizeRequest(requestId, status, metrics);
+    // Reihenfolge der Gründe: ein ausdrückliches Auflegen der Engine gewinnt; sonst
+    // entscheidet, ob ein Mensch übernommen hatte. Eine Weiterleitung läuft NICHT über
+    // requestHangup (beide Beine legen einfach auf) und sähe sonst aus wie ein Anrufer,
+    // der auflegt — für die Auswertung der wichtigste Unterschied überhaupt.
+    const endedReason =
+      hangupReason ?? (transferActive ? "transfer" : status === "failed" ? "failed" : "caller");
+    await store.finalizeRequest(requestId, status, metrics, endedReason);
 
     // Post-Call-Arbeiten, alle asynchron — der Anruf ist zu diesem Zeitpunkt beendet.
     if (reported && status === "completed" && agent.summary.enabled) {
@@ -642,7 +742,26 @@ async function runAgentCall(
   };
 
   try {
+    // Begrüßung VOR dem Answer bestimmen. Der Dialplan ruft Stasis() bewusst ohne
+    // vorheriges Answer() auf — dieses Fenster ist RUFTON. Dieselbe Wartezeit hinter dem
+    // Answer wäre Stille nach dem Abheben, und die ist ungleich unangenehmer als ein
+    // Klingelton, der einen Moment länger läuft. Gemessen (native, Requesty): ~1,2 s.
+    // Legt der Anrufer währenddessen auf, bricht `greetingAbort` den Modellaufruf ab —
+    // sonst zahlte jeder Klingelabbrecher ein Modell für ein Gespräch, das nie stattfand.
+    client.on("StasisEnd", onEarlyEnd);
+    channel.on("ChannelDestroyed", abortGreeting);
+    const greeting = await resolveGreeting(
+      agent,
+      meta,
+      localizer,
+      metrics,
+      log,
+      deps,
+      greetingAbort.signal,
+    );
+
     await channel.answer();
+    answeredAt = Date.now();
 
     bridge = await client.bridges.create({ type: "mixing" });
     await bridge.addChannel({ channel: channel.id });
@@ -659,11 +778,12 @@ async function runAgentCall(
     toolset = await deps.buildCallToolset(agent);
     const callToolset = toolset; // non-optionale Bindung für die Event-Handler unten
 
-    // Begrüßung in der Sprache des Anrufers (0.7.0): Kennen wir die Nummer, steht die Sprache
-    // schon VOR dem ersten Wort fest — die Laufzeit-Erkennung käme fürs Greeting immer zu spät.
-    // Beide Provider bauen ihre Begrüßung aus dem übergebenen Agenten (nativeSession.start()
-    // bzw. deepgram/settings.ts), ein getauschtes `greeting` wirkt deshalb ohne Provider-Code.
-    const sessionAgent = await applyLanguagePrior(agent, meta, localizer, metrics, log, deps);
+    // Steht bereits (vor dem Answer bestimmt, siehe oben).
+    const sessionAgent = greeting.agent;
+    // Was tatsächlich gesprochen wird, gehört ans Gespräch — nicht nur an den Agenten:
+    // Beide werden zu verschiedenen Zeitpunkten gelesen, und ein später geändertes
+    // `greeting` würde sonst rückwirkend einen Satz belegen, der nie fiel.
+    if (greeting.text) void store.setGreetingText(requestId, greeting.text);
 
     // Voice-Session aufbauen (Provider laut agent.voiceProvider; Settings baut der Adapter).
     // Konstruktion ist inert — verbunden wird erst per session.start() nach der Verdrahtung.
@@ -686,6 +806,9 @@ async function runAgentCall(
     const requestHangup = async (reason: string) => {
       if (endRequested) return;
       endRequested = true;
+      // "end_call" ist der Tool-Name; nach außen heißt der Grund "agent" — es ist der
+      // Assistent, der auflegt, unabhängig davon, wie das Tool intern heißt.
+      hangupReason = reason === "end_call" ? "agent" : reason;
       const startedAt = Date.now();
       log.info("Auflegen angefordert — warte auf Ende des Abschieds", { reason });
       // Datengetrieben: auflegen, sobald das Agent-Audio aufgehört hat zu fließen UND der
@@ -703,6 +826,15 @@ async function runAgentCall(
       // Absolute Obergrenze.
       hangupTimer = setTimeout(() => void hangup(), 20_000);
     };
+
+    // Harte Obergrenze: nach Ablauf regulär auflegen — über dieselbe Drain-Logik, damit
+    // der laufende Satz nicht mitten im Wort abbricht.
+    if (agent.maxDurationSec && agent.maxDurationSec > 0) {
+      maxDurationTimer = setTimeout(() => {
+        log.info("Gesprächsdauer erreicht — Auflegen", { maxDurationSec: agent.maxDurationSec });
+        void requestHangup("maxDuration");
+      }, agent.maxDurationSec * 1000);
+    }
 
     const toolCtx: ToolContext = {
       callId: requestId,
@@ -790,11 +922,16 @@ async function runAgentCall(
     // ── Audio-Bridging ──────────────────────────────────────────────────────
     media.on("audio", (pcm) => {
       // Anrufer-Audio NICHT an die Session während Transfer (voll) oder Klingelphase (Agent hört nicht zu).
-      if (!transferActive && !transferRinging) session?.sendAudio(pcm);
+      if (!transferActive && !transferRinging) {
+        callerAudioBytes += pcm.length;
+        session?.sendAudio(pcm);
+      }
     });
     session.on("audio", (chunk) => {
       if (transferActive) return;
-      if (metrics.timeToFirstAudioMs === undefined) metrics.timeToFirstAudioMs = Date.now() - startTime;
+      if (metrics.timeToFirstAudioMs === undefined) {
+        metrics.timeToFirstAudioMs = Date.now() - (answeredAt || startTime);
+      }
       lastAudioAt = Date.now();
       if (endRequested) audioSinceEnd = true; // der Abschied nach end_call fließt
       media?.sendAudio(chunk);
@@ -867,8 +1004,13 @@ async function runAgentCall(
     });
     session.on("error", (desc) => log.error("Voice-Session-Fehler", { desc }));
 
-    // Aufnahme starten (best effort) — bei report:false gar nicht erst.
-    recording = reported ? await deps.startBridgeRecording(bridge, requestId) : null;
+    // Aufnahme starten (best effort) — nicht bei report:false und nicht, wenn der Agent
+    // dem Mitschnitt widerspricht. Ohne Aufnahme entfallen GridFS-Upload, `recording`-Block
+    // am Request und das `recording.ready`-Ereignis von selbst.
+    recording =
+      reported && agent.recording.enabled
+        ? await deps.startBridgeRecording(bridge, requestId)
+        : null;
 
     // ── Hangup-Handling ──────────────────────────────────────────────────────
     client.on("StasisEnd", onEnd);

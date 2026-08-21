@@ -191,6 +191,20 @@ const IdlePromptsSchema = new Schema(
 );
 
 /**
+ * Gesprächsmitschnitt (0.10.0). Default `true` — das entspricht dem Verhalten aller
+ * Installationen vor diesem Feld. Ein FEHLENDES Feld darf nie als „aus" gelesen werden,
+ * sonst hörte eine bestehende Appliance nach dem Update stillschweigend auf aufzunehmen.
+ * Aus heißt: kein Mitschnitt, kein GridFS-Objekt, kein `recording`-Block am Request — im
+ * Passthrough damit auch kein Transkript, weil es dort aus der Aufnahme entsteht.
+ */
+const RecordingSchema = new Schema(
+  {
+    enabled: { type: Boolean, default: true },
+  },
+  { _id: false },
+);
+
+/**
  * Anrufer-Gedächtnis (0.7.0): pseudonymisiert je Rufnummer gespeicherte Fakten, damit die
  * Begrüßung beim nächsten Anruf in der richtigen Sprache kommt. Gestuft, damit spätere
  * Fakten eigene Zustimmung brauchen. Wirkt nur mit gesetztem CALLER_PROFILE_SECRET.
@@ -235,6 +249,11 @@ const WidgetSchema = new Schema(
 const AgentSchema = new Schema(
   {
     name: { type: String, required: true },
+    // Freie Kennung des anlegenden Systems (0.10.0). VOH benutzt sie nicht, führt sie aber
+    // mit: in GET /api/agents/:id, in der eigenen Liste und in jedem Ereignis zu diesem
+    // Agenten. Abgrenzung zu `agentRef` am Request: das stammt aus einer Resolver-Antwort und
+    // existiert nur, wenn ein Anruf über den Hook lief — `externalRef` gilt immer.
+    externalRef: { type: String, index: { sparse: true } },
     enabled: { type: Boolean, default: true },
     targetNumbers: { type: [String], default: [], index: true },
     mode: { type: String, enum: ["agent", "passthrough"], default: "agent" },
@@ -256,10 +275,19 @@ const AgentSchema = new Schema(
     // Leer = wird beim Speichern aus Greeting + Prompt erkannt (admin/routes/agents.ts).
     contentLanguage: { type: String },
     greeting: { type: String },
+    // Anweisung, aus der die Begrüßung je Anruf ENTSTEHT (0.10.0) — für Eröffnungen, die
+    // nicht konstant sind (Tageszeit, später Anrede). Ist sie gesetzt, wird `greeting` zum
+    // Sicherheitsnetz für den Fall, dass die Erzeugung scheitert; es bleibt deshalb nötig.
+    greetingPrompt: { type: String },
     prompt: { type: String },
     // Ansage bei fehlgeschlagenem Transfer (Standardsprache; wird zur Laufzeit lokalisiert).
     // Leer = Config-Default (config.announcements.transferFailed).
     transferFailedAnnouncement: { type: String },
+
+    // Harte Obergrenze der Gesprächsdauer (0.10.0). Danach legt die Engine auf — der
+    // laufende Satz wird noch ausgespielt, `durationSec` liegt deshalb knapp darüber.
+    // Untergrenze 5 s: darunter wäre nicht einmal die Begrüßung zu Ende gesprochen.
+    maxDurationSec: { type: Number, min: [5, "maxDurationSec: mindestens 5 Sekunden"] },
 
     listen: { type: ListenSchema, default: () => ({}) },
     think: { type: ThinkSchema, default: () => ({}) },
@@ -287,6 +315,7 @@ const AgentSchema = new Schema(
       },
     },
     summary: { type: SummarySchema, default: () => ({}) },
+    recording: { type: RecordingSchema, default: () => ({}) },
     ambience: { type: AmbienceSchema, default: () => ({}) },
     fillers: { type: FillersSchema, default: () => ({}) },
     idlePrompts: { type: IdlePromptsSchema, default: () => ({}) },

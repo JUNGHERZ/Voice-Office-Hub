@@ -883,3 +883,64 @@ test("listen:false: kein STT-Strom, Anrufer-Audio wird verworfen", async () => {
   assert.equal(stt.audio.length, 0, "Anrufer-Audio läuft ins Leere");
   session.close();
 });
+
+// ── LLM-Verbrauch (0.10.0) ───────────────────────────────────────────────────
+
+// Die Zahlen liegen im Stream ohnehin an — bis 0.9.x landeten sie nur im Debug-Log.
+// Summiert wird über Turns UND Tool-Runden: ein Tool-Aufruf kostet eine eigene Runde.
+test("NativeSession: getUsage() summiert LLM-Token über Turns und Tool-Runden", async () => {
+  const s = makeSession([
+    async () => ({
+      content: "",
+      toolCalls: [toolCall("t1", "get_weather", '{"location":"Berlin"}')],
+      usage: { promptTokens: 900, completionTokens: 20, cachedTokens: 800, cacheWriteTokens: 0 },
+    }),
+    async (_req, onDelta) => {
+      onDelta("In Berlin sind es 20 Grad.");
+      return {
+        content: "In Berlin sind es 20 Grad.",
+        toolCalls: [],
+        usage: { promptTokens: 1000, completionTokens: 30, cachedTokens: 900, cacheWriteTokens: 0 },
+      };
+    },
+  ]);
+  await s.session.start();
+
+  s.stt.turn("Wie ist das Wetter in Berlin?");
+  await waitFor(() => s.events.some(([e]) => e === "functionCallRequest"));
+  s.session.sendFunctionResponse("t1", "get_weather", { tempC: 20 });
+  await waitFor(() => s.llmCalls.length === 2);
+  await settle();
+
+  const u = s.session.getUsage();
+  assert.equal(u?.llmRequests, 2, "Turn + Tool-Runde");
+  assert.equal(u?.llmPromptTokens, 1900);
+  assert.equal(u?.llmCompletionTokens, 50);
+  assert.equal(u?.llmCachedPromptTokens, 1700);
+  s.session.close();
+});
+
+// Wer die Modellwahl bewusst der Engine überlässt (think.model leer), braucht trotzdem eine
+// Preisgrundlage — deshalb das TATSÄCHLICH benutzte Modell, nicht das leere Feld am Agenten.
+test("NativeSession: llmModel trägt das benutzte Modell, nicht das leere Agent-Feld", async () => {
+  const s = makeSession(
+    [async () => ({ content: "Ja.", toolCalls: [], usage: { promptTokens: 10, completionTokens: 2, cachedTokens: 0, cacheWriteTokens: 0 } })],
+    "Hallo!",
+    { agent: { think: { source: "requesty" as const, model: "", temperature: 0.5 } } },
+  );
+  await s.session.start();
+  s.stt.turn("Hallo?");
+  await waitFor(() => s.llmCalls.length === 1);
+  await settle();
+
+  assert.equal(s.session.getUsage()?.llmModel, config.llm.model, "Config-Default, nicht \"\"");
+  s.session.close();
+});
+
+// Ohne LLM-Runde und ohne gesprochene Zeichen gibt es nichts zu berichten.
+test("NativeSession: getUsage() bleibt undefined, solange nichts verbraucht wurde", async () => {
+  const s = makeSession([]);
+  await s.session.start();
+  assert.equal(s.session.getUsage(), undefined);
+  s.session.close();
+});

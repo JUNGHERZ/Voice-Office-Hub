@@ -6,6 +6,148 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.10.0] – 2026-08-22
+
+Vier Ergänzungen am Agenten, eine Aufbewahrungsgrenze für Aufnahmen und ein
+Begrüßungs-Prompt. Additiv: Ohne gesetzte Felder verhält sich die Engine wie in
+0.9.x. **Zwei Ausnahmen** stehen unter „Changed" — sie wirken dort, wo nie eine
+Variable gesetzt wurde.
+
+### Added
+
+- **`recording.enabled` (Default `true`).** Bis hierher nahm die Appliance
+  bedingungslos auf. Wer dem widerspricht, bekommt jetzt keinen Mitschnitt: kein
+  GridFS-Objekt, kein `recording`-Block am Gespräch, kein `recording.ready`.
+
+  Der Default ist der eigentliche Punkt. Ein **fehlendes** Feld gilt als `true` —
+  würde es als „aus" gelesen, hörte jede bestehende Installation nach dem Update
+  stillschweigend auf aufzunehmen. Deshalb `??` und ausdrücklich kein `||`, ein
+  Test hält es fest, und es gibt keine Migration: Der Default entsteht beim
+  Auflösen, nicht in der Datenbank.
+
+  Die Abwahl greift in **beiden** Aufnahmepfaden, auch im Passthrough. Dort
+  wiegt sie schwerer, als es zunächst aussieht: Das Transkript entsteht dort AUS
+  der Aufnahme (Batch-Transkription), ohne sie gibt es also weder Transkript noch
+  Zusammenfassung. Das steht so an der Oberfläche und in der Doku — eine
+  Zusage, die nur im Agent-Modus gilt, wäre keine.
+
+- **Begrüßungs-Prompt (`greetingPrompt`).** Statt eines festen Eröffnungssatzes
+  kann eine ANWEISUNG hinterlegt werden, aus der der Satz je Anruf entsteht —
+  „Guten Morgen / Guten Tag / Guten Abend" je nach Uhrzeit, mit wechselnden
+  Angaben. Der Inhalt kommt von außen, die **Sprache** bestimmt die Engine
+  (`prior?.lang ?? contentLanguage`): Bis der Anrufer spricht, ist der
+  pseudonymisierte Anrufer-Prior die einzige Quelle dafür, und der soll die
+  Appliance nicht verlassen. Es wandert also der Prompt herein, nicht die
+  Sprache hinaus.
+
+  Zwei Dinge tragen die Umsetzung. Erstens der **Zeitpunkt**: Der Aufruf wird vor
+  dem `Answer()` angestoßen und erst kurz vor dem Session-Aufbau abgewartet. Der
+  Dialplan ruft `Stasis()` bewusst ohne vorheriges `Answer()` — dieses Fenster ist
+  Rufton, keine Stille nach dem Abheben —, und der Anrufaufbau läuft gegen die
+  Wartezeit. Zweitens der **Abbruch**: Legt der Anrufer noch im Rufton auf, wird
+  der Modellaufruf abgebrochen. Ohne das zahlte jeder Klingelabbrecher ein Modell,
+  und ein Anschluss mit vielen Auflegern erzeugte eine laufende Rechnung für
+  Gespräche, die nie stattgefunden haben.
+
+  Scheitert die Erzeugung — Fehler, Zeitüberschreitung, leere Antwort —, gilt der
+  statische Text und der Anruf läuft weiter. `greeting` bleibt deshalb nötig: Es
+  ist nicht mehr der Normalfall, sondern das Sicherheitsnetz. Einen Cache gibt es
+  bewusst nicht; ein pro Anruf wechselnder Text träfe den Übersetzungs-Cache
+  (Schlüssel samt Quelltext-Hash) ohnehin nie.
+
+  Neu am Gespräch: **`greetingText`**, der tatsächlich gesprochene Satz — immer,
+  auch wenn er unverändert vom Agenten stammt. Ein später geänderter
+  `greeting`-Text würde sonst rückwirkend etwas belegen, das nie gesagt wurde.
+
+- **`externalRef` am Agenten.** Freie Kennung des anlegenden Systems; VOH wertet
+  sie nie aus, führt sie aber überall mit — im Agent-Dokument, in der
+  Agentenliste der Oberfläche und in **jedem** Ereignis zu diesem Agenten. Bis
+  hierher verwarf Mongoose ein unbekanntes Feld im PATCH stillschweigend, womit
+  ein Änderungsvergleich auf der Gegenseite ewig einen Unterschied fand.
+  Abgrenzung zu `agentRef` am Gespräch: das stammt aus einer Resolver-Antwort und
+  existiert nur, wenn ein Anruf über den Hook lief.
+
+- **`maxDurationSec` und `endedReason`.** Eine harte Obergrenze der
+  Gesprächsdauer (Kostendeckel) legt über dieselbe Drain-Logik auf wie `end_call`,
+  der laufende Satz wird also nicht mitten im Wort abgeschnitten.
+
+  `endedReason` beantwortet dauerhaft, warum ein Gespräch endete: `caller`,
+  `agent`, `transfer`, `idle`, `announce`, `maxDuration`, `failed`. Der
+  `transfer`-Fall ist der Grund, warum es kein Nebenprodukt ist: Eine Übergabe an
+  einen Menschen läuft **nicht** über den Auflege-Pfad — beide Beine legen einfach
+  auf — und sähe sonst aus wie ein Anrufer, der frühzeitig aufgelegt hat. Für die
+  Auswertung ist das der wichtigste Unterschied überhaupt: Weiterleitung ist ein
+  Erfolg, frühes Auflegen ein Verdacht. Das Feld ist ein **freier String** ohne
+  Aufzählung — ein künftig ergänzter Grund darf weder ein Bestandsdokument noch
+  einen älteren Empfänger in einen Fehler laufen lassen.
+
+- **Verbrauchsmengen je Anruf** (`metrics.llmModel`, `llmPromptTokens`,
+  `llmCachedPromptTokens`, `llmCompletionTokens`, `llmRequests`, `sttSeconds`).
+  Die Token-Zahlen lagen im LLM-Stream längst an und landeten nur im Debug-Log;
+  jetzt werden sie über Turns **und** Tool-Runden summiert. Mengen, keine Beträge:
+  Preise sind vertragsabhängig und gehören nicht in eine Appliance.
+
+  `llmModel` trägt das **tatsächlich benutzte** Modell, nicht das Feld am
+  Agenten. Wer die Modellwahl bewusst der Engine überlässt und `think.model` leer
+  lässt, hätte sonst dauerhaft ein leeres Feld — und damit keine Kostenrechnung,
+  für die die Felder überhaupt existieren. `sttSeconds` zählt die an den Provider
+  gestreamte Audiodauer und läuft während eines durchgestellten Gesprächs
+  ausdrücklich nicht weiter. Auf dem gebündelten Voice-Agent-Pfad bleiben die
+  LLM-Felder leer — dort denkt der Anbieter selbst und meldet keine Token; die
+  Abrechnungsbasis ist dort die Gesprächsdauer.
+
+- **`RECORDING_TTL_DAYS`** (Default `0` = aus): Aufnahmen verfallen nach der
+  Frist, **samt GridFS-Chunks**. Gespräch und Transkript bleiben vollständig
+  erhalten, nur `GET /api/requests/:id/recording` liefert danach 404.
+
+  Bewusst **kein** TTL-Index, obwohl es das Muster von `CallerProfile` wäre: Ein
+  Mongo-TTL-Index löscht ausschließlich Dokumente der indizierten Collection. Auf
+  `recordings.files` angewandt bliebe für jede Aufnahme der Chunk-Eintrag liegen
+  — also praktisch das gesamte Datenvolumen, dauerhaft und ohne Referenz, das
+  genaue Gegenteil des Zwecks. Stattdessen ein Aufräumjob (Start + stündlich),
+  der über das Upload-Datum schneidet und damit zugleich Waisen abräumt.
+
+  Die Frist ist zugleich eine **Abholfrist**: Der erste Abholversuch eines
+  Empfängers kann scheitern, und der nächste kommt oft erst, wenn jemand das
+  Gespräch anhören will. Sehr kurz gesetzt verliert man deshalb nicht nur alte
+  Aufnahmen, sondern auch die — ohne Fehlermeldung, weil danach nur noch ein 404
+  kommt. Steht so in der Doku.
+
+  Einen Löschendpunkt für Gespräche gibt es weiterhin nicht: mit einem globalen
+  API-Key ohne Rollenmodell eine Angriffsfläche ohne Anwendungsfall.
+
+### Changed
+
+- **`metrics.timeToFirstAudioMs` misst jetzt wirklich ab dem Answer.** Bis 0.9.x
+  lief die Uhr ab dem Eintritt in die Stasis-App; weil der Answer damals
+  unmittelbar folgte, war der Unterschied unter einer Millisekunde. Mit der vor
+  dem Answer erzeugten Begrüßung wäre er es nicht mehr geblieben: Gemessen wurde
+  auf der Appliance **1382 ms**, obwohl der Anrufer nach dem Abheben nur **292 ms**
+  Stille erlebte — der Rest war Rufton. Der Wert beantwortet die Frage „wie lange
+  ist es nach dem Abheben still", und genau das misst er jetzt. Wer historische
+  Werte vergleicht, sieht an dieser Stelle einen Sprung nach unten.
+
+- **`WEBHOOK_TIMEOUT_MS` von 5000 auf 15000.** Empfänger, die `call.ended`
+  synchron verarbeiten (Zusammenfassung, Abrechnung, Benachrichtigungen),
+  brauchen regelmäßig länger; die Folge waren Wiederholungen und — ohne
+  Idempotenz beim Empfänger — doppelt verbuchte Gespräche.
+
+- **`LOCALIZE_MODEL` und `SUMMARY_MODEL` haben regionsgebundene Defaults**
+  (`bedrock/claude-haiku-4-5@eu-central-1` statt `openai/gpt-4.1-mini`). Diese
+  beiden Nebenaufgaben sehen den kompletten Ansagen-Katalog, das ganze Transkript
+  und künftig die Begrüßung samt Firmennamen. Für eine Appliance, deren
+  Existenzgrund die Datenhaltung in der EU ist, darf der **voreingestellte**
+  Endpunkt dafür kein ungebundener sein — beim Konversationsmodell wird die Region
+  längst festgenagelt, bei den Nebenaufgaben blieb es bisher aus.
+
+  Wer die Variablen nie gesetzt hat, wechselt mit dem Update das Modell. Die
+  Umstellung wirkt aber **nicht rückwirkend**: `AgentTranslation` ist über den
+  Quelltext-Hash abgesichert, unveränderte Ansagen werden nicht neu übersetzt. Die
+  bestehenden Einträge bleiben also so, wie das alte Modell sie erzeugt hat —
+  richtig so, eine Neuübersetzung würde nichts heilen, aber es soll niemanden
+  überraschen, der nach dem Update in die Sammlung schaut.
+
+
 ## [0.9.0] – 2026-08-21
 
 Zwei neue Nähte nach außen, mit denen eine übergeordnete Verwaltung mit der

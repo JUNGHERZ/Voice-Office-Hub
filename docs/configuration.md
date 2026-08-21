@@ -50,7 +50,7 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `NATIVE_MIN_SENTENCE_CHARS` / `NATIVE_CONTEXT_CHARS` *(0.6.10)* | `12` / `16000` | Satz-Chunker-Mindestlänge (LLM→TTS-Overlap), Zeichenbudget der Konversationshistorie. |
 | `NATIVE_EAGER_EOT` / `NATIVE_EAGER_EOT_THRESHOLD` *(0.6.17)* | `false` / `0.5` | Spekulativer LLM-Start auf das vorläufige Flux-Turn-Ende (EagerEndOfTurn): spart typ. 200–500 ms Antwortzeit; Audio/Historie/Tool-Calls warten hinter einem Gate bis zum bestätigten EndOfTurn — Fehlspekulationen (TurnResumed/abweichendes Transkript) sind unhörbar und kosten nur LLM-Input-Tokens. Die Schwelle (0.3–0.9) wird bei aktivem Flag immer mitgesendet — ohne sie deaktiviert Flux den Eager-Modus komplett; niedriger = früher spekulieren, höher = konservativer. |
 | `NATIVE_FILLER_DELAY_MS` *(0.6.26)* | `2000` | Default-Verzögerung (ms) für den **Timer-Filler** bei Tool-Wartezeiten (nur native), falls `agent.fillers.delayMs` fehlt. Aktivierung/Phrasen pro Agent (`agents.fillers`). |
-| `LOCALIZE_MODEL` *(0.6.26)* | `openai/gpt-4.1-mini` | Modell für die **Ansagen-Lokalisierung** (Requesty-One-Shot: Sprach-/Registererkennung + Übersetzung des Ansagen-Katalogs), unabhängig vom Konversations-LLM. Aktiv nur bei mehrsprachigen Agenten (`language: "multi"`). |
+| `LOCALIZE_MODEL` *(0.6.26, Default geändert 0.10.0)* | `bedrock/claude-haiku-4-5@eu-central-1` | Modell für die **Ansagen-Lokalisierung** (Requesty-One-Shot: Sprach-/Registererkennung + Übersetzung des Ansagen-Katalogs) **und für den Begrüßungs-Prompt**, unabhängig vom Konversations-LLM. Der Default ist bewusst regionsgebunden: Dieser Aufruf sieht den kompletten Ansagen-Katalog und die Begrüßung mitsamt Firmennamen. Bis 0.9.x stand hier `openai/gpt-4.1-mini` — wer die Variable nie gesetzt hat, wechselt mit dem Update das Modell. |
 | `TRANSFER_FAILED_ANNOUNCEMENT` *(0.6.26)* | „Ich konnte leider niemanden erreichen. …" | Standardtext der Ansage bei fehlgeschlagener Weiterleitung (pro Agent via `agents.transferFailedAnnouncement` überschreibbar; wird bei mehrsprachigen Agenten lokalisiert). |
 | `IDLE_PROMPT_TIMEOUT_MS` *(0.6.27)* | `8000` | Default-Stille (ms) bis zur ersten **Nachfass-Ansage**, falls `agent.idlePrompts.timeoutMs` fehlt. Aktivierung/Phrasen pro Agent (`agents.idlePrompts`). |
 | `IDLE_HANGUP_ANNOUNCEMENT` *(0.6.27)* | „Ich melde mich dann ab. …" | Standard-Abschied, bevor wegen Stille aufgelegt wird (nur bei `idlePrompts.hangupAfter`; pro Agent überschreibbar, wird lokalisiert). |
@@ -68,9 +68,10 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `PASSTHROUGH_TARGET` | — | Standard-Durchwahl für `transfer_call` (ohne `target`) bzw. Passthrough-Ziel. |
 | `TRANSFER_TIMEOUT` | `30` | Sekunden bis zur Auto-Rückkehr bei Weiterleitung. |
 | `CALL_DEDUP_WINDOW_MS` | `4000` | Zeitfenster gegen Doppel-INVITEs mancher Trunks (z. B. sipgate stellt einen Anruf als zwei parallele Dialoge zu). Zweiter Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters wird verworfen. `0` = aus. |
+| `RECORDING_TTL_DAYS` *(0.10.0)* | `0` | Aufbewahrungs- **und Abholfrist** für Aufnahmen in Tagen; `0` = aus (unbefristet, Verhalten bis 0.9.x). Siehe [Aufbewahrung von Aufnahmen](#aufbewahrung-von-aufnahmen). |
 | `RECORDING_PATH` | `/data/recordings` | (Reserviert) Staging-Pfad; ARI schreibt Aufnahmen aktuell nach `/var/spool/asterisk/recording`. |
 | `SUMMARY_ENABLED` | `false` | Post-Call-Summary aktiv. |
-| `SUMMARY_MODEL` | `openai/gpt-4.1-mini` | Eigenes Summary-Modell (Requesty), unabhängig vom Konversations-LLM. |
+| `SUMMARY_MODEL` *(Default geändert 0.10.0)* | `bedrock/claude-haiku-4-5@eu-central-1` | Eigenes Summary-Modell (Requesty), unabhängig vom Konversations-LLM. Regionsgebundener Default aus demselben Grund wie bei `LOCALIZE_MODEL`: Die Zusammenfassung sieht das **ganze Transkript**. |
 | `SUMMARY_PROMPT` | … | Default-Summary-Prompt (pro Agent via `agents.summary.prompt` überschreibbar). |
 | `ECHO_TEST` / `ECHO_MODE` | `false` / `packet` | Diagnose: Anrufer-Audio zurückspielen (ohne Deepgram). |
 | `ADMIN_PASSWORD` | — | Admin-UI/API-Login. **Leer → Admin-Server startet nicht.** |
@@ -82,7 +83,7 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 | `RESOLVER_TIMEOUT_MS` *(0.9.0)* | `2500` | Hartes Zeitbudget. Der Hook liegt auf dem Klingelpfad; läuft er ab, gilt der gespeicherte Agent (Fail-open). |
 | `WEBHOOK_URL` *(0.9.0)* | — | Endpunkt für die **Ereignis-Zustellung**. Leer = aus (Default), dann entsteht kein ausgehender Verkehr. |
 | `WEBHOOK_SECRET` *(0.9.0)* | — | HMAC-Schlüssel für `X-VOH-Signature` der Ereignisse (darf identisch zu `RESOLVER_SECRET` sein). |
-| `WEBHOOK_TIMEOUT_MS` *(0.9.0)* | `5000` | Zeitbudget je Zustellversuch. |
+| `WEBHOOK_TIMEOUT_MS` *(0.9.0, Default geändert 0.10.0)* | `15000` | Zeitbudget je Zustellversuch. Empfänger, die `call.ended` **synchron** verarbeiten (Zusammenfassung, Abrechnung, Benachrichtigungen), brauchen regelmäßig länger als 5 s; die Folge waren Wiederholungen und — ohne Idempotenz beim Empfänger — doppelt verbuchte Gespräche. |
 | `WEBHOOK_MAX_RETRIES` *(0.9.0)* | `5` | Wiederholungen bei Timeout, 5xx und 429 (exponentieller Backoff). Bei 4xx außer 429 wird **nicht** wiederholt. |
 | `WEBHOOK_QUEUE_LIMIT` *(0.9.0)* | `500` | Obergrenze der Warteschlange. Darüber wird das älteste Ereignis verworfen und laut protokolliert. |
 | `LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error`. |
@@ -151,6 +152,10 @@ Mongoose (Fehler → HTTP 400). Die wichtigsten Felder:
 | Feld | Zweck |
 |---|---|
 | `name` / `enabled` | Anzeigename; `enabled:false` nimmt den Agent aus dem DDI-Routing. |
+| `externalRef` *(0.10.0)* | Freie Kennung des anlegenden Systems. VOH wertet sie nie aus, führt sie aber überall mit: in `GET /api/agents/:id`, in der Agentenliste der Oberfläche und in **jedem** Ereignis zu diesem Agenten. Abgrenzung zu `agentRef` am Gespräch: das stammt aus einer Resolver-Antwort und existiert nur, wenn ein Anruf über den Hook lief — `externalRef` gilt immer. |
+| `greetingPrompt` *(0.10.0)* | **Anweisung**, aus der die Begrüßung je Anruf entsteht, statt eines festen Texts. Siehe [Begrüßungs-Prompt](#begrüßungs-prompt). |
+| `maxDurationSec` *(0.10.0)* | Harte Obergrenze der Gesprächsdauer in Sekunden (min. 5). Danach legt die Engine auf — der laufende Satz wird noch ausgespielt, `durationSec` liegt deshalb knapp darüber, und `endedReason` ist `maxDuration`. Fehlt = unbegrenzt. |
+| `recording.enabled` *(0.10.0)* | Default **`true`**. `false` = kein Mitschnitt: kein GridFS-Objekt, kein `recording`-Block am Gespräch, kein `recording.ready`-Ereignis. **Im Passthrough-Modus entfällt damit auch das Transkript** — es entsteht dort aus der Aufnahme. Ein fehlendes Feld gilt als `true`, bestehende Agenten nehmen also unverändert auf. |
 | `targetNumbers[]` | Rufnummern (DDIs) des Agenten — der Routing-Schlüssel (E.164 empfohlen). |
 | `mode` | `agent` (KI) oder `passthrough` (+ `passthroughTarget`). |
 | `voiceProvider` *(0.6.0, erweitert 0.6.10)* | Voice-Plattform des Anrufs: `deepgram` (Voice-Agent-API, Default) oder `native` (eigene STT→LLM→TTS-Kaskade, s. u.). Weitere S2S-Provider (elevenlabs, openai-realtime, grok) docken über die Factory ([voice/factory.ts](../src/voice/factory.ts)) an. |
@@ -250,6 +255,68 @@ Durchwahlen und unterdrückte Nummern bekommen kein Profil (ihr Identifikator wi
 Gespeichert wird ausschließlich die Sprache — eine Rufnummer ist keine Person, und was bei der
 Sprache ein Schönheitsfehler ist, wäre bei inhaltlichen Erinnerungen eine Datenpanne. Metriken je
 Anruf: `metrics.greetingLanguage`, `metrics.priorSource`, `metrics.priorConfirmed`.
+
+### Begrüßungs-Prompt (0.10.0)
+
+Bei manchen Assistenten ist die Eröffnung **nicht konstant**: „Guten Morgen / Guten Tag / Guten
+Abend" je nach Uhrzeit, dazu wechselnde Angaben. Ein fester `greeting`-Text kann das nicht. Ist
+`agent.greetingPrompt` gesetzt, wird der Satz je Anruf **erzeugt** statt nachgeschlagen:
+
+```jsonc
+{ "greeting": "Guten Tag, hier ist die Musterfirma.",          // Rückfall, bleibt Pflicht
+  "greetingPrompt": "Begrüße kurz und höflich für Musterfirma, es ist Vormittag." }
+```
+
+**Arbeitsteilung.** Der Inhalt kommt von außen (am Agenten oder per Overlay), die **Sprache**
+bestimmt die Engine: `prior?.lang ?? contentLanguage`. Bis der Anrufer spricht, ist der
+Anrufer-Prior die einzige Quelle dafür — und der bleibt pseudonymisiert in der Appliance. Es
+wandert also der Prompt herein, nicht die Sprache hinaus. Platzhalter sind gefüllt, wenn der
+Prompt ankommt; VOH braucht kein Variablen-Feature.
+
+**Wann er läuft.** **Vor** dem `Answer()`. Der Dialplan ruft `Stasis()` bewusst ohne
+vorheriges `Answer()` auf — dieses Fenster ist **Rufton**. Dieselbe Wartezeit hinter dem Answer
+wäre Stille nach dem Abheben, und die ist ungleich unangenehmer als ein Klingelton, der einen
+Moment länger läuft. Auf der Appliance gemessen: ~1,2 s Erzeugung, danach hört der Anrufer
+298 ms nach dem Abheben die Begrüßung (`metrics.timeToFirstAudioMs`). Legt er noch im Rufton
+auf, wird der Modellaufruf **abgebrochen**; ein Klingelabbrecher kostet damit nichts.
+
+**Wenn es schiefgeht**, gilt der statische `greeting`-Text und der Anruf läuft normal weiter —
+Fehler, Zeitüberschreitung (4 s) oder leere Antwort. Genau dafür bleibt das Feld nötig: Es ist
+nicht mehr der Normalfall, sondern das Sicherheitsnetz.
+
+**Kein Cache, und das ist Absicht.** Ein pro Anruf wechselnder Text träfe den
+Übersetzungs-Cache (Schlüssel `(agentId, lang)` samt Quelltext-Hash) ohnehin nie. Deshalb gibt
+es keine Varianten-Schlüssel wie `greeting.morning`. Der **statische** Text wird weiterhin
+vorübersetzt — das Sicherheitsnetz soll auch in der Anrufersprache greifen.
+
+**Nachvollziehbar:** Der tatsächlich gesprochene Satz steht als `greetingText` am Gespräch (und
+im `call.ended`-Ereignis) — immer, auch wenn er unverändert vom Agenten stammt. Ein später
+geänderter `greeting`-Text würde sonst rückwirkend etwas belegen, das nie gesagt wurde.
+
+Modell: `LOCALIZE_MODEL` (günstiger One-Shot, `temperature 0`). Siehe dort zur Regionsbindung
+des Defaults.
+
+### Aufbewahrung von Aufnahmen (0.10.0)
+
+`RECORDING_TTL_DAYS` (Default `0` = aus) lässt Aufnahmen nach der Frist verfallen — **samt
+GridFS-Chunks**. Ein Aufräumjob läuft beim Start und danach stündlich; er schneidet über das
+Upload-Datum, räumt damit zugleich Waisen ab und leert anschließend den `recording`-Block am
+Gespräch. **Transkript und Gesprächsdatensatz bleiben vollständig erhalten**, nur
+`GET /api/requests/:id/recording` liefert danach 404.
+
+Bewusst **kein** TTL-Index: Ein Mongo-TTL-Index löscht nur Dokumente der indizierten
+Collection — auf `recordings.files` angewandt bliebe für jede Aufnahme der Chunk-Eintrag
+liegen, also praktisch das gesamte Datenvolumen.
+
+> **Die Frist ist zugleich eine Abholfrist.** Ein Empfänger holt die Aufnahme typischerweise
+> sofort nach `call.ended` — dieser erste Versuch kann aber scheitern (Netz, falscher
+> Auth-Header, Fehlkonfiguration), und der nächste kommt oft erst, wenn jemand das Gespräch
+> anhören will. Eine sehr kurze Frist verliert deshalb nicht nur alte Aufnahmen, sondern auch
+> die, deren erster Abholversuch fehlschlug — und zwar ohne Fehlermeldung, weil danach nur noch
+> ein 404 zurückkommt.
+
+Einen Löschendpunkt für Gespräche gibt es bewusst **nicht**: Mit einem globalen API-Key ohne
+Rollenmodell wäre das eine Angriffsfläche ohne Anwendungsfall.
 
 ### Unbekannte Rufnummer (kein Agent)
 
@@ -379,13 +446,14 @@ X-VOH-Delivery: <uuid, bei Wiederholung identisch>
 { "event": "call.ended",
   "seq": 3,
   "sentAt": "2026-08-21T09:18:02.400Z",
-  "agentId": "…", "agentRef": "…",
+  "agentId": "…", "agentRef": "…", "externalRef": "…",
   "call": {
     "id": "<requests-_id>", "channelId": "…",
     "mode": "agent", "from": "+49…", "to": "+49…",
     "startedAt": "…", "endedAt": "…", "durationSec": 213,
-    "language": "en", "resolverStatus": "ok"
+    "language": "en", "resolverStatus": "ok", "endedReason": "transfer"
   },
+  "greetingText": "Guten Morgen bei Musterfirma.",
   "transcript": [ { "t": 0.0, "end": 2.4, "speaker": "agent", "text": "…" } ],
   "functionCalls": [ … ],
   "transfer": { "attempted": true, "target": "+49…", "connected": true },
@@ -395,6 +463,18 @@ X-VOH-Delivery: <uuid, bei Wiederholung identisch>
 
 `call.id` ist die `_id` des `requests`-Dokuments und steht in **jedem** Ereignis — daraus baut
 der Empfänger z. B. `<base>/api/requests/<id>/recording`.
+
+Drei Felder kamen mit 0.10.0 dazu:
+
+- **`externalRef`** — die Kennung des anlegenden Systems vom Agenten, in **jedem** Ereignis.
+  Anders als `agentRef` gilt sie auch für Gespräche ohne Overlay-Hook.
+- **`call.endedReason`** — warum das Gespräch endete. Bekannte Werte: `caller` (Anrufer hat
+  aufgelegt), `agent` (`end_call`), `transfer` (an einen Menschen übergeben — beide
+  Auflegerichtungen), `idle` (Stille-Leiter), `announce` (reine Ansage), `maxDuration`,
+  `failed`. **Die Liste ist offen**: Das Feld ist ein freier String und wird nicht validiert;
+  ein künftig ergänzter Grund darf einen Empfänger nicht in einen Fehler laufen lassen.
+  Behandle Unbekanntes wie „sonstiges", nicht wie einen Fehler.
+- **`greetingText`** — der tatsächlich gesprochene Eröffnungssatz (nur in `call.ended`/`call.failed`).
 
 **Zustellung:**
 

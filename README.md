@@ -53,6 +53,9 @@ data center**, in a **single** Docker container.
 - 🗂️ **Transcript & recording** — full text + audio (MongoDB/GridFS) + post-call summary
 - ☎️ **Passthrough mode** — pure forwarding + recording + batch transcription
 - 🎯 **Multi-agent / DDI routing** — a dedicated agent per phone number
+- 🕘 **Greeting from a prompt** — for openings that are not constant (time of day, changing
+  details): the agent generates its first sentence per call, in the caller's language, while the
+  phone is still ringing — with the stored greeting as the safety net
 - 🔗 **Hooks for external systems** — optionally overlay part of an agent's configuration per
   call (and allow, announce, or reject it), and have call events delivered instead of polling;
   both off by default, and a hook that is down never silences a line

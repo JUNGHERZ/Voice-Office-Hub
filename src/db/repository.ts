@@ -17,6 +17,8 @@ export interface NewRequestInput {
   agentId?: Types.ObjectId;
   /** Opake Kennung aus dem Overlay-Hook (0.9.0); wird in allen Ereignissen gespiegelt. */
   agentRef?: string;
+  /** Kennung des anlegenden Systems, vom Agenten übernommen (0.10.0). */
+  externalRef?: string;
   /** Ob das Overlay griff. Nur gesetzt, wenn ein Hook konfiguriert ist. */
   resolverStatus?: "ok" | "unavailable";
 }
@@ -46,6 +48,7 @@ export async function createRequest(input: NewRequestInput): Promise<string> {
     widgetToken: input.widgetToken,
     agentId: input.agentId,
     agentRef: input.agentRef,
+    externalRef: input.externalRef,
     resolverStatus: input.resolverStatus,
     startedAt: new Date(),
     status: "in_progress",
@@ -59,6 +62,11 @@ export async function appendTranscript(id: string, turn: TranscriptTurn): Promis
 
 export async function appendFunctionCall(id: string, call: FunctionCallRecord): Promise<void> {
   await RequestModel.updateOne({ _id: id }, { $push: { functionCalls: call } });
+}
+
+/** Der gesprochene Eröffnungssatz — siehe `greetingText` im Request-Schema. */
+export async function setGreetingText(id: string, greetingText: string): Promise<void> {
+  await RequestModel.updateOne({ _id: id }, { $set: { greetingText } });
 }
 
 export async function setLanguage(id: string, language: string): Promise<void> {
@@ -95,7 +103,11 @@ export async function setSummary(
 
 /** Per-Call-Metriken; der callHandler sammelt sie lokal und übergibt sie beim Finalisieren. */
 export interface CallMetrics {
-  /** Answer → erstes TTS-Audio (Begrüßung), in Millisekunden. */
+  /**
+   * Answer → erstes TTS-Audio (Begrüßung), in Millisekunden — also die Stille, die der
+   * Anrufer NACH dem Abheben erlebt. Eine vor dem Answer erzeugte Begrüßung (0.10.0) fällt
+   * bewusst nicht hinein: Sie läuft im Rufton.
+   */
   timeToFirstAudioMs?: number;
   /** Median der Turn-Latenz über alle Agenten-Turns (ms) — Basis für Provider-Vergleiche. */
   turnLatencyMs?: number;
@@ -116,6 +128,21 @@ export interface CallMetrics {
   ttsCharacters?: number;
   /** Nur ElevenLabs (Credit-Modell): Zeichen × Modell-Multiplikator (Flash/Turbo 0,5). */
   ttsCredits?: number;
+  /**
+   * LLM-Verbrauch (nur native — der gebündelte Voice-Agent meldet keine Token). Mengen,
+   * keine Beträge: Preise sind vertragsabhängig und gehören nicht in eine Appliance.
+   * `llmModel` ist das tatsächlich benutzte Modell, nicht das Feld am Agenten.
+   */
+  llmModel?: string;
+  llmPromptTokens?: number;
+  llmCachedPromptTokens?: number;
+  llmCompletionTokens?: number;
+  llmRequests?: number;
+  /**
+   * An den Sprach-Provider gestreamte Audiodauer in Sekunden. Nahe an `durationSec`, aber
+   * nicht identisch: Während eines durchgestellten Gesprächs fließt nichts mehr zur Session.
+   */
+  sttSeconds?: number;
   /** Wie oft der Agent bei Stille nachgefasst hat (0.6.27) — Tuning-Basis für idlePrompts.timeoutMs. */
   idlePrompts?: number;
   /** Der Anruf endete, weil die Stille-Leiter erschöpft war (idlePrompts.hangupAfter). */
@@ -132,6 +159,8 @@ export async function finalizeRequest(
   id: string,
   status: "completed" | "failed",
   metrics?: CallMetrics,
+  /** Warum das Gespräch endete — freier String, siehe `endedReason` im Request-Schema. */
+  endedReason?: string,
 ): Promise<void> {
   const endedAt = new Date();
   // Anruflänge aus startedAt ableiten (immer, auch ohne Aufnahme — für Abrechnung/Statistik).
@@ -141,6 +170,7 @@ export async function finalizeRequest(
     set.durationSec = Math.max(0, Math.round((endedAt.getTime() - new Date(doc.startedAt).getTime()) / 1000));
   }
   if (metrics) set.metrics = metrics;
+  if (endedReason) set.endedReason = endedReason;
   await RequestModel.updateOne({ _id: id }, { $set: set });
 }
 

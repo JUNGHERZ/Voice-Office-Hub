@@ -281,15 +281,33 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.emit("close", 1000);
   }
 
-  /** TTS-Verbrauch der Session (zeichengenau, wie an den Anbieter gesendet). */
+  /**
+   * Verbrauch der Session: TTS zeichengenau (wie an den Anbieter gesendet) und die
+   * LLM-Mengen. Beide Teile sind unabhängig — ein Anruf, in dem nichts gesprochen wurde,
+   * kann trotzdem LLM-Runden gehabt haben und umgekehrt.
+   */
   getUsage(): VoiceSessionUsage | undefined {
     const u = this.tts.usage?.();
-    if (!u || !u.characters) return undefined;
+    const llm = this.llmUsage;
+    if (!u?.characters && !llm.requests) return undefined;
     return {
-      ttsProvider: u.provider,
-      ttsModel: u.model,
-      ttsCharacters: u.characters,
-      ...(u.credits !== undefined ? { ttsCredits: u.credits } : {}),
+      ...(u?.characters
+        ? {
+            ttsProvider: u.provider,
+            ttsModel: u.model,
+            ttsCharacters: u.characters,
+            ...(u.credits !== undefined ? { ttsCredits: u.credits } : {}),
+          }
+        : {}),
+      ...(llm.requests
+        ? {
+            llmModel: llm.model,
+            llmPromptTokens: llm.promptTokens,
+            llmCachedPromptTokens: llm.cachedPromptTokens,
+            llmCompletionTokens: llm.completionTokens,
+            llmRequests: llm.requests,
+          }
+        : {}),
     };
   }
 
@@ -378,6 +396,19 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   }
 
   private sttReconnected = false;
+  /**
+   * LLM-Verbrauch dieses Anrufs (0.10.0). Summiert über alle Turns UND Tool-Runden — die
+   * Zahlen liegen im Stream ohnehin an (llmStream.ts liest sie), bis hierher landeten sie
+   * nur im Debug-Log. `llmModel` hält das TATSÄCHLICH benutzte Modell fest, damit ein Agent
+   * ohne eigene Modellwahl nicht ohne Preisgrundlage dasteht.
+   */
+  private llmUsage = {
+    model: "" as string,
+    promptTokens: 0,
+    cachedPromptTokens: 0,
+    completionTokens: 0,
+    requests: 0,
+  };
 
   // ── TTS-Verdrahtung ─────────────────────────────────────────────────────────
 
@@ -616,8 +647,13 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
             }
           },
         );
+        this.llmUsage.model = model;
+        this.llmUsage.requests += 1;
         if (result.usage) {
           const u = result.usage;
+          this.llmUsage.promptTokens += u.promptTokens ?? 0;
+          this.llmUsage.cachedPromptTokens += u.cachedTokens ?? 0;
+          this.llmUsage.completionTokens += u.completionTokens ?? 0;
           this.log.debug("LLM-Nutzung", {
             model,
             promptTokens: u.promptTokens,

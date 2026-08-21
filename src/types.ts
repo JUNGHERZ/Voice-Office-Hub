@@ -124,6 +124,11 @@ export interface ResolvedIdlePrompts {
  * damit spätere Fakten (Gesprächsnotizen o. ä.) eigene Zustimmung brauchen statt unter einem
  * Sammel-Schalter mitzulaufen.
  */
+export interface ResolvedRecording {
+  /** false = dieser Anruf wird nicht mitgeschnitten. Fehlendes Feld gilt als `true`. */
+  enabled: boolean;
+}
+
 export interface ResolvedCallerMemory {
   /** Zuletzt bestätigte Gesprächssprache merken → Begrüßung beim nächsten Anruf. */
   language: boolean;
@@ -132,6 +137,8 @@ export interface ResolvedCallerMemory {
 export interface ResolvedAgent {
   id?: string;
   name: string;
+  /** Freie Kennung des anlegenden Systems (0.10.0). Wird nur mitgeführt, nie ausgewertet. */
+  externalRef?: string;
   mode: CallMode;
   /** Welche Voice-Plattform den Anruf bedient (siehe voice/factory.ts). */
   voiceProvider: VoiceProvider;
@@ -149,6 +156,13 @@ export interface ResolvedAgent {
    */
   contentLanguage: string;
   greeting?: string;
+  /**
+   * Anweisung, aus der die Begrüßung je Anruf entsteht (0.10.0). Gesetzt = `greeting` ist
+   * nur noch der Rückfall, wenn die Erzeugung scheitert oder zu lange braucht.
+   */
+  greetingPrompt?: string;
+  /** Harte Obergrenze der Gesprächsdauer in Sekunden (0.10.0). Fehlt = unbegrenzt. */
+  maxDurationSec?: number;
   prompt: string;
   listen: ResolvedListen;
   think: ResolvedThink;
@@ -157,6 +171,7 @@ export interface ResolvedAgent {
   customTools: ResolvedCustomTool[];
   mcpServers: ResolvedMcpServer[];
   summary: ResolvedSummary;
+  recording: ResolvedRecording;
   ambience: ResolvedAmbience;
   fillers: ResolvedFillers;
   idlePrompts: ResolvedIdlePrompts;

@@ -40,6 +40,7 @@ interface CallContext {
   to?: string;
   agentId?: string;
   agentRef?: string;
+  externalRef?: string;
   resolverStatus?: "ok" | "unavailable";
   startedAt: Date;
   seq: number;
@@ -82,6 +83,7 @@ export function createEventRepo(
       seq: ctx.seq++,
       ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
       ...(ctx.agentRef ? { agentRef: ctx.agentRef } : {}),
+      ...(ctx.externalRef ? { externalRef: ctx.externalRef } : {}),
       call: {
         id: ctx.id,
         ...(ctx.channelId ? { channelId: ctx.channelId } : {}),
@@ -109,6 +111,7 @@ export function createEventRepo(
       to: doc.targetNumber,
       agentId: doc.agentId ? String(doc.agentId) : undefined,
       agentRef: doc.agentRef,
+      externalRef: doc.externalRef,
       resolverStatus: doc.resolverStatus,
       startedAt: doc.startedAt ? new Date(doc.startedAt) : new Date(),
       seq: 0,
@@ -132,6 +135,7 @@ export function createEventRepo(
         to: input.targetNumber,
         agentId: input.agentId ? String(input.agentId) : undefined,
         agentRef: input.agentRef,
+        externalRef: input.externalRef,
         resolverStatus: input.resolverStatus,
         startedAt: new Date(now),
         seq: 0,
@@ -184,8 +188,9 @@ export function createEventRepo(
       id: string,
       status: "completed" | "failed",
       metrics?: repo.CallMetrics,
+      endedReason?: string,
     ): Promise<void> {
-      await base.finalizeRequest(id, status, metrics);
+      await base.finalizeRequest(id, status, metrics, endedReason);
       // Der einzige Nachlesevorgang: Transkript, Tool-Aufrufe, Transfer, Aufnahme und
       // Metriken stehen erst jetzt vollständig — und er liegt hinter dem Anrufende.
       const doc = await loadRequest(id).catch((err) => {
@@ -195,6 +200,8 @@ export function createEventRepo(
       const ctx = context(id, doc);
       if (!ctx) return;
       contexts.delete(id);
+      // Aus dem Dokument, sonst aus dem Aufruf (falls das Nachlesen scheiterte).
+      const endReason = doc?.endedReason ?? endedReason;
       sink.emit(
         status === "completed" ? "call.ended" : "call.failed",
         envelope(
@@ -203,8 +210,13 @@ export function createEventRepo(
             ...(doc?.endedAt ? { endedAt: new Date(doc.endedAt).toISOString() } : {}),
             ...(doc?.durationSec !== undefined ? { durationSec: doc.durationSec } : {}),
             ...(doc?.language ? { language: doc.language } : {}),
+            // Freier String, absichtlich ohne Aufzählung: Ein künftig ergänzter Grund darf
+            // beim Empfänger nicht als Validierungsfehler landen.
+            ...(endReason ? { endedReason: endReason } : {}),
           },
           {
+            // Inhalt, nicht Metadatum — deshalb neben dem Transkript und nicht im `call`-Block.
+            ...(doc?.greetingText ? { greetingText: doc.greetingText } : {}),
             transcript: doc?.transcript ?? [],
             functionCalls: doc?.functionCalls ?? [],
             ...(doc?.transfer ? { transfer: doc.transfer } : {}),

@@ -43,6 +43,7 @@ export async function handlePassthrough(
     callerNumber: meta.callerNumber,
     targetNumber: meta.targetNumber,
     ...(agent.id ? { agentId: agent.id as unknown as never } : {}),
+    ...(agent.externalRef ? { externalRef: agent.externalRef } : {}),
     ...(meta.agentRef ? { agentRef: meta.agentRef } : {}),
     ...(meta.resolverStatus ? { resolverStatus: meta.resolverStatus } : {}),
   });
@@ -113,7 +114,11 @@ export async function handlePassthrough(
     bridge = await client.bridges.create({ type: "mixing" });
     await bridge.addChannel({ channel: channel.id });
 
-    recording = await startBridgeRecording(bridge, requestId);
+    // Kein Mitschnitt, wenn der Agent ihn abgewählt hat. Folge hier größer als im
+    // agent-Modus: Im Passthrough entsteht das Transkript AUS der Aufnahme (Batch-
+    // Transkription weiter unten) — ohne sie gibt es weder Transkript noch Zusammenfassung.
+    recording = agent.recording.enabled ? await startBridgeRecording(bridge, requestId) : null;
+    if (!recording) log.info("Aufnahme abgewählt — kein Mitschnitt, kein Transkript");
 
     const { connected, channel: callee } = await transferIntoBridge(client, bridge, target);
     await repo.setTransfer(requestId, { attempted: true, target, connected });

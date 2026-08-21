@@ -229,6 +229,12 @@ export interface Config {
   };
   recordingPath: string;
   /**
+   * Aufbewahrungs- UND Abholfrist für Aufnahmen in Tagen (0/leer = aus, heutiges Verhalten:
+   * unbefristet). Nach Ablauf verfallen Aufnahmen samt GridFS-Chunks; Gespräch und
+   * Transkript bleiben vollständig erhalten.
+   */
+  recordingTtlDays: number;
+  /**
    * Zeitfenster (ms), in dem ein zweiter eingehender Anruf mit gleicher
    * Anrufer-/Zielnummer als Duplikat verworfen wird. SIP-Trunks (z. B. sipgate)
    * stellen denselben Anruf teils als zwei parallele INVITEs zu — ohne Dedup
@@ -295,6 +301,15 @@ export interface Config {
   /** Echo-Variante: "packet" = re-paketisiert (eigene seq/ts), "raw" = 1:1 zurück. */
   echoMode: string;
 }
+
+/**
+ * Default-Modell der beiden Nebenaufgaben (Übersetzung/Begrüßung und Zusammenfassung).
+ * Bewusst regionsgebunden: Diese Aufrufe sehen den kompletten Ansagen-Katalog, das ganze
+ * Transkript und künftig die Begrüßung mit Firmen- und perspektivisch Anrufernamen. Für eine
+ * Appliance, deren Existenzgrund die Datenhaltung in der EU ist, darf der VOREINGESTELLTE
+ * Endpunkt dafür kein ungebundener sein. Wer ein anderes Modell will, setzt die Variablen.
+ */
+const EU_ONESHOT_MODEL = "bedrock/claude-haiku-4-5@eu-central-1";
 
 // Region einmal auflösen: die vier URL-Variablen bleiben als Escape-Hatch und
 // gewinnen weiterhin (opt() nimmt den ENV-Wert, sonst den Regions-Default).
@@ -410,11 +425,12 @@ export const config: Config = {
       "Fasse das folgende Telefongespräch in 3-5 Sätzen sachlich zusammen.",
     ),
     // Eigenes Summary-Modell über Requesty (unabhängig vom Konversations-Modell).
-    model: opt("SUMMARY_MODEL", "openai/gpt-4.1-mini"),
+    model: opt("SUMMARY_MODEL", EU_ONESHOT_MODEL),
   },
   localize: {
-    // Erkennung + Übersetzung der Ansagen (günstig, temperature 0; unabhängig vom Konversations-LLM).
-    model: opt("LOCALIZE_MODEL", "openai/gpt-4.1-mini"),
+    // Erkennung + Übersetzung der Ansagen und Erzeugung der Begrüßung (günstig,
+    // temperature 0; unabhängig vom Konversations-LLM).
+    model: opt("LOCALIZE_MODEL", EU_ONESHOT_MODEL),
   },
   idle: {
     timeoutMs: int("IDLE_PROMPT_TIMEOUT_MS", 8000),
@@ -449,6 +465,7 @@ export const config: Config = {
     clipHeader: opt("TRUNK_CLIP_HEADER", "ppi").toLowerCase() === "pai" ? "P-Asserted-Identity" : "P-Preferred-Identity",
   },
   recordingPath: opt("RECORDING_PATH", "/data/recordings"),
+  recordingTtlDays: int("RECORDING_TTL_DAYS", 0),
   callDedupWindowMs: int("CALL_DEDUP_WINDOW_MS", 4000),
   admin: {
     password: opt("ADMIN_PASSWORD"),
@@ -468,7 +485,7 @@ export const config: Config = {
   webhooks: {
     url: opt("WEBHOOK_URL"),
     secret: opt("WEBHOOK_SECRET"),
-    timeoutMs: int("WEBHOOK_TIMEOUT_MS", 5000),
+    timeoutMs: int("WEBHOOK_TIMEOUT_MS", 15000),
     maxRetries: int("WEBHOOK_MAX_RETRIES", 5),
     queueLimit: int("WEBHOOK_QUEUE_LIMIT", 500),
   },

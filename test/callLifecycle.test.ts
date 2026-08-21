@@ -191,7 +191,9 @@ test("end_call: keine Response, Hangup nach Puffer-Drain + Idle (Mock-Timer)", a
 
   s.client.emitStasisEnd(s.channel);
   await settle(6);
-  assert.deepEqual(s.repo.finalized, [{ id: "req-1", status: "completed" }]);
+  assert.deepEqual(s.repo.finalized, [
+    { id: "req-1", status: "completed", endedReason: "agent" },
+  ], "der Assistent hat aufgelegt, nicht der Anrufer");
 });
 
 // 9 ─ Transfer connected: Gates zu, Callee-Hangup beendet den Anruf.
@@ -278,7 +280,9 @@ test("Cleanup: StasisEnd und ChannelDestroyed führen zu genau einem Teardown", 
   s.channel.emit("ChannelDestroyed");
   await waitFor(() => s.repo.finalized.length >= 1);
   await settle(6);
-  assert.deepEqual(s.repo.finalized, [{ id: "req-1", status: "completed" }]);
+  assert.deepEqual(s.repo.finalized, [
+    { id: "req-1", status: "completed", endedReason: "caller" },
+  ]);
   assert.equal(s.client.bridge.destroyed, 1);
   assert.equal(s.session.closed, true);
   assert.equal(s.media.closed, true);
@@ -302,7 +306,9 @@ test("start()-Fehler: cleanup('failed') + Hangup", async () => {
   const s = makeCall();
   s.session.startError = new Error("connect refused");
   await s.start();
-  assert.deepEqual(s.repo.finalized, [{ id: "req-1", status: "failed" }]);
+  assert.deepEqual(s.repo.finalized, [
+    { id: "req-1", status: "failed", endedReason: "failed" },
+  ]);
   assert.ok(s.channel.hangups.length >= 1, "Anrufer wird aufgelegt");
 });
 
@@ -906,4 +912,272 @@ test("Overlay report:false: kein Request, keine Aufnahme, keine Post-Call-Arbeit
   assert.equal(recordings, 0, "keine Aufnahme");
   assert.equal(summaries, 0);
   assert.deepEqual(ensured, []);
+});
+
+// ── Aufnahme abwählbar (0.10.0) ──────────────────────────────────────────────
+
+// Ein Widerspruch gegen den Mitschnitt muss VOR der Aufnahme greifen, nicht erst beim
+// Hochladen — sonst liegt die Datei bereits auf der Platte.
+test("recording.enabled:false: keine Bridge-Aufnahme, kein Upload", async () => {
+  let started = 0;
+  let uploaded = 0;
+  const s = makeCall({
+    agent: testAgent({ recording: { enabled: false } }),
+    deps: {
+      startBridgeRecording: async () => { started++; return null; },
+      uploadRecording: async () => { uploaded++; return "gridfs-1" as never; },
+    },
+  });
+  await s.start();
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+
+  assert.equal(started, 0, "startBridgeRecording gar nicht erst gerufen");
+  assert.equal(uploaded, 0);
+  assert.deepEqual(
+    s.repo.finalized,
+    [{ id: "req-1", status: "completed", endedReason: "caller" }],
+    "Anruf läuft normal",
+  );
+});
+
+test("recording.enabled (Default): Aufnahme läuft wie bisher", async () => {
+  let started = 0;
+  const s = makeCall({
+    deps: { startBridgeRecording: async () => { started++; return null; } },
+  });
+  await s.start();
+  assert.equal(started, 1);
+});
+
+// ── Begrüßungs-Prompt (0.10.0) ───────────────────────────────────────────────
+
+// Der erzeugte Satz muss den Provider erreichen: Beide Adapter bauen ihre Begrüßung aus
+// dem übergebenen Agenten, ein getauschtes `greeting` wirkt deshalb ohne Provider-Code.
+test("greetingPrompt: erzeugter Satz erreicht die Session und den Request", async () => {
+  const seen: Array<{ prompt: string; lang: string }> = [];
+  const s = capturingCall({
+    generateGreeting: async (prompt, lang) => {
+      seen.push({ prompt, lang });
+      return "Guten Morgen bei Musterfirma.";
+    },
+  }, testAgent({ greetingPrompt: "Begrüße für Musterfirma, es ist Vormittag." }));
+
+  await s.start();
+  assert.deepEqual(seen, [
+    { prompt: "Begrüße für Musterfirma, es ist Vormittag.", lang: "de" },
+  ], "Sprache ist contentLanguage, solange kein Prior bekannt ist");
+  assert.equal(s.builtAgent()?.greeting, "Guten Morgen bei Musterfirma.");
+  assert.deepEqual(s.repo.greetingTexts, ["Guten Morgen bei Musterfirma."]);
+});
+
+// Der statische Text ist ab hier das Sicherheitsnetz — genau deshalb bleibt er Pflicht.
+test("greetingPrompt: Fehlschlag fällt auf den statischen Text zurück, Anruf läuft", async () => {
+  const s = capturingCall({
+    generateGreeting: async () => { throw new Error("LLM aus"); },
+  }, testAgent({ greetingPrompt: "Begrüße kurz." }));
+
+  await s.start();
+  assert.equal(s.builtAgent()?.greeting, "Hallo", "gespeicherter Text");
+  assert.equal(s.session.started, true, "der Anruf läuft trotzdem");
+  assert.deepEqual(s.repo.greetingTexts, ["Hallo"]);
+});
+
+test("greetingPrompt: leere Antwort zählt wie ein Fehlschlag", async () => {
+  const s = capturingCall({
+    generateGreeting: async () => undefined,
+  }, testAgent({ greetingPrompt: "Begrüße kurz." }));
+  await s.start();
+  assert.equal(s.builtAgent()?.greeting, "Hallo");
+});
+
+// Ohne greetingPrompt darf sich nichts ändern — und der gesprochene Satz steht trotzdem
+// am Gespräch, damit später belegbar bleibt, was gesagt wurde.
+test("Ohne greetingPrompt: kein Modellaufruf, greetingText trotzdem gesetzt", async () => {
+  let calls = 0;
+  const s = makeCall({
+    deps: { generateGreeting: async () => { calls++; return "x"; } },
+  });
+  await s.start();
+  assert.equal(calls, 0);
+  assert.deepEqual(s.repo.greetingTexts, ["Hallo"]);
+});
+
+// Legt der Anrufer noch im Rufton auf, muss der Modellaufruf abbrechen.
+test("greetingPrompt: Auflegen im Rufton bricht die Erzeugung ab", async () => {
+  let signal: AbortSignal | undefined;
+  const s = makeCall({
+    agent: testAgent({ greetingPrompt: "Begrüße kurz." }),
+    deps: {
+      generateGreeting: async (_p, _l, opts) =>
+        new Promise<string | undefined>((resolve) => {
+          signal = opts?.signal;
+          opts?.signal?.addEventListener("abort", () => resolve(undefined));
+        }),
+    },
+  });
+  const running = s.start();
+  await settle(4);
+  assert.equal(signal?.aborted, false, "läuft, während der Anrufer klingeln hört");
+
+  s.client.emitStasisEnd(s.channel); // Anrufer legt auf, bevor abgehoben wurde
+  await settle(4);
+  assert.equal(signal?.aborted, true, "Modellaufruf abgebrochen");
+  await running;
+});
+
+// Der Prior trägt die Sprache auch dann, wenn es KEINE Greeting-Übersetzung gibt: Der Satz
+// wird ja erzeugt. Die übrigen Ansagen (transferFailed, Filler, Stille) müssen trotzdem
+// vorgeladen werden — sonst spräche der Agent seine Begrüßung englisch und den Rest deutsch.
+test("greetingPrompt + Prior: Erzeugung in der Anrufersprache, Ansagen trotzdem vorgeladen", async () => {
+  const seen: string[] = [];
+  const s = capturingCall({
+    lookupLanguage: async () => ({ lang: "en", source: "profile" as const }),
+    loadTranslations: async () => ({ transferFailed: "Could not reach anyone." }),
+    generateGreeting: async (_p, lang) => { seen.push(lang); return "Good morning."; },
+  }, testAgent({ greetingPrompt: "Greet briefly." }));
+
+  await s.start();
+  assert.deepEqual(seen, ["en"], "Sprache kommt aus dem Anrufer-Profil");
+  assert.equal(s.builtAgent()?.greeting, "Good morning.");
+  assert.equal(s.localizer.preloaded?.lang, "en", "Ansagen-Cache vorgewärmt");
+  assert.equal(s.repo.metrics?.greetingLanguage, undefined, "erst beim Finalisieren");
+});
+
+// ── Dauergrenze und Endgrund (0.10.0) ────────────────────────────────────────
+
+test("maxDurationSec: Anruf endet nach Ablauf über die Drain-Logik (Mock-Timer)", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 100_000 });
+  const s = makeCall({ agent: testAgent({ maxDurationSec: 20 }) });
+  await s.start();
+
+  t.mock.timers.tick(19_000);
+  await settle();
+  assert.equal(s.channel.hangups.length, 0, "vor der Grenze passiert nichts");
+
+  t.mock.timers.tick(1_500); // Grenze erreicht → requestHangup("maxDuration")
+  await settle();
+  s.session.emitAudio(); // letzter Satz fließt noch
+  s.media.pending = 0;
+  t.mock.timers.tick(1_000); // Puffer leer + kein Audio mehr → auflegen
+  await settle();
+  assert.equal(s.channel.hangups.length, 1, "genau ein Hangup");
+
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+  assert.equal(s.repo.finalized[0]?.endedReason, "maxDuration");
+});
+
+test("Ohne maxDurationSec läuft das Gespräch unbegrenzt weiter (Mock-Timer)", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 100_000 });
+  const s = makeCall();
+  await s.start();
+  t.mock.timers.tick(3_600_000); // eine Stunde
+  await settle();
+  assert.equal(s.channel.hangups.length, 0);
+});
+
+// Eine Weiterleitung läuft NICHT über requestHangup — beide Beine legen einfach auf. Ohne
+// eigene Regel sähe der Erfolgsfall aus wie ein Anrufer, der frühzeitig aufgelegt hat.
+test("endedReason: durchgestelltes Gespräch heißt transfer, nicht caller", async () => {
+  const callee = new FakeChannel("callee-1");
+  const s = makeCall({
+    deps: { transferIntoBridge: async () => ({ connected: true, channel: callee.asAri() }) },
+  });
+  await s.start();
+  await s.session.emitFunctionCall([
+    { id: "t1", name: "transfer_call", argumentsJson: JSON.stringify({ target: "101" }) },
+  ]);
+
+  s.client.emitChannelDestroyed(callee); // der Mitarbeiter legt auf
+  await waitFor(() => s.repo.finalized.length === 1);
+  assert.equal(s.repo.finalized[0]?.endedReason, "transfer");
+});
+
+test("endedReason: auch wenn der ANRUFER nach dem Durchstellen auflegt", async () => {
+  const callee = new FakeChannel("callee-1");
+  const s = makeCall({
+    deps: { transferIntoBridge: async () => ({ connected: true, channel: callee.asAri() }) },
+  });
+  await s.start();
+  await s.session.emitFunctionCall([
+    { id: "t1", name: "transfer_call", argumentsJson: JSON.stringify({ target: "101" }) },
+  ]);
+
+  s.client.emitStasisEnd(s.channel);
+  await waitFor(() => s.repo.finalized.length === 1);
+  assert.equal(s.repo.finalized[0]?.endedReason, "transfer");
+});
+
+// Gescheiterter Transfer: der Agent macht weiter, das Gespräch endet ganz normal.
+test("endedReason: gescheiterter Transfer bleibt bei caller", async () => {
+  const s = makeCall(); // transferIntoBridge liefert connected:false (Default im Fake-Setup)
+  await s.start();
+  await s.session.emitFunctionCall([
+    { id: "t1", name: "transfer_call", argumentsJson: JSON.stringify({ target: "101" }) },
+  ]);
+  s.client.emitStasisEnd(s.channel);
+  await waitFor(() => s.repo.finalized.length === 1);
+  assert.equal(s.repo.finalized[0]?.endedReason, "caller");
+});
+
+// ── Verbrauchsmengen (0.10.0) ────────────────────────────────────────────────
+
+test("Metriken: LLM-Mengen der Session landen im finalizeRequest", async () => {
+  const s = makeCall();
+  await s.start();
+  s.session.usage = {
+    llmModel: "bedrock/claude-haiku-4-5@eu-central-1",
+    llmPromptTokens: 1900,
+    llmCachedPromptTokens: 1700,
+    llmCompletionTokens: 50,
+    llmRequests: 2,
+  };
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+
+  assert.equal(s.repo.metrics?.llmModel, "bedrock/claude-haiku-4-5@eu-central-1");
+  assert.equal(s.repo.metrics?.llmPromptTokens, 1900);
+  assert.equal(s.repo.metrics?.llmCachedPromptTokens, 1700);
+  assert.equal(s.repo.metrics?.llmCompletionTokens, 50);
+  assert.equal(s.repo.metrics?.llmRequests, 2);
+});
+
+// Gebündelter Provider: kein Token-Bericht → die Felder bleiben leer statt falsch.
+test("Metriken: ohne LLM-Bericht bleiben die Felder leer", async () => {
+  const s = makeCall();
+  await s.start();
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+  assert.equal(s.repo.metrics?.llmRequests, undefined);
+  assert.equal(s.repo.metrics?.llmModel, undefined);
+});
+
+// 8 kHz × 16 Bit = 16.000 Bytes je Sekunde (Testumgebung, siehe helpers/env.ts).
+test("Metriken: sttSeconds zählt das an den Provider gestreamte Anrufer-Audio", async () => {
+  const s = makeCall();
+  await s.start();
+  for (let i = 0; i < 100; i++) s.media.pushCallerAudio(Buffer.alloc(320)); // 100 × 20 ms = 2 s
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+  assert.equal(s.repo.metrics?.sttSeconds, 2);
+});
+
+// Während ein Mensch übernommen hat, fließt nichts mehr zur Session — und wird deshalb
+// auch nicht abgerechnet.
+test("Metriken: durchgestellte Zeit zählt nicht in sttSeconds", async () => {
+  const callee = new FakeChannel("callee-1");
+  const s = makeCall({
+    deps: { transferIntoBridge: async () => ({ connected: true, channel: callee.asAri() }) },
+  });
+  await s.start();
+  for (let i = 0; i < 50; i++) s.media.pushCallerAudio(Buffer.alloc(320)); // 1 s vor dem Transfer
+  await s.session.emitFunctionCall([
+    { id: "t1", name: "transfer_call", argumentsJson: JSON.stringify({ target: "101" }) },
+  ]);
+  for (let i = 0; i < 200; i++) s.media.pushCallerAudio(Buffer.alloc(320)); // 4 s im Gespräch
+
+  s.client.emitChannelDestroyed(callee);
+  await waitFor(() => s.repo.finalized.length === 1);
+  assert.equal(s.repo.metrics?.sttSeconds, 1, "nur die Zeit mit dem Assistenten");
 });

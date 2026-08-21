@@ -191,7 +191,7 @@ export class FakeRepo implements CallRepo {
   transcript: TranscriptTurn[] = [];
   functionCalls: FunctionCallRecord[] = [];
   transfers: Array<{ attempted: boolean; target?: string; connected?: boolean }> = [];
-  finalized: Array<{ id: string; status: "completed" | "failed" }> = [];
+  finalized: Array<{ id: string; status: "completed" | "failed"; endedReason?: string }> = [];
   metrics: CallMetrics | undefined;
   languages: Array<{ id: string; language: string }> = [];
   requestId = "req-1";
@@ -213,6 +213,10 @@ export class FakeRepo implements CallRepo {
     this.transfers.push(transfer);
   };
   setRecording = async (): Promise<void> => {};
+  greetingTexts: string[] = [];
+  setGreetingText = async (_id: string, text: string): Promise<void> => {
+    this.greetingTexts.push(text);
+  };
   setLanguage = async (id: string, language: string): Promise<void> => {
     this.languages.push({ id, language });
   };
@@ -220,8 +224,9 @@ export class FakeRepo implements CallRepo {
     id: string,
     status: "completed" | "failed",
     metrics?: CallMetrics,
+    endedReason?: string,
   ): Promise<void> => {
-    this.finalized.push({ id, status });
+    this.finalized.push({ id, status, ...(endedReason ? { endedReason } : {}) });
     this.metrics = metrics;
   };
 }
@@ -246,6 +251,7 @@ export function testAgent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent
     customTools: [],
     mcpServers: [],
     summary: { enabled: false, prompt: "", model: "openai/gpt-4.1-mini" },
+    recording: { enabled: true },
     ambience: { enabled: false, preset: "office", volume: 0.25 },
     fillers: { enabled: false, delayMs: 2000, phrases: [] },
     idlePrompts: {

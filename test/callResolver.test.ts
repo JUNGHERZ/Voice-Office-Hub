@@ -254,3 +254,20 @@ test("Teil-Overlay auf speak: Anbieter getauscht, Modell bleibt — wird erkannt
   );
   assert.equal(speakOverlayIsIncomplete(undefined, "deepgram", "deepgram"), false);
 });
+
+// 11 ─ Die Whitelist wächst mit dem Schema: Was ein Agent kann, soll ein Overlay
+// überlagern können — sonst müsste die Gegenseite zwei Wege pflegen.
+test("Overlay: greetingPrompt und maxDurationSec sind überlagerbar", async () => {
+  respond = () => ({
+    status: 200,
+    body: JSON.stringify({
+      verdict: "allow",
+      overlay: { greetingPrompt: "Begrüße knapp, es ist Abend.", maxDurationSec: 20 },
+    }),
+  });
+  const res = await resolveOverlay(testAgent({ id: AGENT_ID }), ctx, opts());
+  assert.equal(res.kind, "run");
+  if (res.kind !== "run") return;
+  assert.equal(res.agent.greetingPrompt, "Begrüße knapp, es ist Abend.");
+  assert.equal(res.agent.maxDurationSec, 20);
+});

@@ -140,7 +140,10 @@ const endedDoc = {
   callerNumber: "+49171",
   targetNumber: "+49236",
   agentRef: "cust-7",
+  externalRef: "crm-42",
   resolverStatus: "ok",
+  endedReason: "transfer",
+  greetingText: "Guten Morgen bei Musterfirma.",
   startedAt: new Date("2026-08-21T09:00:00.000Z"),
   endedAt: new Date("2026-08-21T09:03:33.000Z"),
   durationSec: 213,
@@ -163,6 +166,7 @@ test("Ein Anruf erzeugt call.started … call.ended mit aufsteigendem seq", asyn
     callerNumber: "+49171",
     targetNumber: "+49236",
     agentRef: "cust-7",
+    externalRef: "crm-42",
     resolverStatus: "ok",
   });
   await r.appendFunctionCall(id, {
@@ -184,6 +188,8 @@ test("Ein Anruf erzeugt call.started … call.ended mit aufsteigendem seq", asyn
   for (const e of events) {
     assert.equal(e.payload.call.id, "req-9", `call.id fehlt in ${e.event}`);
     assert.equal(e.payload.agentRef, "cust-7");
+    // Anders als agentRef gilt externalRef immer — auch ohne Overlay-Hook (0.10.0).
+    assert.equal(e.payload.externalRef, "crm-42", `externalRef fehlt in ${e.event}`);
   }
   const ended = events[3]?.payload as Record<string, any>;
   assert.equal(ended.call.durationSec, 213);
@@ -193,6 +199,10 @@ test("Ein Anruf erzeugt call.started … call.ended mit aufsteigendem seq", asyn
   assert.equal(ended.transfer.connected, true);
   assert.deepEqual(ended.recording, { available: true, durationSec: 213 });
   assert.equal(ended.metrics.bargeIns, 1);
+  // Warum das Gespräch endete und was der Assistent eröffnet hat (0.10.0) — beides ist im
+  // Nachhinein sonst nicht mehr belegbar.
+  assert.equal(ended.call.endedReason, "transfer");
+  assert.equal(ended.greetingText, "Guten Morgen bei Musterfirma.");
 });
 
 // 8 ─ Fehlgeschlagener Anruf meldet sich als eigenes Ereignis.
@@ -200,7 +210,7 @@ test("finalizeRequest(failed) → call.failed", async () => {
   const { sink, events } = fakeSink();
   const r = createEventRepo(fakeBase(), sink, { enabled: true, loadRequest: async () => endedDoc });
   const id = await r.createRequest({ channelId: "chan-9", mode: "agent" });
-  await r.finalizeRequest(id, "failed");
+  await r.finalizeRequest(id, "failed", undefined, "failed");
   assert.deepEqual(events.map((e) => e.event), ["call.started", "call.failed"]);
 });
 

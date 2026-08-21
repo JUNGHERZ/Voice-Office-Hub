@@ -127,8 +127,13 @@ export function parseTranslateResponse(
   return phrases;
 }
 
-/** Gemeinsamer Requesty-Aufruf für beide Prompts (JSON-Modus, temperature 0). */
-async function chatJson(
+/**
+ * Gemeinsamer Requesty-Aufruf für die JSON-Prompts dieses Moduls (temperature 0).
+ * Exportiert, weil der Begrüßungs-Prompt (llm/greetingPrompt.ts) exakt dieselbe
+ * Aufgabenklasse ist — ein One-Shot mit striktem JSON — und dieselbe Anbindung,
+ * dasselbe Modell und dasselbe robuste Parsen nutzen soll, statt sie zu verdoppeln.
+ */
+export async function chatJson(
   model: string,
   system: string,
   user: string,
@@ -224,7 +229,7 @@ export function parseLocalizeResponse(raw: string, catalog: Record<string, strin
 }
 
 /** Strippt ```json-Fences und extrahiert das erste balancierte {…}-Objekt (string-bewusst). */
-function extractJsonObject(raw: string): string | null {
+export function extractJsonObject(raw: string): string | null {
   let s = raw.trim();
   if (s.startsWith("```")) s = s.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
   const start = s.indexOf("{");
