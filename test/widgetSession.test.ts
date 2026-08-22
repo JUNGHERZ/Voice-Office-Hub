@@ -9,6 +9,7 @@ process.env.WIDGET_MAX_CONCURRENT = "2";
 process.env.ADMIN_API_KEY = "test-management-key";
 
 import assert from "node:assert/strict";
+import http from "node:http";
 import { test } from "node:test";
 
 import Fastify from "fastify";
@@ -32,14 +33,16 @@ const WIDGET_AGENT = {
 };
 
 function makeApp(deps: Deps = {}) {
-  const app = Fastify({ logger: false, trustProxy: true });
+  // forceCloseConnections: Ein offener SSE-Strom ist für Fastify keine „idle"-Verbindung —
+  // ohne das wartet close() auf ihn, und der Testlauf endet nie.
+  const app = Fastify({ logger: false, trustProxy: true, forceCloseConnections: true });
   void app.register(widgetRoutes, {
     deps: {
       findByWidgetKey: async (key: string) => (key === WIDGET_AGENT.widget.key ? WIDGET_AGENT : null),
       issueSession: async () => "f".repeat(32),
       countActiveWebCalls: async () => 0,
       findCallByToken: async () => null,
-      showTranscriptForAgent: async () => true,
+      widgetSettingsForAgent: async () => ({ showTranscript: true, allowedOrigins: [] }),
       ...deps,
     },
   });
@@ -287,7 +290,7 @@ test("Transkript: Token-Gate, Grace und Opt-out", async () => {
   // Betreiber hat das Transkript deaktiviert → 404 trotz gültigem Token.
   const app4 = makeApp({
     findCallByToken: async () => liveCall,
-    showTranscriptForAgent: async () => false,
+    widgetSettingsForAgent: async () => ({ showTranscript: false, allowedOrigins: [] }),
   });
   assert.equal((await app4.inject({ method: "GET", url: `/api/widget/call/${token}` })).statusCode, 404);
   await app4.close();
@@ -303,4 +306,219 @@ test("SlidingWindowLimiter: Fenster + Schlüsseltrennung", () => {
   assert.equal(limiter.allow("b"), true, "anderer Schlüssel unabhängig");
   t = 1001;
   assert.equal(limiter.allow("a"), true, "nach Fensterablauf wieder erlaubt");
+});
+
+// ── Live-Transkript als Strom (SSE, 0.11.1) ──────────────────────────────────
+
+const TOKEN = "a".repeat(32);
+
+/**
+ * Öffnet den Strom über einen echten Port — `inject()` kann keine offene Antwort lesen.
+ *
+ * Bewusst `node:http` statt `fetch`: Undici hält je Origin eine Verbindung, und ein offener
+ * SSE-Strom belegt sie dauerhaft — ein zweiter `fetch` gegen denselben Port würde ewig in
+ * der Warteschlange stehen. Browser öffnen dafür eigene Verbindungen.
+ */
+async function serve(app: ReturnType<typeof makeApp>): Promise<number> {
+  await app.listen({ host: "127.0.0.1", port: 0 });
+  return (app.server.address() as { port: number }).port;
+}
+
+function openStream(
+  port: number,
+  headers: Record<string, string> = {},
+  path = `/api/widget/call/${TOKEN}/stream`,
+) {
+  const chunks: string[] = [];
+  return new Promise<{
+    status: number;
+    headers: Record<string, string | string[] | undefined>;
+    text: () => string;
+    until: (needle: string, ms?: number) => Promise<void>;
+    close: () => Promise<void>;
+  }>((resolve, reject) => {
+    // `agent: false` = eigene Verbindung je Strom. Über den geteilten Agenten würde der
+    // zweite Strom auf die Verbindung des ersten warten, die nie frei wird. Browser machen
+    // es genauso — ein SSE-Strom belegt dauerhaft eine HTTP/1.1-Verbindung.
+    const req = http.request({ host: "127.0.0.1", port, path, headers, agent: false }, (res) => {
+      res.setEncoding("utf8");
+      res.on("data", (c: string) => chunks.push(c));
+      res.on("error", () => {});
+      const text = () => chunks.join("");
+      resolve({
+        status: res.statusCode ?? 0,
+        headers: res.headers,
+        text,
+        until: async (needle, ms = 3000) => {
+          const start = Date.now();
+          while (!text().includes(needle)) {
+            if (Date.now() - start > ms) throw new Error(`nicht gesehen: ${needle} (bisher: ${text()})`);
+            await new Promise((r) => setTimeout(r, 20));
+          }
+        },
+        close: async () => {
+          req.destroy();
+          await new Promise((r) => setTimeout(r, 20)); // Server sieht das 'close'
+        },
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+function callDoc(turns: Array<Record<string, unknown>>, status = "in_progress") {
+  return { widgetToken: TOKEN, status, agentId: "a1", transcript: turns };
+}
+
+test("Strom: vorhandene Turns beim Verbinden, danach nur neue", async () => {
+  let turns = [{ t: 0.5, speaker: "agent", text: "Guten Abend." }];
+  const app = makeApp({
+    findCallByToken: async () => callDoc(turns),
+    findCallsByTokens: async () => [callDoc(turns)],
+  });
+  const s = await openStream(await serve(app));
+  assert.equal(s.headers["content-type"], "text/event-stream; charset=utf-8");
+  await s.until("Guten Abend.");
+  assert.ok(s.text().includes("id: 0"), "Turn-Index als Ereignis-ID");
+
+  turns = [...turns, { t: 3.1, speaker: "caller", text: "Hallo." }];
+  await s.until("Hallo.");
+  assert.equal(s.text().split("Guten Abend.").length - 1, 1, "kein Turn doppelt");
+  await s.close();
+  await app.close();
+});
+
+// Ohne das wiederholte ein Reconnect das ganze Transkript — und das Widget zeigte Turns
+// doppelt, genau in dem Moment, in dem die Verbindung ohnehin gewackelt hat.
+test("Strom: Last-Event-ID überspringt Bekanntes", async () => {
+  const turns = [
+    { t: 0.5, speaker: "agent", text: "eins" },
+    { t: 1.5, speaker: "caller", text: "zwei" },
+    { t: 2.5, speaker: "agent", text: "drei" },
+  ];
+  const app = makeApp({
+    findCallByToken: async () => callDoc(turns),
+    findCallsByTokens: async () => [callDoc(turns)],
+  });
+  const s = await openStream(await serve(app), { "last-event-id": "1" });
+  await s.until("drei");
+  assert.ok(!s.text().includes("eins"), "vor dem Wiedereinstieg gesehene Turns bleiben weg");
+  assert.ok(!s.text().includes("zwei"));
+  await s.close();
+  await app.close();
+});
+
+test("Strom: Anrufende meldet status und schließt", async () => {
+  let status = "in_progress";
+  const app = makeApp({
+    findCallByToken: async () => callDoc([], status),
+    findCallsByTokens: async () => [callDoc([{ t: 0, speaker: "agent", text: "x" }], status)],
+  });
+  const s = await openStream(await serve(app));
+  await s.until("event: turn");
+  status = "completed";
+  await s.until('"status":"completed"');
+  await s.close();
+  await app.close();
+});
+
+// Der Strom darf nicht das schwächere Tor sein: dieselben Prüfungen wie beim Polling.
+test("Strom: unbekanntes Token und abgeschaltetes Transkript → 404", async () => {
+  const app = makeApp({ findCallByToken: async () => null });
+  const s = await openStream(await serve(app));
+  assert.equal(s.status, 404);
+  await s.close();
+  await app.close();
+
+  const app2 = makeApp({
+    findCallByToken: async () => callDoc([]),
+    widgetSettingsForAgent: async () => ({ showTranscript: false, allowedOrigins: [] }),
+  });
+  const s2 = await openStream(await serve(app2));
+  assert.equal(s2.status, 404);
+  await s2.close();
+  await app2.close();
+});
+
+// Der Grund, warum es EINEN Ticker gibt: Sonst wüchse die Last mit der Zahl der Zuschauer,
+// und der Deckel für gleichzeitige Web-Anrufe hält die nicht.
+test("Strom: ein Nachschlag je Takt, nicht einer je Strom", async () => {
+  let queries = 0;
+  let seenTokens: string[] = [];
+  const other = "b".repeat(32);
+  const app = makeApp({
+    findCallByToken: async () => callDoc([{ t: 0, speaker: "agent", text: "x" }]),
+    findCallsByTokens: async (tokens) => {
+      queries++;
+      seenTokens = tokens;
+      return [callDoc([{ t: 0, speaker: "agent", text: "x" }]), { ...callDoc([]), widgetToken: other }];
+    },
+  });
+  const port = await serve(app);
+  const a = await openStream(port);
+  const b = await openStream(port, {}, `/api/widget/call/${other}/stream`);
+  await a.until("event: turn");
+  const before = queries;
+  await new Promise((r) => setTimeout(r, 700)); // mehrere Takte
+  const takte = queries - before;
+  assert.ok(takte >= 2, `mindestens zwei Takte gelaufen (waren ${takte})`);
+  assert.equal(seenTokens.length, 2, "beide Ströme in EINER Abfrage");
+  await a.close();
+  await b.close();
+  await app.close();
+});
+
+// ── CORS (0.11.1) ────────────────────────────────────────────────────────────
+
+// Ohne diese Kopfzeile hält der Browser die Antwort zurück — die Origin-Freigabe aus 0.10.2
+// wäre für eine fremd eingebettete Seite wirkungslos geblieben.
+test("CORS: gelistete Origin bekommt die Freigabe, fremde nicht", async () => {
+  const app = makeApp({
+    findCallByToken: async () => callDoc([]),
+    widgetSettingsForAgent: async () => ({
+      showTranscript: true,
+      allowedOrigins: ["https://kunde.de"],
+    }),
+  });
+  const ok = await app.inject({
+    method: "GET",
+    url: `/api/widget/call/${TOKEN}`,
+    headers: { origin: "https://kunde.de" },
+  });
+  assert.equal(ok.headers["access-control-allow-origin"], "https://kunde.de");
+  assert.equal(ok.headers["vary"], "Origin");
+
+  const nope = await app.inject({
+    method: "GET",
+    url: `/api/widget/call/${TOKEN}`,
+    headers: { origin: "https://boese-seite.de" },
+  });
+  assert.equal(nope.headers["access-control-allow-origin"], undefined);
+  await app.close();
+});
+
+test("CORS: Session-Antwort trägt die Freigabe für eine gelistete Origin", async () => {
+  const app = makeApp();
+  const res = await app.inject(sessionReq(WIDGET_AGENT.widget.key, { origin: "https://kunde.de" }));
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers["access-control-allow-origin"], "https://kunde.de");
+  await app.close();
+});
+
+// Der Preflight kennt den Widget-Schlüssel nicht (kein Rumpf) und antwortet deshalb
+// unspezifisch. Unbedenklich: Er gibt nichts heraus — ob die eigentliche Antwort lesbar
+// ist, entscheidet deren eigene Kopfzeile.
+test("CORS: Preflight des Session-Endpunkts erlaubt POST samt Headern", async () => {
+  const app = makeApp();
+  const res = await app.inject({
+    method: "OPTIONS",
+    url: "/api/widget/session",
+    headers: { origin: "https://irgendwo.de" },
+  });
+  assert.equal(res.statusCode, 204);
+  assert.equal(res.headers["access-control-allow-origin"], "https://irgendwo.de");
+  assert.match(String(res.headers["access-control-allow-headers"]), /content-type/);
+  assert.match(String(res.headers["access-control-allow-headers"]), /x-api-key/);
+  await app.close();
 });

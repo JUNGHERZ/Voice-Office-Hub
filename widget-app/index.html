@@ -129,6 +129,8 @@
   let lastPostedState = "";
   let transcriptTimer = 0;
   let transcriptAfterEnd = 0;
+  let transcriptSource = null; // offener SSE-Strom (bevorzugt gegenüber dem Polling)
+  let transcriptTurns = [];
   let muted = false;
 
   // ── Zustands-/UI-Verwaltung ────────────────────────────────────────────────
@@ -194,6 +196,8 @@
     state = "connecting";
     muted = false;
     token = "";
+    stopTranscript();
+    transcriptTurns = [];
     render();
     try {
       const res = await fetch("/api/widget/session", {
@@ -296,7 +300,8 @@
       render();
     }
     cleanupCall();
-    // Transkript noch kurz weiterlaufen lassen (Summary-Turns trudeln nach).
+    // Der Strom meldet das Ende selbst und schließt; das Polling braucht seinen Nachlauf
+    // (nachtrudelnde Turns).
     transcriptAfterEnd = 2;
   }
 
@@ -366,11 +371,46 @@
   }
 
   // ── Live-Transkript (optional, token-gebunden) ────────────────────────────
+  //
+  // Bevorzugt als Strom (SSE): Der Untertitel erscheint dann, sobald ein Turn steht, statt
+  // im 2-Sekunden-Raster. Das Polling bleibt als Rückfall — für Umgebungen ohne
+  // `EventSource` und für den Fall, dass ein Proxy den Strom nicht durchlässt.
   function startTranscript() {
     if (!session || session.showTranscript === false) return;
     $("transcriptToggle").hidden = false;
+    if (typeof EventSource === "function" && token) startTranscriptStream();
+    else startTranscriptPolling();
+  }
+
+  function startTranscriptStream() {
+    if (transcriptSource) return;
+    const src = new EventSource(`/api/widget/call/${token}/stream`);
+    transcriptSource = src;
+    src.addEventListener("turn", (ev) => {
+      try {
+        transcriptTurns.push(JSON.parse(ev.data));
+        renderTranscript(transcriptTurns);
+      } catch { /* unbrauchbare Zeile überspringen */ }
+    });
+    src.addEventListener("status", () => stopTranscript());
+    src.onerror = () => {
+      // EventSource verbindet von selbst neu (und setzt über Last-Event-ID sauber fort).
+      // Erst wenn es endgültig aufgibt, übernimmt das Polling.
+      if (src.readyState === 2) {
+        transcriptSource = null;
+        startTranscriptPolling();
+      }
+    };
+  }
+
+  function startTranscriptPolling() {
     if (transcriptTimer) return;
     transcriptTimer = setInterval(pollTranscript, 2000);
+  }
+
+  function stopTranscript() {
+    if (transcriptSource) { transcriptSource.close(); transcriptSource = null; }
+    if (transcriptTimer) { clearInterval(transcriptTimer); transcriptTimer = 0; }
   }
 
   async function pollTranscript() {
@@ -384,7 +424,8 @@
       const res = await fetch(`/api/widget/call/${token}`);
       if (!res.ok) return;
       const data = await res.json();
-      renderTranscript(data.transcript || []);
+      transcriptTurns = data.transcript || [];
+      renderTranscript(transcriptTurns);
     } catch { /* nächster Tick */ }
   }
 

@@ -175,6 +175,10 @@ export interface Config {
     requireSession: boolean;
     /** Wie lange eine ausgestellte Sitzung auf ihr INVITE warten darf (Sekunden). */
     sessionTtlSec: number;
+    /** Taktrate des Transkript-Stroms in ms (0.11.1) — ein Nachschlag für ALLE Ströme. */
+    streamIntervalMs: number;
+    /** Deckel für gleichzeitig offene Transkript-Ströme. */
+    streamMax: number;
   };
   defaultAgent: {
     /** Betriebsmodus des Default-Agenten: "agent" (KI) oder "passthrough" (Durchleitung+Aufnahme). */
@@ -409,6 +413,8 @@ export const config: Config = {
     // 300 s: Zwischen Sitzung und INVITE liegt die Mikrofon-Freigabe des Browsers, und die
     // kann dauern — eine knappere Frist ließe echte Anrufe an der Nachfrage scheitern.
     sessionTtlSec: int("WIDGET_SESSION_TTL_SEC", 300),
+    streamIntervalMs: int("WIDGET_STREAM_INTERVAL_MS", 250),
+    streamMax: int("WIDGET_STREAM_MAX", 50),
   },
   defaultAgent: {
     // "agent" (KI beantwortet) oder "passthrough" (Anruf an PASSTHROUGH_TARGET durchleiten + aufnehmen).

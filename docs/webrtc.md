@@ -54,6 +54,12 @@ Das SIP-Passwort ist ein **Deployment-Secret** (`WIDGET_SIP_PASSWORD`, sonst pro
 
 **Restrisiko, bis 0.10.x:** Mit den SIP-Credentials waren alle 3-stelligen Extens im `[webrtc-inbound]`-Context wählbar — also auch andere Agents. Wo je Agent abgerechnet wird, war das eine Kostenverschiebung zwischen Mandanten. Die Sitzungsbindung schließt das: Ein Token gilt für **den** Agenten, für den es ausgestellt wurde. Mit `WIDGET_REQUIRE_SESSION=false` besteht das Restrisiko fort — Passthrough-Agents (deren ausgehendes Bein Geld kostet) sollten dann keine 3-stellige Exten tragen, solange das Widget aktiv ist.
 
+### Aufruf aus einer fremden Seite (CORS)
+
+Die Widget-Endpunkte antworten mit `Access-Control-Allow-Origin: <origin>` und `Vary: Origin`, **wenn** der Origin des Aufrufers in `widget.allowedOrigins` des zugehörigen Agenten steht (0.11.1) — für den Session-Endpunkt, den Transkript-Abruf und den Strom gleichermaßen. Ohne diese Kopfzeile hält der Browser die Antwort zurück, gleich was serverseitig erlaubt ist; die Origin-Freigabe aus 0.10.2 wäre aus einer eingebetteten Seite heraus also wirkungslos geblieben. Dem eigenen Widget fällt das nicht auf, weil es same-origin im iframe der Appliance läuft.
+
+Der Session-Endpunkt beantwortet zusätzlich den Preflight (`OPTIONS`), den ein POST mit `application/json` auslöst. Dort ist der Widget-Schlüssel noch unbekannt — ein Preflight trägt keinen Rumpf —, die Vorabfrage wird deshalb unspezifisch beantwortet. Das gibt nichts preis: Ob die eigentliche Antwort gelesen werden darf, entscheidet deren eigene Kopfzeile, und die kennt den Agenten. Credentials werden nicht verwendet.
+
 ### Sitzung über einen Vermittler statt aus dem Browser
 
 Wird die Sitzung serverseitig geholt — damit der Widget-Schlüssel den Browser nie erreicht —, zählt `WIDGET_SESSION_RATE_IP` nicht mehr Besucher, sondern Worker: Aus „10 pro Minute und Besucher" wird „10 pro Minute für die ganze Appliance". Deshalb wertet `POST /api/widget/session` optional den Header `x-api-key` aus (derselbe Schlüssel wie für die Management-API). Stimmt er, **entfällt die IP-Prüfung** — ein authentifizierter Aufrufer ist ein Vermittler, kein Besucher, und bringt sein eigenes Gate mit.
@@ -68,6 +74,27 @@ Zwei Punkte dazu:
 ## Live-Transkript im Widget (optional)
 
 Das Widget kann das Gespräch live mitschreiben (einklappbares Panel „Transkript anzeigen"), abschaltbar pro Agent (`widget.showTranscript`). Mechanik: Das Widget generiert pro Anruf ein 128-bit-Token und sendet es als SIP-Header `X-Widget-Token`; der Dialplan reicht es als drittes Stasis-Argument durch, die Engine speichert es am Request. `GET /api/widget/call/<token>` liefert dann Status + Transkript-Turns (Polling alle 2 s) — nur für laufende Anrufe plus 120 s Nachlauf, rate-limitiert, Token nie erratbar.
+
+### Als Strom statt im Raster (0.11.1)
+
+`GET /api/widget/call/<token>/stream` liefert dieselben Turns als **Server-Sent-Events**, sobald sie entstehen:
+
+```
+event: turn
+data: {"t":12.4,"end":14.9,"speaker":"agent","text":"Guten Abend, hier ist …"}
+
+event: status
+data: {"status":"completed"}
+```
+
+Jedes `turn`-Ereignis trägt den Turn-Index als `id:`; beim automatischen Reconnect schickt der Browser ihn als `Last-Event-ID` zurück, und der Strom setzt lückenlos fort. Nach dem Gesprächsende kommt ein `status`-Ereignis, dann schließt der Strom. Der Polling-Endpunkt bleibt unverändert bestehen und ist der Rückfall (das mitgelieferte Widget wechselt selbsttätig dorthin, wenn `EventSource` fehlt oder der Strom endgültig abbricht).
+
+SSE und nicht WebSocket, weil es eine Einbahnstraße ist und gewöhnliches HTTP bleibt: Es läuft über denselben Port und denselben TLS-Proxy wie alles andere — dieselbe Begründung wie beim Single-Port-Design.
+
+Zwei Dinge, die man wissen sollte:
+
+- **Die Turns kommen satzweise, nicht wortweise.** Gespeichert wird ein Turn, wenn er steht (beim Agenten, sobald das Modell fertig geschrieben hat — also kurz **vor** dem Ton; beim Anrufer beim End-of-Turn). Zwischenergebnisse gibt es in der Sprachkaskade, sie werden aber bewusst nicht persistiert und stehen deshalb auch nicht im Strom. Ein schnellerer Takt ändert daran nichts.
+- **Ein Strom belegt eine HTTP/1.1-Verbindung.** Browser erlauben davon rund sechs je Domain. Für ein Widget mit einem Strom je Seite ist das reichlich; wer viele Ströme parallel öffnet, sollte es wissen.
 
 ## Sprech-Animation
 
@@ -104,3 +131,5 @@ Der „Orb" im Widget pulsiert **echt pegelgesteuert**: ein Web-Audio-`AnalyserN
 | `WIDGET_SESSION_RATE_IP` / `_KEY` | `10` / `30` | Session-Anfragen pro Minute (IP / Key). Der IP-Deckel entfällt bei gültigem `x-api-key` (siehe „Sitzung über einen Vermittler"). |
 | `WIDGET_REQUIRE_SESSION` *(0.11.0)* | `true` | Web-Anruf nur mit eingelöster Sitzung. `false` = Verhalten vor 0.11.0 (Notausgang für einen Fremdclient, der das Anruf-Token noch nicht mitschickt). |
 | `WIDGET_SESSION_TTL_SEC` *(0.11.0)* | `300` | Wie lange eine ausgestellte Sitzung auf ihr INVITE warten darf. Zwischen beidem liegt die Mikrofon-Freigabe des Browsers — knapper anzusetzen lässt echte Anrufe an der Nachfrage scheitern. |
+| `WIDGET_STREAM_INTERVAL_MS` *(0.11.1)* | `250` | Takt des Transkript-Stroms. Ein Nachschlag je Takt für **alle** offenen Ströme zusammen. |
+| `WIDGET_STREAM_MAX` *(0.11.1)* | `50` | Gleichzeitig offene Transkript-Ströme; darüber 503. |

@@ -6,6 +6,18 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.11.1] – 2026-08-22
+
+### Added
+
+- **Live-Transkript als Strom.** `GET /api/widget/call/<token>/stream` liefert dieselben Turns als Server-Sent-Events, sobald sie entstehen. Bisher holte das Widget alle 2 s das **vollständige** Transkript ab; bei 60 Abrufen pro Minute und IP genügten zwei Tabs hinter derselben Adresse, um stumme 404 zu erzeugen, und der Untertitel sprang im Zwei-Sekunden-Raster. Jedes Ereignis trägt den Turn-Index als `id:`, sodass ein Reconnect über `Last-Event-ID` lückenlos fortsetzt; nach dem Gespräch kommt ein `status`-Ereignis und der Strom schließt. Der Polling-Endpunkt bleibt unverändert und ist der Rückfall.
+
+  SSE statt WebSocket, weil es eine Einbahnstraße ist und gewöhnliches HTTP bleibt — derselbe Port, derselbe TLS-Proxy, keine neue Route-Klasse. Nachgelesen wird serverseitig mit **einer** Abfrage je Takt für alle offenen Ströme zusammen (`WIDGET_STREAM_INTERVAL_MS`, Default 250 ms); ein Fan-out an der Schreibstelle scheidet aus, weil die Turns in einem anderen Prozess entstehen als der Endpunkt lebt.
+
+  Was der Strom **nicht** ändert: Gespeichert werden fertige Turns, nicht Zwischenergebnisse — der Untertitel erscheint satzweise, beim Agenten kurz vor dem Ton. Ein schnellerer Takt ändert daran nichts.
+
+- **CORS für die Widget-Endpunkte.** Session, Transkript-Abruf und Strom antworten mit `Access-Control-Allow-Origin` und `Vary: Origin`, wenn der Origin in `widget.allowedOrigins` des zugehörigen Agenten steht; der Session-Endpunkt beantwortet zusätzlich den Preflight. Ohne diese Kopfzeilen hält der Browser die Antwort zurück, gleich was serverseitig erlaubt ist — die Origin-Freigabe aus 0.10.2 war aus einer eingebetteten Seite heraus also nicht nutzbar. Dem mitgelieferten Widget fiel das nicht auf, weil es same-origin im iframe der Appliance läuft. Ohne passenden Origin bleibt es beim bisherigen Verhalten.
+
 ## [0.11.0] – 2026-08-22
 
 Eine Widget-Sitzung war bisher kein Sicherheitsmerkmal, sondern nur eine Auskunft. Das ändert sich.
