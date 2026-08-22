@@ -34,6 +34,9 @@ function makeCall(opts: { agent?: ResolvedAgent; deps?: Partial<CallHandlerDeps>
   const agent = opts.agent ?? testAgent();
   const deps: Partial<CallHandlerDeps> = {
     findAgent: async () => agent,
+    // Sitzungsprüfung greift nur bei Web-Anrufen; die Fälle, die sie testen, reichen
+    // eine eigene Attrappe ein. Sonst soll sie keinen Anruf aufhalten.
+    consumeWidgetSession: async () => ({ ok: true }),
     createMedia: () => media,
     createSession: () => session,
     repo,

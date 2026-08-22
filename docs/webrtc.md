@@ -42,13 +42,28 @@ Zwei getrennte Schutzschichten — wichtig zum Verständnis:
 1. **Wer darf einbetten? → `widget.allowedOrigins`** wird als `Content-Security-Policy: frame-ancestors` auf der iframe-Seite (`GET /widget/<key>`) durchgesetzt. Fremde Websites können das Widget **nicht** einbetten; die Appliance-Domain (`'self'`, Demo-Seite) ist immer erlaubt.
 2. **Wer bekommt SIP-Zugangsdaten? → `POST /api/widget/session`** (öffentlich, aber): Kill-Switch, gültiger + aktivierter Key, Origin-Prüfung, Rate-Limits pro IP und pro Key, Deckel für gleichzeitige Web-Anrufe (`WIDGET_MAX_CONCURRENT`). Erst dann liefert er WS-URL + SIP-Credentials.
 
+3. **Wird der Anruf zugelassen? → das Anruf-Token** (0.11.0). `POST /api/widget/session` prägt je Anruf ein Token (`callToken`), merkt sich `Token → Agent` mit kurzer Frist und gibt es zurück; der Client setzt es als SIP-Header `X-Widget-Token`. Beim `StasisStart` löst die Engine es ein: unbekannt, abgelaufen, schon verbraucht oder für einen **anderen** Agenten ausgestellt → der Anruf endet **vor** dem Answer, ohne Gesprächsdatensatz und ohne Kosten. Eine `info`-Zeile nennt den Grund (`missing`, `unknown`, `expired`, `consumed`, `foreign-agent`) — ohne sie sähe ein falsch konfiguriertes Widget aus wie „Anrufer legen sofort auf".
+
 **Dieselbe Liste gilt für beides** (seit 0.10.2). Der Fetch aus einem eingebetteten iframe trägt die Origin der **einbettenden** Seite — ohne diese Kopplung ließe sich das Widget nur auf der Appliance selbst betreiben. Erlaubt sind also die Appliance-Domain und die Einträge aus `widget.allowedOrigins`; alles andere bleibt bei 403. **Leere Liste = unverändertes Verhalten** (nur die Appliance selbst). Die Einträge werden für beide Zwecke gleich gelesen (CSP-Semantik): `https://*.kunde.de` deckt Unterdomänen ab, **nicht** `https://kunde.de` selbst; Schema und Port müssen übereinstimmen. Ein Eintrag, der die Einbettung erlaubt, erlaubt damit auch die Session — und umgekehrt.
 
 Beachte, was das Freischalten bedeutet: Eine gelistete Seite darf SIP-Zugangsdaten abholen, also mit dem Agenten sprechen. Das ist dieselbe Exposure-Klasse wie unten beschrieben — begrenzt durch Rate-Limits, Concurrent-Deckel und Kill-Switch, nicht durch die Liste.
 
-Das SIP-Passwort ist ein **Deployment-Secret** (`WIDGET_SIP_PASSWORD`, sonst pro Container-Start frisch generiert). **Worst Case bei Leak:** Ein Angreifer kann mit dem KI-Agenten sprechen (API-Kosten) — dieselbe Exposure-Klasse wie die öffentliche Rufnummer des Agenten. Er kann **nicht** über den Trunk raustelefonieren (der Context kennt keine E.164-Ziele). Gegenmittel: Kill-Switch, Rate-Limits, Container-Neustart (neues Passwort), „Schlüssel rotieren" im Agent-Formular (macht geleakte Embed-Keys wertlos).
+Das SIP-Passwort ist ein **Deployment-Secret** (`WIDGET_SIP_PASSWORD`, sonst pro Container-Start frisch generiert). Seit 0.11.0 reicht es allein aber nicht mehr: Ohne eingelöste Sitzung endet ein Web-INVITE vor dem Answer. **Worst Case bei Leak:** abgewiesene INVITEs — kein Gespräch, keine API-Kosten, kein Datensatz. Echte ephemere SIP-Zugangsdaten je Sitzung wären der direktere Weg, setzen aber dynamische PJSIP-Konfiguration voraus (Realtime oder ein Reload je Sitzung); die Appliance schreibt `pjsip_webrtc.conf` einmal beim Containerstart. Das Anruf-Token erreicht dasselbe Schutzziel ohne dieses Gerüst.
 
-**Restrisiko (dokumentiert):** Mit den SIP-Credentials sind alle 3-stelligen Extens im `[webrtc-inbound]`-Context wählbar — also auch andere Agents mit 3-stelliger Pseudo-DDI. Passthrough-Agents (deren ausgehendes Bein Geld kostet) sollten daher keine 3-stellige Exten tragen, solange das Widget aktiv ist.
+**Wenn `WIDGET_REQUIRE_SESSION=false` gesetzt ist**, gilt der Absatz oben nicht: Dann ist das SIP-Passwort wieder das einzige Merkmal, und ein Angreifer kann mit dem KI-Agenten sprechen (API-Kosten) — dieselbe Exposure-Klasse wie die öffentliche Rufnummer des Agenten. Er kann **nicht** über den Trunk raustelefonieren (der Context kennt keine E.164-Ziele). Gegenmittel: Kill-Switch, Rate-Limits, Container-Neustart (neues Passwort), „Schlüssel rotieren" im Agent-Formular (macht geleakte Embed-Keys wertlos).
+
+**Restrisiko, bis 0.10.x:** Mit den SIP-Credentials waren alle 3-stelligen Extens im `[webrtc-inbound]`-Context wählbar — also auch andere Agents. Wo je Agent abgerechnet wird, war das eine Kostenverschiebung zwischen Mandanten. Die Sitzungsbindung schließt das: Ein Token gilt für **den** Agenten, für den es ausgestellt wurde. Mit `WIDGET_REQUIRE_SESSION=false` besteht das Restrisiko fort — Passthrough-Agents (deren ausgehendes Bein Geld kostet) sollten dann keine 3-stellige Exten tragen, solange das Widget aktiv ist.
+
+### Sitzung über einen Vermittler statt aus dem Browser
+
+Wird die Sitzung serverseitig geholt — damit der Widget-Schlüssel den Browser nie erreicht —, zählt `WIDGET_SESSION_RATE_IP` nicht mehr Besucher, sondern Worker: Aus „10 pro Minute und Besucher" wird „10 pro Minute für die ganze Appliance". Deshalb wertet `POST /api/widget/session` optional den Header `x-api-key` aus (derselbe Schlüssel wie für die Management-API). Stimmt er, **entfällt die IP-Prüfung** — ein authentifizierter Aufrufer ist ein Vermittler, kein Besucher, und bringt sein eigenes Gate mit.
+
+Was **bleibt**: der Deckel je Widget-Schlüssel (`WIDGET_SESSION_RATE_KEY`, wirkt je Agent und ist damit die passende Größe für einen Vermittler), `WIDGET_MAX_CONCURRENT`, der Kill-Switch, die Origin-Prüfung und die Sitzungsbindung. Ohne den Header ändert sich nichts; ein **falscher** Header steht wie gar keiner.
+
+Zwei Punkte dazu:
+
+- Ein Server-zu-Server-Aufruf schickt keinen `Origin`, und ohne diesen Header lässt der Endpunkt seit jeher durch — ein Vermittler braucht also **keinen** Eintrag in `allowedOrigins`. Schickt sein HTTP-Client doch einen, muss der Wert gelistet sein (sonst 403, und der Fehler wird beim Schlüssel gesucht).
+- `ADMIN_API_KEY` ist der volle Management-Schlüssel. Ein eigener, schmalerer wäre sauberer, wäre hier aber Fassade: Wer Agenten samt `widget.allowedOrigins` über die API anlegt, hält ihn ohnehin. Ein zweites Geheimnis brächte keine Trennung, nur eine zweite Rotationspflicht.
 
 ## Live-Transkript im Widget (optional)
 
@@ -86,4 +101,6 @@ Der „Orb" im Widget pulsiert **echt pegelgesteuert**: ein Web-Audio-`AnalyserN
 | `WIDGET_STUN_SERVER` | Google-STUN | ICE-Server für den Browser. |
 | `WIDGET_WS_URL` | *(leer)* | Feste WS-URL (Sonder-Proxys); leer = aus dem Request-Host abgeleitet. |
 | `WIDGET_MAX_CONCURRENT` | `5` | Max. gleichzeitige Web-Anrufe. |
-| `WIDGET_SESSION_RATE_IP` / `_KEY` | `10` / `30` | Session-Anfragen pro Minute (IP / Key). |
+| `WIDGET_SESSION_RATE_IP` / `_KEY` | `10` / `30` | Session-Anfragen pro Minute (IP / Key). Der IP-Deckel entfällt bei gültigem `x-api-key` (siehe „Sitzung über einen Vermittler"). |
+| `WIDGET_REQUIRE_SESSION` *(0.11.0)* | `true` | Web-Anruf nur mit eingelöster Sitzung. `false` = Verhalten vor 0.11.0 (Notausgang für einen Fremdclient, der das Anruf-Token noch nicht mitschickt). |
+| `WIDGET_SESSION_TTL_SEC` *(0.11.0)* | `300` | Wie lange eine ausgestellte Sitzung auf ihr INVITE warten darf. Zwischen beidem liegt die Mikrofon-Freigabe des Browsers — knapper anzusetzen lässt echte Anrufe an der Nachfrage scheitern. |

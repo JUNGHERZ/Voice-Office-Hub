@@ -6,6 +6,24 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.11.0] – 2026-08-22
+
+Eine Widget-Sitzung war bisher kein Sicherheitsmerkmal, sondern nur eine Auskunft. Das ändert sich.
+
+### Changed
+
+- **Ein Web-Anruf braucht eine eingelöste Sitzung.** `POST /api/widget/session` prägt jetzt je Anruf ein Token (`callToken` in der Antwort), merkt sich `Token → Agent` mit kurzer Frist und gibt es zurück; der Client setzt es wie bisher als SIP-Header `X-Widget-Token`. Beim `StasisStart` löst die Engine es ein — unbekannt, abgelaufen, schon verbraucht oder für einen **anderen** Agenten ausgestellt, und der Anruf endet vor dem Answer, ohne Gesprächsdatensatz und ohne Kosten.
+
+  Das schließt zwei Lücken auf einmal. Erstens war das SIP-Passwort ein Deployment-Secret: Wer es hatte, brauchte den Session-Endpunkt nie wieder, und damit griffen weder Origin-Prüfung noch Rate-Limits noch der Deckel für gleichzeitige Anrufe. Zweitens waren mit denselben Zugangsdaten **alle** dreistelligen Durchwahlen im `[webrtc-inbound]`-Kontext wählbar, also auch die eines fremden Agenten — wo je Agent abgerechnet wird, war das eine Kostenverschiebung zwischen Mandanten. Ein Token gilt jetzt für genau einen Agenten und genau ein INVITE; das Live-Transkript bleibt davon unberührt und funktioniert mit demselben Token weiter, auch im Nachlauf.
+
+  Echte ephemere SIP-Zugangsdaten wären der direktere Weg, setzen aber dynamische PJSIP-Konfiguration voraus (Realtime oder ein Reload je Sitzung) — die Appliance schreibt ihre Konfiguration einmal beim Containerstart. Das Token erreicht dasselbe Schutzziel ohne dieses Gerüst.
+
+  **Für Bestandsbetriebe:** Das mitgelieferte Widget zieht automatisch mit. Ein eigener Client, der sein Token bisher selbst erzeugt, muss es aus der Session-Antwort übernehmen — oder übergangsweise `WIDGET_REQUIRE_SESSION=false` setzen. Abgewiesene Anrufe stehen als `info`-Zeile mit Grund im Log; ohne sie sähe ein falsch konfiguriertes Widget aus wie „Anrufer legen sofort auf".
+
+### Added
+
+- **`x-api-key` am Session-Endpunkt hebt den IP-Deckel auf.** Wer die Sitzung serverseitig holt, damit der Widget-Schlüssel den Browser nie erreicht, wurde von `WIDGET_SESSION_RATE_IP` falsch gezählt: Der Deckel traf nicht mehr einzelne Besucher, sondern die ganze Appliance. Ein authentifizierter Aufrufer ist ein Vermittler und kein Besucher — er bringt sein eigenes Gate mit. Alles andere bleibt: Key-Deckel je Agent, Concurrent-Deckel, Kill-Switch, Origin-Prüfung, Sitzungsbindung. Ohne den Header ändert sich nichts, ein falscher Header steht wie gar keiner.
+
 ## [0.10.3] – 2026-08-22
 
 ### Added

@@ -30,10 +30,21 @@ export function clearSession(reply: FastifyReply): void {
   reply.clearCookie(SESSION_COOKIE, { path: "/" });
 }
 
+/**
+ * Trägt die Anfrage einen gültigen Management-API-Key?
+ *
+ * Eigene Funktion, weil es außerhalb von `requireAuth` einen zweiten Leser gibt: Der
+ * öffentliche Widget-Session-Endpoint bleibt öffentlich, behandelt einen authentifizierten
+ * Aufrufer aber als Vermittler und nicht als Besucher (siehe routes/widget.ts). Zwei
+ * Vergleichspfade für dasselbe Geheimnis wären eine Einladung, einen davon zu vergessen.
+ */
+export function hasValidApiKey(req: FastifyRequest): boolean {
+  return !!config.admin.apiKey && req.headers["x-api-key"] === config.admin.apiKey;
+}
+
 /** preHandler: lässt valides Session-Cookie ODER gültigen API-Key durch, sonst 401. */
 export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const apiKey = req.headers["x-api-key"];
-  if (config.admin.apiKey && apiKey === config.admin.apiKey) return;
+  if (hasValidApiKey(req)) return;
 
   const raw = req.cookies?.[SESSION_COOKIE];
   if (raw) {

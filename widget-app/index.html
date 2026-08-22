@@ -114,13 +114,8 @@
   const widgetKey = decodeURIComponent(location.pathname.split("/").pop() || "");
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // Pro Anruf ein frisches Token (32 Hex) — geht als SIP-Header mit und schaltet
-  // das token-gebundene Live-Transkript frei.
-  function newToken() {
-    const bytes = new Uint8Array(16);
-    crypto.getRandomValues(bytes);
-    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  }
+  // Das Anruf-Token prägt der Session-Endpunkt (callToken). Es geht als SIP-Header mit,
+  // entscheidet über die Zulassung des Anrufs und schaltet das Live-Transkript frei.
 
   let state = "idle"; // idle | connecting | incall | ended | error
   let ua = null;
@@ -198,7 +193,7 @@
   async function startCall() {
     state = "connecting";
     muted = false;
-    token = newToken();
+    token = "";
     render();
     try {
       const res = await fetch("/api/widget/session", {
@@ -211,6 +206,7 @@
         throw new Error(body.message || "Der Dienst ist gerade nicht erreichbar.");
       }
       session = await res.json();
+      token = session.callToken || "";
       if (session.agentName) $("agentName").textContent = session.agentName;
 
       ua = new UserAgent({
@@ -383,7 +379,7 @@
       if (transcriptAfterEnd <= 0) { clearInterval(transcriptTimer); transcriptTimer = 0; return; }
       transcriptAfterEnd -= 1;
     }
-    if (!panelOpen) return; // nicht offen → keine Requests
+    if (!panelOpen || !token) return; // nicht offen oder kein Token → keine Requests
     try {
       const res = await fetch(`/api/widget/call/${token}`);
       if (!res.ok) return;

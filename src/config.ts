@@ -171,6 +171,10 @@ export interface Config {
     /** Rate-Limits für den Session-Endpoint (Anfragen pro Minute). */
     sessionRatePerMinIp: number;
     sessionRatePerMinKey: number;
+    /** Web-Anruf nur mit eingelöster Sitzung zulassen (0.11.0). Aus = Verhalten vor 0.11.0. */
+    requireSession: boolean;
+    /** Wie lange eine ausgestellte Sitzung auf ihr INVITE warten darf (Sekunden). */
+    sessionTtlSec: number;
   };
   defaultAgent: {
     /** Betriebsmodus des Default-Agenten: "agent" (KI) oder "passthrough" (Durchleitung+Aufnahme). */
@@ -401,6 +405,10 @@ export const config: Config = {
     maxConcurrent: int("WIDGET_MAX_CONCURRENT", 5),
     sessionRatePerMinIp: int("WIDGET_SESSION_RATE_IP", 10),
     sessionRatePerMinKey: int("WIDGET_SESSION_RATE_KEY", 30),
+    requireSession: bool("WIDGET_REQUIRE_SESSION", true),
+    // 300 s: Zwischen Sitzung und INVITE liegt die Mikrofon-Freigabe des Browsers, und die
+    // kann dauern — eine knappere Frist ließe echte Anrufe an der Nachfrage scheitern.
+    sessionTtlSec: int("WIDGET_SESSION_TTL_SEC", 300),
   },
   defaultAgent: {
     // "agent" (KI beantwortet) oder "passthrough" (Anruf an PASSTHROUGH_TARGET durchleiten + aufnehmen).

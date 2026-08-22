@@ -6,6 +6,7 @@ process.env.WIDGET_SIP_PASSWORD = "test-sip-pass";
 process.env.WIDGET_SESSION_RATE_IP = "3";
 process.env.WIDGET_SESSION_RATE_KEY = "10";
 process.env.WIDGET_MAX_CONCURRENT = "2";
+process.env.ADMIN_API_KEY = "test-management-key";
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -19,6 +20,7 @@ const { SlidingWindowLimiter } = await import("../src/admin/rateLimit.js");
 type Deps = Partial<import("../src/admin/routes/widget.js").WidgetRouteDeps>;
 
 const WIDGET_AGENT = {
+  _id: "6a411b273d84ad5c5d4d28ef",
   name: "Vertrieb Demo",
   widget: {
     enabled: true,
@@ -34,6 +36,7 @@ function makeApp(deps: Deps = {}) {
   void app.register(widgetRoutes, {
     deps: {
       findByWidgetKey: async (key: string) => (key === WIDGET_AGENT.widget.key ? WIDGET_AGENT : null),
+      issueSession: async () => "f".repeat(32),
       countActiveWebCalls: async () => 0,
       findCallByToken: async () => null,
       showTranscriptForAgent: async () => true,
@@ -149,6 +152,73 @@ test("Session: IP-Rate-Limit → 429", async () => {
   }
   const blocked = await app.inject(sessionReq());
   assert.equal(blocked.statusCode, 429);
+  await app.close();
+});
+
+// 5b ─ Ein Vermittler (Backend holt die Sitzung, damit der Widget-Schlüssel den Browser nie
+// erreicht) ist kein Besucher: Der IP-Deckel zählte sonst Worker statt Besucher und wäre
+// appliance-weit statt pro Besucher. Der Key hebt genau diesen Deckel auf — sonst nichts.
+test("Session: gültiger x-api-key hebt den IP-Deckel auf", async () => {
+  const app = makeApp();
+  for (let i = 0; i < 3; i++) await app.inject(sessionReq());
+  assert.equal((await app.inject(sessionReq())).statusCode, 429, "ohne Key gedeckelt");
+
+  const withKey = await app.inject(sessionReq(WIDGET_AGENT.widget.key, { "x-api-key": "test-management-key" }));
+  assert.equal(withKey.statusCode, 200);
+  await app.close();
+});
+
+// Ein falscher Key darf nicht besser stehen als gar keiner — sonst wäre der Deckel eine
+// Formalität, die ein beliebiger Header aushebelt.
+test("Session: falscher x-api-key bleibt am IP-Deckel hängen", async () => {
+  const app = makeApp();
+  for (let i = 0; i < 3; i++) await app.inject(sessionReq());
+  const res = await app.inject(sessionReq(WIDGET_AGENT.widget.key, { "x-api-key": "falsch" }));
+  assert.equal(res.statusCode, 429);
+  await app.close();
+});
+
+// Der Key-Deckel (je Widget-Schlüssel, also je Agent) bleibt: Er ist die richtige Größe
+// für einen Vermittler und die einzige Bremse, die dann noch wirkt.
+test("Session: x-api-key hebt den Key-Deckel NICHT auf", async () => {
+  const app = makeApp();
+  const key = WIDGET_AGENT.widget.key;
+  // WIDGET_SESSION_RATE_KEY ist auf 10 gepinnt; mit Key läuft der IP-Deckel nicht mit.
+  for (let i = 0; i < 10; i++) {
+    const ok = await app.inject(sessionReq(key, { "x-api-key": "test-management-key" }));
+    assert.equal(ok.statusCode, 200, `Request ${i + 1} noch erlaubt`);
+  }
+  const blocked = await app.inject(sessionReq(key, { "x-api-key": "test-management-key" }));
+  assert.equal(blocked.statusCode, 429);
+  await app.close();
+});
+
+// Der Key ersetzt keine Origin-Freigabe: Er sagt „kein Besucher", nicht „alles erlaubt".
+test("Session: x-api-key ersetzt die Origin-Freigabe nicht", async () => {
+  const app = makeApp();
+  const res = await app.inject(
+    sessionReq(WIDGET_AGENT.widget.key, {
+      "x-api-key": "test-management-key",
+      origin: "https://boese-seite.de",
+    }),
+  );
+  assert.equal(res.statusCode, 403);
+  await app.close();
+});
+
+// Das Anruf-Token kommt aus der Antwort — ohne es kommt seit 0.11.0 kein Web-Anruf zustande.
+test("Session: Antwort trägt das ausgestellte callToken", async () => {
+  const issued: Array<{ agentId: string; exten?: string }> = [];
+  const app = makeApp({
+    issueSession: async (agentId, exten) => {
+      issued.push({ agentId, ...(exten ? { exten } : {}) });
+      return "abc123abc123abc1";
+    },
+  });
+  const res = await app.inject(sessionReq());
+  assert.equal(res.statusCode, 200);
+  assert.equal((res.json() as Record<string, unknown>).callToken, "abc123abc123abc1");
+  assert.deepEqual(issued, [{ agentId: String(WIDGET_AGENT._id), exten: "120" }]);
   await app.close();
 });
 

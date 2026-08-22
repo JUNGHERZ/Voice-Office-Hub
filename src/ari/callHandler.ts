@@ -25,6 +25,7 @@ import type { ResolvedAgent, ResolvedAmbience } from "../types.js";
 import { logger } from "../util/logger.js";
 import { createVoiceAgentSession } from "../voice/factory.js";
 import type { VoiceAgentSession } from "../voice/types.js";
+import { consumeWidgetSession } from "../db/widgetSessions.js";
 import { findAgent, defaultAgent } from "./agentResolver.js";
 import { isChannelGone } from "./ariErrors.js";
 import { resolveOverlay } from "./callResolver.js";
@@ -105,6 +106,12 @@ export interface CallHandlerDeps {
    * werden. Ohne RESOLVER_URL ist der Hook inert und reicht den Agenten unverändert durch.
    */
   resolveOverlay: typeof resolveOverlay;
+  /**
+   * Einlösen der Widget-Sitzung (0.11.0) — entscheidet, ob ein Web-INVITE überhaupt zu
+   * einem Anruf wird. Eigene Naht, weil sie VOR dem Overlay-Hook und vor jedem Schreibvorgang
+   * greift: Ein Anruf ohne Sitzung soll weder Hook-Aufruf noch Gesprächsdatensatz kosten.
+   */
+  consumeWidgetSession: typeof consumeWidgetSession;
   handlePassthrough: typeof handlePassthrough;
   createMedia: (callId: string, uuid: string, ambience?: ResolvedAmbience) => CallMedia;
   createSession: typeof createVoiceAgentSession;
@@ -135,6 +142,7 @@ export const defaultDeps: CallHandlerDeps = {
   findAgent,
   defaultAgent,
   resolveOverlay,
+  consumeWidgetSession,
   handlePassthrough,
   createMedia,
   createSession: createVoiceAgentSession,
@@ -190,6 +198,29 @@ export async function handleStasisStart(
   let overlay: OverlayDecision = { report: true, announce: false };
 
   if (agent) {
+    // Widget-Sitzung einlösen (0.11.0), noch vor dem Overlay-Hook und vor jedem Schreiben.
+    // Web-Anrufe erkennt der Dialplan-erzwungene Caller-ID-Präfix — im [webrtc-inbound]-
+    // Kontext setzt er `web-<uniqueid>`, der Client hat darauf keinen Einfluss.
+    if (config.widget.requireSession && callerNumber?.startsWith("web-")) {
+      const admission = await deps.consumeWidgetSession(widgetToken, agent.id);
+      if (!admission.ok) {
+        // Bewusst `info` und nicht stumm: Ohne diese Zeile sähe ein falsch konfiguriertes
+        // Widget exakt wie „Anrufer legen sofort auf" aus. Ein Gesprächsdatensatz entsteht
+        // richtigerweise nicht — deshalb ist das Log die einzige Spur.
+        log.info("Web-Anruf ohne gültige Sitzung abgewiesen", {
+          grund: admission.reason,
+          exten: targetNumber,
+          agent: agent.name,
+        });
+        try {
+          await channel.hangup({ reason: "unallocated" });
+        } catch {
+          try { await channel.hangup(); } catch { /* ignore */ }
+        }
+        return;
+      }
+    }
+
     // Overlay-Hook auf dem Klingelpfad: läuft NUR auf einem DB-Treffer und VOR dem Answer.
     const decision = await deps.resolveOverlay(agent, {
       channel: widgetToken ? "web" : "phone",

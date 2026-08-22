@@ -21,7 +21,9 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { config } from "../../config.js";
 import { Agent } from "../../db/models/Agent.js";
 import { RequestModel } from "../../db/models/Request.js";
+import { issueWidgetSession } from "../../db/widgetSessions.js";
 import { logger } from "../../util/logger.js";
+import { hasValidApiKey } from "../auth.js";
 import { SlidingWindowLimiter } from "../rateLimit.js";
 
 const log = logger.child({ mod: "widget" });
@@ -49,6 +51,8 @@ interface WidgetCallDoc {
 /** Injizierbare Datenzugriffe (Tests reichen Fakes ein; Produktion nutzt Mongoose). */
 export interface WidgetRouteDeps {
   findByWidgetKey: (key: string) => Promise<WidgetAgentDoc | null>;
+  /** Stellt das Anruf-Token aus (0.11.0) und gibt es zurück. */
+  issueSession: (agentId: string, exten: string | undefined) => Promise<string>;
   countActiveWebCalls: () => Promise<number>;
   findCallByToken: (token: string) => Promise<WidgetCallDoc | null>;
   showTranscriptForAgent: (agentId: unknown) => Promise<boolean>;
@@ -58,6 +62,7 @@ export interface WidgetRouteDeps {
 export const defaultWidgetDeps: WidgetRouteDeps = {
   findByWidgetKey: (key) =>
     Agent.findOne({ "widget.key": key, "widget.enabled": true, enabled: true }).lean<WidgetAgentDoc>(),
+  issueSession: (agentId, exten) => issueWidgetSession(agentId, exten, config.widget.sessionTtlSec),
   // Nutzt den Partial-Index auf in_progress; Web-Anrufe sind an der Caller-ID erkennbar.
   countActiveWebCalls: () =>
     RequestModel.countDocuments({ status: "in_progress", callerNumber: /^web-/ }),
@@ -150,7 +155,14 @@ export async function widgetRoutes(
       if (!config.widget.enabled) return reply.code(404).send({ error: "not found" });
 
       const { key } = req.body as { key: string };
-      if (!ipLimiter.allow(req.ip) || !keyLimiter.allow(key)) {
+      // Ein authentifizierter Aufrufer ist ein Vermittler, kein Besucher: Holt ein Backend
+      // die Sitzung (damit der Widget-Schlüssel den Browser nie erreicht), zählt der
+      // IP-Deckel nicht mehr Besucher, sondern Worker — aus „10 pro Minute und Besucher"
+      // würde „10 pro Minute für die ganze Appliance". Der Key hebt genau diesen Deckel auf,
+      // nichts weiter: Key-Deckel, Kill-Switch, Origin-Prüfung und der Deckel für
+      // gleichzeitige Anrufe bleiben. Ohne den Header ändert sich nichts.
+      const broker = hasValidApiKey(req);
+      if ((!broker && !ipLimiter.allow(req.ip)) || !keyLimiter.allow(key)) {
         return reply.code(429).send({ message: "Zu viele Anfragen — bitte kurz warten." });
       }
 
@@ -193,10 +205,17 @@ export async function widgetRoutes(
         config.widget.wsUrlOverride ||
         `${req.protocol === "https" ? "wss" : "ws"}://${host}/ws`;
 
+      // Das Token für genau diesen Anruf (0.11.0). Der Client setzt es als SIP-Header
+      // `X-Widget-Token`; die Engine lässt das INVITE nur durch, wenn es hier ausgestellt
+      // wurde, noch gilt und zu diesem Agenten gehört. Ohne den Session-Endpoint kommt
+      // damit kein Web-Anruf mehr zustande, auch nicht mit gültigem SIP-Passwort.
+      const callToken = await deps.issueSession(String(agent._id), agent.widget.exten);
+
       return {
         wsUrl,
         domain: hostname,
         exten: agent.widget.exten,
+        callToken,
         authUser: config.widget.sipUser,
         authPassword: config.widget.sipPassword,
         iceServers: [{ urls: config.widget.stunServer }],
