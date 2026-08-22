@@ -6,6 +6,16 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.10.2] – 2026-08-22
+
+### Added
+
+- **Widget-Session auch für fremde Origins.** `POST /api/widget/session` akzeptierte bisher nur Anfragen von der Appliance selbst — das Widget ließ sich damit nirgendwo sonst betreiben, denn der Fetch aus dem eingebetteten iframe trägt die Origin der **einbettenden** Seite. Erlaubt sind jetzt zusätzlich die Origins aus `widget.allowedOrigins` des Agenten. Dasselbe Feld steuerte bereits die Einbettung (CSP `frame-ancestors`); es gilt nun für beides, mit derselben Semantik: `https://*.kunde.de` deckt Unterdomänen ab, nicht die Domäne selbst, Schema und Port müssen übereinstimmen. **Leere Liste = unverändertes Verhalten** (nur die Appliance selbst); eine nicht gelistete Origin bleibt bei 403. Kein neuer Mechanismus: kein Ticket, kein Exten-Pool, `findByWidgetKey` unverändert.
+
+### Changed
+
+- **Doku ohne harte Zeilenumbrüche.** Die Dateien unter `docs/` waren auf ~100 Zeichen umbrochen. Ein Absatz ist jetzt eine Zeile — inhaltlich unverändert (geprüft: identische Wortfolge, Code-Blöcke und Tabellen unangetastet), aber Diffs bleiben künftig auf die tatsächlich geänderten Stellen beschränkt. Nebenbei repariert: zwölf deutsche Komposita, die der alte Umbruch mitten im Wort getrennt hatte.
+
 ## [0.10.1] – 2026-08-22
 
 Ein aufgelegter Klingelversuch ist kein Systemfehler mehr — und er klingelt jetzt

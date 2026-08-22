@@ -1328,8 +1328,10 @@ export default define({
                     onglk-input="${(host, e) => setField(host, "widgetOrigins", e.detail.value)}"
                   ></glk-textarea>
                   <div class="empty-hint">
-                    Nur diese Websites dürfen das Widget einbetten (CSP frame-ancestors). Die
-                    Appliance-Domain selbst ist immer erlaubt (Demo-Seite).
+                    Nur diese Websites dürfen das Widget einbetten und eine Session holen
+                    (CSP frame-ancestors + Origin-Prüfung). Die Appliance-Domain selbst ist
+                    immer erlaubt (Demo-Seite). <code>https://*.kunde.de</code> deckt
+                    Unterdomänen ab, nicht die Domäne selbst.
                   </div>
                   <glk-toggle
                     label="Live-Transkript im Widget anzeigen"

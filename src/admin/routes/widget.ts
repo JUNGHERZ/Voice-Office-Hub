@@ -3,6 +3,8 @@
  *
  *   POST /api/widget/session     key-gebunden: liefert kurzlebige Verbindungsdaten
  *                                (WS-URL, SIP-Creds, Exten) NUR nach Key-/Origin-/Limit-Prüfung.
+ *                                Erlaubt sind die Appliance selbst und die Origins aus
+ *                                `widget.allowedOrigins` des Agenten (0.10.2).
  *   GET  /widget/:key            iframe-Seite des Widgets; setzt pro Agent den
  *                                CSP-frame-ancestors-Header (wer darf einbetten).
  *   GET  /api/widget/call/:token token-gebunden: Live-Transkript des laufenden Web-Anrufs.
@@ -70,6 +72,45 @@ export const defaultWidgetDeps: WidgetRouteDeps = {
 
 /** Nachlauf, in dem das Transkript nach Gesprächsende noch abrufbar bleibt. */
 const CALL_GRACE_MS = 120_000;
+
+/**
+ * Darf dieser Origin eine Session für diesen Agenten holen? (0.10.2)
+ *
+ * `widget.allowedOrigins` steuert bisher nur die Einbettung (CSP `frame-ancestors`).
+ * Dasselbe Feld gilt jetzt auch hier — sonst ließe sich das Widget nur auf der Appliance
+ * selbst betreiben: Der Fetch aus einem fremd eingebetteten iframe trägt die Origin der
+ * einbettenden Seite, und die wurde pauschal abgewiesen. Ein Feld, zwei Wirkungen, dieselbe
+ * Liste — alles andere lädt dazu ein, eine der beiden zu vergessen.
+ *
+ * Die Semantik folgt bewusst der von CSP, weil die Einträge dort landen: `*.kunde.de` deckt
+ * Unterdomänen ab, NICHT die Domäne selbst; Schema und Port müssen übereinstimmen. Ohne
+ * diese Gleichheit lüde ein Eintrag, der die Einbettung erlaubt, still zu einem 403 ein.
+ * Leere Liste = unverändertes Verhalten (nur die Appliance selbst).
+ */
+export function widgetOriginAllowed(origin: string, allowed: readonly string[] = []): boolean {
+  const want = parseOrigin(origin);
+  if (!want) return false;
+  return allowed.some((raw) => {
+    const entry = parseOrigin(raw);
+    if (!entry) return false;
+    if (entry.scheme !== want.scheme || entry.port !== want.port) return false;
+    if (entry.host.startsWith("*.")) {
+      // Nur echte Unterdomänen: Der führende Punkt im Suffix verhindert, dass
+      // "boese-kunde.de" als Unterdomäne von "kunde.de" durchgeht, die Längenprüfung,
+      // dass die Domäne selbst als eigene Unterdomäne zählt.
+      const suffix = entry.host.slice(1); // "*.kunde.de" → ".kunde.de"
+      return want.host.endsWith(suffix) && want.host.length > suffix.length;
+    }
+    return entry.host === want.host;
+  });
+}
+
+/** `https://Host:8443/` → `{scheme, host, port}` in Kleinschreibung; sonst undefined. */
+function parseOrigin(raw: string): { scheme: string; host: string; port: string } | undefined {
+  const m = /^(https?):\/\/([^/\s:]+)(?::(\d+))?\/?$/i.exec(String(raw ?? "").trim());
+  if (!m) return undefined;
+  return { scheme: m[1]!.toLowerCase(), host: m[2]!.toLowerCase(), port: m[3] ?? "" };
+}
 const TOKEN_PATTERN = /^[a-f0-9]{16,64}$/;
 
 export async function widgetRoutes(
@@ -113,15 +154,24 @@ export async function widgetRoutes(
         return reply.code(429).send({ message: "Zu viele Anfragen — bitte kurz warten." });
       }
 
-      // Der Fetch kommt immer same-origin aus dem iframe; ein fremder Origin ist ein
-      // Skript-Zugriff von außen. (Einbett-Schutz macht frame-ancestors, s. unten.)
-      const origin = req.headers.origin;
-      if (origin && origin !== applianceOrigin(req)) {
-        return reply.code(403).send({ error: "forbidden" });
-      }
-
+      // Der Agent muss VOR der Origin-Prüfung feststehen: Welche fremden Seiten das Widget
+      // betreiben dürfen, steht an ihm. Rate-Limits greifen bereits davor, ein abgewiesener
+      // Origin kostet also höchstens eine Suche über den indizierten Widget-Key.
       const agent = await deps.findByWidgetKey(key);
       if (!agent?.widget?.exten) return reply.code(404).send({ error: "not found" });
+
+      // Same-origin (der Fetch aus dem iframe der Appliance selbst) oder eine Seite, die
+      // der Agent ausdrücklich nennt. Alles andere ist ein Skript-Zugriff von außen.
+      // Fehlt der Header ganz, bleibt es wie bisher bei „durchlassen" — er ist kein
+      // Schutzmerkmal, sondern nur ein Hinweis des Browsers.
+      const origin = req.headers.origin;
+      if (
+        origin &&
+        origin !== applianceOrigin(req) &&
+        !widgetOriginAllowed(origin, agent.widget.allowedOrigins)
+      ) {
+        return reply.code(403).send({ error: "forbidden" });
+      }
 
       if (!config.widget.sipPassword) {
         log.warn("Widget-Session angefragt, aber WIDGET_SIP_PASSWORD fehlt (EMBED_ASTERISK=false?)");

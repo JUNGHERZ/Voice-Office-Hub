@@ -1,7 +1,6 @@
 # Konfiguration & Betrieb
 
-Die gesamte Komponente wird über **ENV-Variablen** gesteuert (siehe [.env.example](../.env.example)).
-Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.env`.
+Die gesamte Komponente wird über **ENV-Variablen** gesteuert (siehe [.env.example](../.env.example)). Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.env`.
 
 ## ENV-Variablen
 
@@ -91,48 +90,27 @@ Dasselbe Image läuft lokal wie in Produktion — Unterschied nur über die `.en
 ## Betriebsmodi & Agent-Routing
 
 - **agent** (Default): KI beantwortet den Anruf.
-- **passthrough**: Weiterleitung an feste Nummer (`PASSTHROUGH_TARGET`), beide Beine in einer
-  Mixing-Bridge, gemeinsame Aufnahme; nach Auflegen Batch-Transkription (Diarization) und
-  optionale Summary. Legt eine Seite auf, endet der ganze Anruf (durchgeschaltete Beendigung).
+- **passthrough**: Weiterleitung an feste Nummer (`PASSTHROUGH_TARGET`), beide Beine in einer Mixing-Bridge, gemeinsame Aufnahme; nach Auflegen Batch-Transkription (Diarization) und optionale Summary. Legt eine Seite auf, endet der ganze Anruf (durchgeschaltete Beendigung).
 
 Der Modus und alle Parameter kommen aus dem **aufgelösten Agent**:
 
 1. Bei `StasisStart` wird die gewählte **DDI** (`${EXTEN}`) in der `agents`-Collection gesucht.
 2. Treffer → dieser Agent (Modus, Prompt, listen/think/speak, Tools, Summary …).
-3. Kein Treffer → Verhalten gemäß `UNKNOWN_NUMBER_BEHAVIOR` (Default **`reject`**: ablehnen).
-   Nur mit `UNKNOWN_NUMBER_BEHAVIOR=agent` greift der **Default-Agent** aus den
-   `DEFAULT_AGENT_*`/`DEFAULT_MODE`-ENV-Variablen (Dev). Siehe
-   [Unbekannte Rufnummer](#unbekannte-rufnummer-kein-agent).
+3. Kein Treffer → Verhalten gemäß `UNKNOWN_NUMBER_BEHAVIOR` (Default **`reject`**: ablehnen). Nur mit `UNKNOWN_NUMBER_BEHAVIOR=agent` greift der **Default-Agent** aus den `DEFAULT_AGENT_*`/`DEFAULT_MODE`-ENV-Variablen (Dev). Siehe [Unbekannte Rufnummer](#unbekannte-rufnummer-kein-agent).
 
 > Ohne DB-Agents (Admin-UI noch offen) lässt sich der Passthrough-Modus über `DEFAULT_MODE=passthrough`
 > + `PASSTHROUGH_TARGET=<Durchwahl>` für den Default-Agenten aktivieren (z. B. zum Testen).
 
 ### DDI-Routing einrichten (Test & Produktion)
 
-Die Zuordnung **Rufnummer → Agent** lebt allein in `agents.targetNumbers`; der Dialplan reicht
-die echte gewählte Nummer als `${EXTEN}` an Stasis durch (Pattern `_X.` in
-[extensions.conf](../docker/asterisk/extensions.conf)). Es ist **dieselbe Mechanik** in beiden Umgebungen,
-nur der Wert der DDI unterscheidet sich:
+Die Zuordnung **Rufnummer → Agent** lebt allein in `agents.targetNumbers`; der Dialplan reicht die echte gewählte Nummer als `${EXTEN}` an Stasis durch (Pattern `_X.` in [extensions.conf](../docker/asterisk/extensions.conf)). Es ist **dieselbe Mechanik** in beiden Umgebungen, nur der Wert der DDI unterscheidet sich:
 
-- **Test (Dev):** gewählte **Durchwahlen** (z. B. `120`, `121`, `122`). Das anrufende Softphone
-  wählt die Nummer; `_X.` routet sie nach Stasis. Diese „Service-Nummern" brauchen **keine** eigenen
-  PJSIP-Endpoints — nur der Agent in der DB.
-- **Produktion (Trunk):** der Provider (z. B. sipgate) liefert die **volle öffentliche Rufnummer
-  (E.164)** in der Request-URI → `${EXTEN}` = `+4930…`. Der Agent trägt dann genau diese E.164-Nummer
-  in `targetNumbers`. → Künftige Admin-UI: beim Anbinden des Trunks die zugeteilten öffentlichen
-  Nummern hinterlegen und je Nummer einen Agent zuordnen (feste DDI↔Agent-Bindung).
+- **Test (Dev):** gewählte **Durchwahlen** (z. B. `120`, `121`, `122`). Das anrufende Softphone wählt die Nummer; `_X.` routet sie nach Stasis. Diese „Service-Nummern" brauchen **keine** eigenen PJSIP-Endpoints — nur der Agent in der DB.
+- **Produktion (Trunk):** der Provider (z. B. sipgate) liefert die **volle öffentliche Rufnummer (E.164)** in der Request-URI → `${EXTEN}` = `+4930…`. Der Agent trägt dann genau diese E.164-Nummer in `targetNumbers`. → Künftige Admin-UI: beim Anbinden des Trunks die zugeteilten öffentlichen Nummern hinterlegen und je Nummer einen Agent zuordnen (feste DDI↔Agent-Bindung).
 
-> **E.164-Normalisierung:** Das DDI-Routing ([phone.ts](../src/util/phone.ts) + agentResolver) ist
-> gegenüber Schreibvarianten tolerant. Zuerst wird **exakt** verglichen; greift das nicht, werden
-> eingehende DDI **und** `agents.targetNumbers` für einen **normalisierten Fallback-Vergleich**
-> vereinheitlicht (Trennzeichen entfernt, führendes `00` → `+`). So matchen `+49…`, `0049…` und
-> andere Schreibweisen derselben Nummer. Dev-Durchwahlen wie `120` bleiben unverändert und matchen
-> weiter exakt. Ein konsistentes Format (E.164 mit `+`) in `targetNumbers` bleibt empfohlen, ist aber
-> nicht mehr zwingend für ein Match.
+> **E.164-Normalisierung:** Das DDI-Routing ([phone.ts](../src/util/phone.ts) + agentResolver) ist gegenüber Schreibvarianten tolerant. Zuerst wird **exakt** verglichen; greift das nicht, werden eingehende DDI **und** `agents.targetNumbers` für einen **normalisierten Fallback-Vergleich** vereinheitlicht (Trennzeichen entfernt, führendes `00` → `+`). So matchen `+49…`, `0049…` und andere Schreibweisen derselben Nummer. Dev-Durchwahlen wie `120` bleiben unverändert und matchen weiter exakt. Ein konsistentes Format (E.164 mit `+`) in `targetNumbers` bleibt empfohlen, ist aber nicht mehr zwingend für ein Match.
 
-**Demo-Agents anlegen** (idempotent, ohne Admin-UI) über das Seed-Skript
-([src/scripts/seedAgents.ts](../src/scripts/seedAgents.ts)) — legt `120` (Vertrieb/KI), `121`
-(Support/KI), `122` (Passthrough→101) an:
+**Demo-Agents anlegen** (idempotent, ohne Admin-UI) über das Seed-Skript ([src/scripts/seedAgents.ts](../src/scripts/seedAgents.ts)) — legt `120` (Vertrieb/KI), `121` (Support/KI), `122` (Passthrough→101) an:
 
 ```bash
 # im laufenden Container:
@@ -141,13 +119,11 @@ docker exec voh-appliance node /app/dist/scripts/seedAgents.js
 MONGO_URI=mongodb://127.0.0.1:27100/voiceagent npm run seed
 ```
 
-So überschreiben DB-Agents das ENV-Default pro Nummer. Das `agents`-Schema
-([Agent.ts](../src/db/models/Agent.ts)) mappt 1:1 auf die Provider-Settings (heute Deepgram).
+So überschreiben DB-Agents das ENV-Default pro Nummer. Das `agents`-Schema ([Agent.ts](../src/db/models/Agent.ts)) mappt 1:1 auf die Provider-Settings (heute Deepgram).
 
 ### Agent-Felder (Referenz)
 
-Alle Felder sind über Admin-UI **und** API (`PATCH /api/agents/:id`) pflegbar; Validierung macht
-Mongoose (Fehler → HTTP 400). Die wichtigsten Felder:
+Alle Felder sind über Admin-UI **und** API (`PATCH /api/agents/:id`) pflegbar; Validierung macht Mongoose (Fehler → HTTP 400). Die wichtigsten Felder:
 
 | Feld | Zweck |
 |---|---|
@@ -166,7 +142,7 @@ Mongoose (Fehler → HTTP 400). Die wichtigsten Felder:
 | `think.source` / `model` / `temperature` | Konversations-LLM: `requesty` (BYO-Router) oder `deepgram` (managed). |
 | `speak.provider` / `model` / `voice` … *(erweitert 0.6.8, 0.8.0)* | TTS. Die Auswahl samt Modell-/Stimmlisten, Kosten und DSGVO-Einstufung steht im Manifest `src/tts/catalog.ts` und liegt als `GET /api/tts/providers` unter dem Agenten-Panel. `deepgram` (Default, Modell z. B. `aura-2-viktoria-de`) oder `eleven_labs`: dann trägt `voice` die **ElevenLabs-Voice-ID** und `model` optional die Modell-ID (Default `eleven_turbo_v2_5`); der API-Key kommt aus `ELEVENLABS_API_KEY` (Server-Env, nie in der DB). Fehlt Key/Voice-ID → Warn-Log + Deepgram-Fallback. **Der Voice-Agent-Pfad reicht nur diese beiden durch** — ein nativ-only-Provider (z. B. `mistral`) fällt hier mit Warnung auf die Deepgram-Stimme zurück. |
 | `ambience.enabled` / `preset` / `volume` *(0.6.8)* | **Hintergrundatmosphäre**: leise Dauerschleife im Anruf (auch in Sprechpausen). Presets eingebaut & lizenzfrei (prozedural): `office` / `room` / `rain`; `volume` 0..1 (UI: 0–100 %). Nur `MEDIA_TRANSPORT=audiosocket`; landet mit in der Aufnahme; pausiert bei Übergabe an einen Menschen. Eigene Loops: `AMBIENCE_DIR`. |
-| `widget.enabled` / `exten` / `allowedOrigins` / `showTranscript` *(0.6.9, exten auto seit 0.6.12)* | **Web-Widget** (einbettbares Browser-Softphone): `exten` = 3-stellige Pseudo-Durchwahl — wird beim Aktivieren **server-seitig automatisch vergeben** und in `targetNumbers` ergänzt (API-Clients dürfen sie weiterhin explizit setzen). `allowedOrigins` = Websites, die einbetten dürfen (CSP frame-ancestors), `showTranscript` = Live-Transkript im Widget. Der Embed-`key` ist server-verwaltet (rotierbar). Setzt `WEBRTC_ENABLED=true` voraus — Details in [docs/webrtc.md](webrtc.md). |
+| `widget.enabled` / `exten` / `allowedOrigins` / `showTranscript` *(0.6.9, exten auto seit 0.6.12)* | **Web-Widget** (einbettbares Browser-Softphone): `exten` = 3-stellige Pseudo-Durchwahl — wird beim Aktivieren **server-seitig automatisch vergeben** und in `targetNumbers` ergänzt (API-Clients dürfen sie weiterhin explizit setzen). `allowedOrigins` = Websites, die einbetten **und** eine Session holen dürfen (CSP frame-ancestors + Origin-Prüfung von `POST /api/widget/session`, seit 0.10.2; leer = nur die Appliance selbst), `showTranscript` = Live-Transkript im Widget. Der Embed-`key` ist server-verwaltet (rotierbar). Setzt `WEBRTC_ENABLED=true` voraus — Details in [docs/webrtc.md](webrtc.md). |
 | `tools[]` | Aktivierte **eingebaute** Tools (UI: Toggle-Liste, Quelle `GET /api/tools`). |
 | `customTools[]` *(0.6.1)* | **Eigene HTTP-Tools** (Name, Beschreibung, JSON-Schema, Endpoint mit Methode/Headern/Timeout, `${ENV:}`-Secrets; optional `fillerPhrase` = eigene Warte-Ansage, nur native — s. `fillers`) — Kontrakt in [docs/tools.md](tools.md). |
 | `mcpServers[]` *(0.6.5)* | **MCP-Server** als Tool-Quellen (Streamable HTTP; Tools präfixiert `<server>_<tool>`, optional `toolFilter`) — siehe [docs/tools.md](tools.md). |
@@ -181,8 +157,7 @@ Mongoose (Fehler → HTTP 400). Die wichtigsten Felder:
 
 #### NativeSession (`voiceProvider: "native"`, 0.6.10)
 
-Die eigene Kaskade **Flux-STT → Requesty-LLM → Streaming-TTS** nutzt dieselben Agent-Felder,
-teils mit eigener Semantik:
+Die eigene Kaskade **Flux-STT → Requesty-LLM → Streaming-TTS** nutzt dieselben Agent-Felder, teils mit eigener Semantik:
 
 | Feld | Wirkung im native-Modus |
 | --- | --- |
@@ -193,136 +168,65 @@ teils mit eigener Semantik:
 | `speak.stability` / `similarityBoost` / `speed` *(0.6.13, `speed` für Azure 0.8.10)* | ElevenLabs-`voice_settings` (nur native Kaskade; im Deepgram-Agent-Modus gelten die Voice-Defaults aus dem ElevenLabs-Dashboard): `stability`/`similarityBoost` 0–1, `speed` 0.7–1.2 (außerhalb wird geklemmt). Unset = Voice-Default. **`speed` gilt auch für Azure** — dort als `<prosody rate>` im SSML, Multiplikator 0,5–2,0 (außerhalb geklemmt, mit Warn-Log); unset lässt das `prosody`-Tag ganz weg. Gemessen an Seraphina, gleicher Satz: Standard 8,35 s, 1.1 → 7,64 s, 1.2 → 6,94 s, 1.3 → 6,21 s. Welche Provider den Regler anbieten, steht als `knobs` im Katalog `src/tts/catalog.ts`. UI: Modal „Erweiterte Stimm-Einstellungen" im Agent-Formular. |
 | `tools` / `customTools` / `mcpServers` / `summary` / `ambience` | Unverändert — Toolset-Dispatch, Transkript, Summary, Metriken und Ambience laufen identisch (der callHandler sieht keinen Unterschied). |
 
-Latenz-Transparenz: Jeder Assistant-Turn loggt `Turn-Latenz` (`total` = Sprechende→erstes
-Audio, `ttt` = LLM-First-Token, `tts` = TTS-Anlauf) — der größte Hebel ist ein schnelles
-`think.model`.
+Latenz-Transparenz: Jeder Assistant-Turn loggt `Turn-Latenz` (`total` = Sprechende→erstes Audio, `ttt` = LLM-First-Token, `tts` = TTS-Anlauf) — der größte Hebel ist ein schnelles `think.model`.
 
 ### Ansagen-Lokalisierung (0.6.26, erweitert in 0.6.27)
 
-Fest hinterlegte Ansagen (die **Filler-Phrasen**, die **Stille-Ansagen** samt Abschied und die
-**Transfer-Fehlschlag-Ansage**) pflegt
-der Betreiber nur **einmal** in seiner Standardsprache. Fährt der Agent mehrsprachige STT
-(`language: "multi"`) und der Anrufer spricht eine andere Sprache, übersetzt ein LLM-One-Shot
-([localize.ts](../src/llm/localize.ts), Modell `LOCALIZE_MODEL`) den kompletten Ansagen-Katalog in
-die Anrufersprache — inklusive der im Gespräch verwendeten Anrede-/Höflichkeitsform (Sie/du …).
-Die Erkennung läuft eager im Hintergrund nach dem ersten inhaltlichen Anrufer-Turn und passt sich
-einem Sprachwechsel mitten im Gespräch an (Ergebnis pro Sprache gecacht). Gilt für **beide**
-Provider (Transfer- und Stille-Ansagen über den callHandler; der Filler nur native). Fällt die Erkennung
-aus oder ist noch nicht fertig, gilt die Standardsprache — eine Ansage beschädigt nie ein Gespräch.
-Die erkannte Sprache landet in `request.language` (Badge in der Anrufliste).
+Fest hinterlegte Ansagen (die **Filler-Phrasen**, die **Stille-Ansagen** samt Abschied und die **Transfer-Fehlschlag-Ansage**) pflegt der Betreiber nur **einmal** in seiner Standardsprache. Fährt der Agent mehrsprachige STT (`language: "multi"`) und der Anrufer spricht eine andere Sprache, übersetzt ein LLM-One-Shot ([localize.ts](../src/llm/localize.ts), Modell `LOCALIZE_MODEL`) den kompletten Ansagen-Katalog in die Anrufersprache — inklusive der im Gespräch verwendeten Anrede-/Höflichkeitsform (Sie/du …). Die Erkennung läuft eager im Hintergrund nach dem ersten inhaltlichen Anrufer-Turn und passt sich einem Sprachwechsel mitten im Gespräch an (Ergebnis pro Sprache gecacht). Gilt für **beide** Provider (Transfer- und Stille-Ansagen über den callHandler; der Filler nur native). Fällt die Erkennung aus oder ist noch nicht fertig, gilt die Standardsprache — eine Ansage beschädigt nie ein Gespräch. Die erkannte Sprache landet in `request.language` (Badge in der Anrufliste).
 
-Grenzen (bewusst): Die übersetzte Ansage spricht die **Stimme des Anrufs** — eine rein deutsche
-Aura-Stimme klingt bei „One moment, please" akzentbehaftet (wie schon bei fremdsprachigen
-LLM-Antworten); akzentfrei wird es mit einer mehrsprachigen Stimme (`speak.provider`).
+Grenzen (bewusst): Die übersetzte Ansage spricht die **Stimme des Anrufs** — eine rein deutsche Aura-Stimme klingt bei „One moment, please" akzentbehaftet (wie schon bei fremdsprachigen LLM-Antworten); akzentfrei wird es mit einer mehrsprachigen Stimme (`speak.provider`).
 
 ### Begrüßung in der Sprache des Anrufers (0.7.0)
 
-Die Begrüßung geht raus, **bevor** der Anrufer ein Wort gesagt hat — die Laufzeit-Lokalisierung
-oben kommt dafür grundsätzlich zu spät, egal wie schnell sie ist. Es braucht also Wissen von
-vorher und einen Text, der ohne LLM-Wartezeit bereitsteht. Beides zusammen ergibt: Beim ersten
-Anruf begrüßt der Agent in der Standardsprache, **ab dem zweiten** in der Sprache des Anrufers.
+Die Begrüßung geht raus, **bevor** der Anrufer ein Wort gesagt hat — die Laufzeit-Lokalisierung oben kommt dafür grundsätzlich zu spät, egal wie schnell sie ist. Es braucht also Wissen von vorher und einen Text, der ohne LLM-Wartezeit bereitsteht. Beides zusammen ergibt: Beim ersten Anruf begrüßt der Agent in der Standardsprache, **ab dem zweiten** in der Sprache des Anrufers.
 
 **Was nach dem Gespräch passiert** (beides im Hintergrund, keins verzögert einen Anruf):
 
-1. Die bestätigte Sprache wird zur Rufnummer hinterlegt (`callerProfiles`, Opt-in
-   `callerMemory.language` + `CALLER_PROFILE_SECRET`). Gespeichert wird ein **HMAC der
-   normalisierten Nummer**, nie die Nummer selbst; ein TTL-Index lässt Profile verfallen.
-2. Fehlt die Vorübersetzung dieser Sprache, entsteht sie jetzt (`agentTranslations`) — mit
-   `contentLanguage` als Ausgangssprache und der Anredeform des Originals.
+1. Die bestätigte Sprache wird zur Rufnummer hinterlegt (`callerProfiles`, Opt-in `callerMemory.language` + `CALLER_PROFILE_SECRET`). Gespeichert wird ein **HMAC der normalisierten Nummer**, nie die Nummer selbst; ein TTL-Index lässt Profile verfallen.
+2. Fehlt die Vorübersetzung dieser Sprache, entsteht sie jetzt (`agentTranslations`) — mit `contentLanguage` als Ausgangssprache und der Anredeform des Originals.
 
-**Was beim nächsten Anruf passiert:** Profil-Lookup und Übersetzung werden vor dem
-Session-Aufbau geladen (Timeout 200 ms — eine hängende Datenbank darf den Anrufaufbau nie
-verzögern). Gibt es beides, wird die Begrüßung getauscht und der Localizer vorgewärmt, sodass
-auch die ersten Ansagen sitzen. Ohne Treffer verhält sich alles exakt wie bisher.
+**Was beim nächsten Anruf passiert:** Profil-Lookup und Übersetzung werden vor dem Session-Aufbau geladen (Timeout 200 ms — eine hängende Datenbank darf den Anrufaufbau nie verzögern). Gibt es beides, wird die Begrüßung getauscht und der Localizer vorgewärmt, sodass auch die ersten Ansagen sitzen. Ohne Treffer verhält sich alles exakt wie bisher.
 
-**Geänderte Ansagen entwerten ihre Übersetzung automatisch.** Jeder übersetzte Eintrag trägt den
-Hash seines Quelltextes; passt der nicht mehr, gilt er als veraltet und wird nicht ausgespielt —
-unabhängig davon, ob über Admin-UI, API, Seed-Script oder direkt in der Datenbank geändert wurde.
-Es gibt bewusst keinen Lösch-Hook, der das vergessen könnte. Nach dem Speichern eines Agenten
-werden alle vorhandenen Sprachen neu übersetzt; in dem Fenster dazwischen spricht der Agent die
-Standardsprache — lieber deutsch als veraltet-englisch. Im Admin zeigt „Übersetzte Ansagen
-ansehen…" Original und Übersetzung nebeneinander samt Markierung veralteter Einträge.
+**Geänderte Ansagen entwerten ihre Übersetzung automatisch.** Jeder übersetzte Eintrag trägt den Hash seines Quelltextes; passt der nicht mehr, gilt er als veraltet und wird nicht ausgespielt — unabhängig davon, ob über Admin-UI, API, Seed-Script oder direkt in der Datenbank geändert wurde. Es gibt bewusst keinen Lösch-Hook, der das vergessen könnte. Nach dem Speichern eines Agenten werden alle vorhandenen Sprachen neu übersetzt; in dem Fenster dazwischen spricht der Agent die Standardsprache — lieber deutsch als veraltet-englisch. Im Admin zeigt „Übersetzte Ansagen ansehen…" Original und Übersetzung nebeneinander samt Markierung veralteter Einträge.
 
-**Korrektur bei falscher Zuordnung:** Wer auf Englisch begrüßt wird, antwortet eher auf Englisch —
-auch wenn ihm Deutsch lieber wäre. Deshalb zählt eine Bestätigung des Priors nur hoch, während ein
-Widerspruch das Profil **sofort** überschreibt. Aus einer Fehlzuordnung kommt man mit einem
-einzigen Anruf wieder heraus; dasselbe entschärft geteilte Anschlüsse (Firmenzentrale,
-Familienanschluss). Innerhalb des Gesprächs genügt bei vorbelegter Sprache ein einzelner
-Scorer-Widerspruch zum Umschalten, ohne auf das LLM zu warten.
+**Korrektur bei falscher Zuordnung:** Wer auf Englisch begrüßt wird, antwortet eher auf Englisch — auch wenn ihm Deutsch lieber wäre. Deshalb zählt eine Bestätigung des Priors nur hoch, während ein Widerspruch das Profil **sofort** überschreibt. Aus einer Fehlzuordnung kommt man mit einem einzigen Anruf wieder heraus; dasselbe entschärft geteilte Anschlüsse (Firmenzentrale, Familienanschluss). Innerhalb des Gesprächs genügt bei vorbelegter Sprache ein einzelner Scorer-Widerspruch zum Umschalten, ohne auf das LLM zu warten.
 
-Grenzen (bewusst): Der **erste** Kontakt bleibt immer in der Standardsprache. Web-Anrufe, interne
-Durchwahlen und unterdrückte Nummern bekommen kein Profil (ihr Identifikator wiederholt sich nie).
-Gespeichert wird ausschließlich die Sprache — eine Rufnummer ist keine Person, und was bei der
-Sprache ein Schönheitsfehler ist, wäre bei inhaltlichen Erinnerungen eine Datenpanne. Metriken je
-Anruf: `metrics.greetingLanguage`, `metrics.priorSource`, `metrics.priorConfirmed`.
+Grenzen (bewusst): Der **erste** Kontakt bleibt immer in der Standardsprache. Web-Anrufe, interne Durchwahlen und unterdrückte Nummern bekommen kein Profil (ihr Identifikator wiederholt sich nie). Gespeichert wird ausschließlich die Sprache — eine Rufnummer ist keine Person, und was bei der Sprache ein Schönheitsfehler ist, wäre bei inhaltlichen Erinnerungen eine Datenpanne. Metriken je Anruf: `metrics.greetingLanguage`, `metrics.priorSource`, `metrics.priorConfirmed`.
 
 ### Begrüßungs-Prompt (0.10.0)
 
-Bei manchen Assistenten ist die Eröffnung **nicht konstant**: „Guten Morgen / Guten Tag / Guten
-Abend" je nach Uhrzeit, dazu wechselnde Angaben. Ein fester `greeting`-Text kann das nicht. Ist
-`agent.greetingPrompt` gesetzt, wird der Satz je Anruf **erzeugt** statt nachgeschlagen:
+Bei manchen Assistenten ist die Eröffnung **nicht konstant**: „Guten Morgen / Guten Tag / Guten Abend" je nach Uhrzeit, dazu wechselnde Angaben. Ein fester `greeting`-Text kann das nicht. Ist `agent.greetingPrompt` gesetzt, wird der Satz je Anruf **erzeugt** statt nachgeschlagen:
 
 ```jsonc
 { "greeting": "Guten Tag, hier ist die Musterfirma.",          // Rückfall, bleibt Pflicht
   "greetingPrompt": "Begrüße kurz und höflich für Musterfirma, es ist Vormittag." }
 ```
 
-**Arbeitsteilung.** Der Inhalt kommt von außen (am Agenten oder per Overlay), die **Sprache**
-bestimmt die Engine: `prior?.lang ?? contentLanguage`. Bis der Anrufer spricht, ist der
-Anrufer-Prior die einzige Quelle dafür — und der bleibt pseudonymisiert in der Appliance. Es
-wandert also der Prompt herein, nicht die Sprache hinaus. Platzhalter sind gefüllt, wenn der
-Prompt ankommt; VOH braucht kein Variablen-Feature.
+**Arbeitsteilung.** Der Inhalt kommt von außen (am Agenten oder per Overlay), die **Sprache** bestimmt die Engine: `prior?.lang ?? contentLanguage`. Bis der Anrufer spricht, ist der Anrufer-Prior die einzige Quelle dafür — und der bleibt pseudonymisiert in der Appliance. Es wandert also der Prompt herein, nicht die Sprache hinaus. Platzhalter sind gefüllt, wenn der Prompt ankommt; VOH braucht kein Variablen-Feature.
 
-**Wann er läuft.** **Vor** dem `Answer()`. Der Dialplan ruft `Stasis()` bewusst ohne
-vorheriges `Answer()` auf — dieses Fenster ist **Rufton**. Dieselbe Wartezeit hinter dem Answer
-wäre Stille nach dem Abheben, und die ist ungleich unangenehmer als ein Klingelton, der einen
-Moment länger läuft. Auf der Appliance gemessen: ~1,2 s Erzeugung, danach hört der Anrufer
-298 ms nach dem Abheben die Begrüßung (`metrics.timeToFirstAudioMs`). Legt er noch im Rufton
-auf, wird der Modellaufruf **abgebrochen**; ein Klingelabbrecher kostet damit nichts.
+**Wann er läuft.** **Vor** dem `Answer()`. Der Dialplan ruft `Stasis()` bewusst ohne vorheriges `Answer()` auf — dieses Fenster ist **Rufton**. Dieselbe Wartezeit hinter dem Answer wäre Stille nach dem Abheben, und die ist ungleich unangenehmer als ein Klingelton, der einen Moment länger läuft. Auf der Appliance gemessen: ~1,2 s Erzeugung, danach hört der Anrufer 298 ms nach dem Abheben die Begrüßung (`metrics.timeToFirstAudioMs`). Legt er noch im Rufton auf, wird der Modellaufruf **abgebrochen**; ein Klingelabbrecher kostet damit nichts.
 
-**Wenn es schiefgeht**, gilt der statische `greeting`-Text und der Anruf läuft normal weiter —
-Fehler, Zeitüberschreitung (4 s) oder leere Antwort. Genau dafür bleibt das Feld nötig: Es ist
-nicht mehr der Normalfall, sondern das Sicherheitsnetz.
+**Wenn es schiefgeht**, gilt der statische `greeting`-Text und der Anruf läuft normal weiter — Fehler, Zeitüberschreitung (4 s) oder leere Antwort. Genau dafür bleibt das Feld nötig: Es ist nicht mehr der Normalfall, sondern das Sicherheitsnetz.
 
-**Kein Cache, und das ist Absicht.** Ein pro Anruf wechselnder Text träfe den
-Übersetzungs-Cache (Schlüssel `(agentId, lang)` samt Quelltext-Hash) ohnehin nie. Deshalb gibt
-es keine Varianten-Schlüssel wie `greeting.morning`. Der **statische** Text wird weiterhin
-vorübersetzt — das Sicherheitsnetz soll auch in der Anrufersprache greifen.
+**Kein Cache, und das ist Absicht.** Ein pro Anruf wechselnder Text träfe den Übersetzungs-Cache (Schlüssel `(agentId, lang)` samt Quelltext-Hash) ohnehin nie. Deshalb gibt es keine Varianten-Schlüssel wie `greeting.morning`. Der **statische** Text wird weiterhin vorübersetzt — das Sicherheitsnetz soll auch in der Anrufersprache greifen.
 
-**Nachvollziehbar:** Der tatsächlich gesprochene Satz steht als `greetingText` am Gespräch (und
-im `call.ended`-Ereignis) — immer, auch wenn er unverändert vom Agenten stammt. Ein später
-geänderter `greeting`-Text würde sonst rückwirkend etwas belegen, das nie gesagt wurde.
+**Nachvollziehbar:** Der tatsächlich gesprochene Satz steht als `greetingText` am Gespräch (und im `call.ended`-Ereignis) — immer, auch wenn er unverändert vom Agenten stammt. Ein später geänderter `greeting`-Text würde sonst rückwirkend etwas belegen, das nie gesagt wurde.
 
-Modell: `LOCALIZE_MODEL` (günstiger One-Shot, `temperature 0`). Siehe dort zur Regionsbindung
-des Defaults.
+Modell: `LOCALIZE_MODEL` (günstiger One-Shot, `temperature 0`). Siehe dort zur Regionsbindung des Defaults.
 
 ### Aufbewahrung von Aufnahmen (0.10.0)
 
-`RECORDING_TTL_DAYS` (Default `0` = aus) lässt Aufnahmen nach der Frist verfallen — **samt
-GridFS-Chunks**. Ein Aufräumjob läuft beim Start und danach stündlich; er schneidet über das
-Upload-Datum, räumt damit zugleich Waisen ab und leert anschließend den `recording`-Block am
-Gespräch. **Transkript und Gesprächsdatensatz bleiben vollständig erhalten**, nur
-`GET /api/requests/:id/recording` liefert danach 404.
+`RECORDING_TTL_DAYS` (Default `0` = aus) lässt Aufnahmen nach der Frist verfallen — **samt GridFS-Chunks**. Ein Aufräumjob läuft beim Start und danach stündlich; er schneidet über das Upload-Datum, räumt damit zugleich Waisen ab und leert anschließend den `recording`-Block am Gespräch. **Transkript und Gesprächsdatensatz bleiben vollständig erhalten**, nur `GET /api/requests/:id/recording` liefert danach 404.
 
-Bewusst **kein** TTL-Index: Ein Mongo-TTL-Index löscht nur Dokumente der indizierten
-Collection — auf `recordings.files` angewandt bliebe für jede Aufnahme der Chunk-Eintrag
-liegen, also praktisch das gesamte Datenvolumen.
+Bewusst **kein** TTL-Index: Ein Mongo-TTL-Index löscht nur Dokumente der indizierten Collection — auf `recordings.files` angewandt bliebe für jede Aufnahme der Chunk-Eintrag liegen, also praktisch das gesamte Datenvolumen.
 
-> **Die Frist ist zugleich eine Abholfrist.** Ein Empfänger holt die Aufnahme typischerweise
-> sofort nach `call.ended` — dieser erste Versuch kann aber scheitern (Netz, falscher
-> Auth-Header, Fehlkonfiguration), und der nächste kommt oft erst, wenn jemand das Gespräch
-> anhören will. Eine sehr kurze Frist verliert deshalb nicht nur alte Aufnahmen, sondern auch
-> die, deren erster Abholversuch fehlschlug — und zwar ohne Fehlermeldung, weil danach nur noch
-> ein 404 zurückkommt.
+> **Die Frist ist zugleich eine Abholfrist.** Ein Empfänger holt die Aufnahme typischerweise sofort nach `call.ended` — dieser erste Versuch kann aber scheitern (Netz, falscher Auth-Header, Fehlkonfiguration), und der nächste kommt oft erst, wenn jemand das Gespräch anhören will. Eine sehr kurze Frist verliert deshalb nicht nur alte Aufnahmen, sondern auch die, deren erster Abholversuch fehlschlug — und zwar ohne Fehlermeldung, weil danach nur noch ein 404 zurückkommt.
 
-Einen Löschendpunkt für Gespräche gibt es bewusst **nicht**: Mit einem globalen API-Key ohne
-Rollenmodell wäre das eine Angriffsfläche ohne Anwendungsfall.
+Einen Löschendpunkt für Gespräche gibt es bewusst **nicht**: Mit einem globalen API-Key ohne Rollenmodell wäre das eine Angriffsfläche ohne Anwendungsfall.
 
 ### Unbekannte Rufnummer (kein Agent)
 
-Wird eine DDI angerufen, die **keinem** Agent zugeordnet ist, bestimmt `UNKNOWN_NUMBER_BEHAVIOR`
-das Verhalten — wichtig, damit Fehl-/Scanner-Anrufe **keine** kostenpflichtige KI-Session und keinen
-Log-Spam erzeugen:
+Wird eine DDI angerufen, die **keinem** Agent zugeordnet ist, bestimmt `UNKNOWN_NUMBER_BEHAVIOR` das Verhalten — wichtig, damit Fehl-/Scanner-Anrufe **keine** kostenpflichtige KI-Session und keinen Log-Spam erzeugen:
 
 | Wert | Verhalten |
 |---|---|
@@ -330,24 +234,17 @@ Log-Spam erzeugen:
 | `announce` | Kurz annehmen, die Ansage `UNKNOWN_NUMBER_ANNOUNCEMENT` abspielen, dann auflegen. Kein LLM. Eigene WAV in Asterisks `sounds/custom/` ablegen (z. B. `kein-anschluss.wav` → `sound:custom/kein-anschluss`). |
 | `agent` | Der **Default-Agent** (KI, `DEFAULT_AGENT_*`) beantwortet jeden nicht zugeordneten Anruf. Nur für **Dev/Tests** sinnvoll. |
 
-> Der Default-Agent ist damit **kein** stiller Catch-all mehr. Für Produktion `reject` (oder `announce`)
-> verwenden und echte Nummern als Agents in der DB anlegen.
+> Der Default-Agent ist damit **kein** stiller Catch-all mehr. Für Produktion `reject` (oder `announce`) verwenden und echte Nummern als Agents in der DB anlegen.
 
 ## Externe Anbindung (Overlay & Ereignisse)
 
-Zwei voneinander unabhängige Erweiterungen (0.9.0), mit denen eine übergeordnete Verwaltung
-mit der Engine zusammenarbeiten kann. **Beide sind ohne gesetzte URL aus** — ohne
-`RESOLVER_URL`/`WEBHOOK_URL` verhält sich die Engine exakt wie vorher: kein ausgehender
-Verkehr, keine zusätzlichen Felder, keine geänderte Entscheidungslogik.
+Zwei voneinander unabhängige Erweiterungen (0.9.0), mit denen eine übergeordnete Verwaltung mit der Engine zusammenarbeiten kann. **Beide sind ohne gesetzte URL aus** — ohne `RESOLVER_URL`/`WEBHOOK_URL` verhält sich die Engine exakt wie vorher: kein ausgehender Verkehr, keine zusätzlichen Felder, keine geänderte Entscheidungslogik.
 
-Beide signieren ihren Body mit HMAC-SHA256 im Header `X-VOH-Signature: sha256=<hex>`.
-Signiert wird der **rohe** Body — der Empfänger muss also über die empfangenen Bytes prüfen,
-nicht über ein neu serialisiertes JSON.
+Beide signieren ihren Body mit HMAC-SHA256 im Header `X-VOH-Signature: sha256=<hex>`. Signiert wird der **rohe** Body — der Empfänger muss also über die empfangenen Bytes prüfen, nicht über ein neu serialisiertes JSON.
 
 ### Konfigurations-Overlay pro Anruf (`agent.resolve`)
 
-Nach dem DDI-Treffer, aber **vor** dem Answer, fragt die Engine den unter `RESOLVER_URL`
-konfigurierten Endpunkt:
+Nach dem DDI-Treffer, aber **vor** dem Answer, fragt die Engine den unter `RESOLVER_URL` konfigurierten Endpunkt:
 
 ```http
 POST <RESOLVER_URL>
@@ -364,10 +261,7 @@ X-VOH-Signature: sha256=<hex>
   "receivedAt": "2026-08-21T09:12:44.120Z" }
 ```
 
-> **`channelId` statt `callId` lesen.** Zum Zeitpunkt des Aufrufs gibt es noch kein
-> `requests`-Dokument, `callId` trägt hier deshalb die **Kanal**-Kennung — im
-> Custom-Tool-Envelope (siehe [tools.md](tools.md)) ist `callId` dagegen die Request-ID.
-> `channelId` ist eindeutig und taucht in jedem Ereignis als `call.channelId` wieder auf.
+> **`channelId` statt `callId` lesen.** Zum Zeitpunkt des Aufrufs gibt es noch kein `requests`-Dokument, `callId` trägt hier deshalb die **Kanal**-Kennung — im Custom-Tool-Envelope (siehe [tools.md](tools.md)) ist `callId` dagegen die Request-ID. `channelId` ist eindeutig und taucht in jedem Ereignis als `call.channelId` wieder auf.
 
 Antworten (immer HTTP 200):
 
@@ -384,43 +278,19 @@ Antworten (immer HTTP 200):
 { "verdict": "reject" }           // vor dem Answer ablehnen
 ```
 
-- **Overlay-Felder (Whitelist):** `prompt`, `greeting`, `tools`, `language`, `speak`, `think`,
-  `listen`. Ersetzt wird flach je Feld: ein gesetztes Feld gilt vollständig, ein nicht
-  gesetztes bleibt aus dem gespeicherten Agenten. Alles andere — insbesondere `id`/`_id`,
-  `name` und die Rufnummern — wird verworfen und einmal pro Anruf als `warn` protokolliert;
-  ein unbekannter Schlüssel bricht **nie** einen Anruf ab. Der Agent bleibt damit der
-  gespeicherte Agent: Anrufliste, Übersetzungen und Anrufer-Gedächtnis hängen weiter an
-  seiner `id`.
+- **Overlay-Felder (Whitelist):** `prompt`, `greeting`, `tools`, `language`, `speak`, `think`, `listen`. Ersetzt wird flach je Feld: ein gesetztes Feld gilt vollständig, ein nicht gesetztes bleibt aus dem gespeicherten Agenten. Alles andere — insbesondere `id`/`_id`, `name` und die Rufnummern — wird verworfen und einmal pro Anruf als `warn` protokolliert; ein unbekannter Schlüssel bricht **nie** einen Anruf ab. Der Agent bleibt damit der gespeicherte Agent: Anrufliste, Übersetzungen und Anrufer-Gedächtnis hängen weiter an seiner `id`.
 
-  „Flach" heißt wörtlich: ein Overlay `speak: {provider:"azure"}` ersetzt das **ganze**
-  `speak`-Objekt, das Modell des gespeicherten Agenten ist damit weg und es greift der
-  anbieter-**unabhängige** Default aus `DEFAULT_SPEAK_MODEL` — bei Azure ist der Modellname
-  aber die Stimme. Zusammengesetzte Felder (`speak`, `listen`, `think`) also immer vollständig
-  senden. Wechselt ein Overlay `speak.provider` ohne `speak.model`, protokolliert die Engine
-  das als `warn` und führt den Anruf weiter (die TTS-Auswahl fällt im Zweifel auf Aura zurück).
-- **`agentRef`** wird am `requests`-Dokument vermerkt und unverändert in allen Ereignissen
-  gespiegelt — der Aufrufer erkennt seine eigene Kennung wieder.
-- **`verdict: "reject"`** lehnt **vor** dem Answer mit `unallocated` ab und übergeht
-  `UNKNOWN_NUMBER_BEHAVIOR` ausdrücklich: es entsteht weder ein Anruf noch ein Eintrag.
-- **`verdict: "announce"`** spricht die Begrüßung aus dem Overlay und legt danach auf. Der
-  Satz wird vollständig ausgespielt (dieselbe Drain-Logik wie bei `end_call`). Mit
-  `tools: []` hört der Agent gar nicht zu — die Ansage kann nicht in ein Gespräch kippen.
-  Anders als `UNKNOWN_NUMBER_BEHAVIOR=announce` (feste WAV-Datei) ist der Text frei wählbar;
-  gesprochen wird er über den Assistenten, es entsteht also eine kurze Provider-Session.
-- **Fail-open.** Timeout, Verbindungsfehler, Nicht-200, unlesbare Antwort oder ein unbekanntes
-  `verdict` → der gespeicherte Agent gilt unverändert, der Anruf läuft. Am Request steht dann
-  `resolverStatus: "unavailable"` (sonst `"ok"`), damit der Aufrufer erkennt, dass sein Overlay
-  nicht griff. Begründung: Der Hook liegt auf dem Klingelpfad; ein Ausfall der Gegenstelle darf
-  nicht alle Anschlüsse stumm schalten.
+  „Flach" heißt wörtlich: ein Overlay `speak: {provider:"azure"}` ersetzt das **ganze** `speak`-Objekt, das Modell des gespeicherten Agenten ist damit weg und es greift der anbieter-**unabhängige** Default aus `DEFAULT_SPEAK_MODEL` — bei Azure ist der Modellname aber die Stimme. Zusammengesetzte Felder (`speak`, `listen`, `think`) also immer vollständig senden. Wechselt ein Overlay `speak.provider` ohne `speak.model`, protokolliert die Engine das als `warn` und führt den Anruf weiter (die TTS-Auswahl fällt im Zweifel auf Aura zurück).
+- **`agentRef`** wird am `requests`-Dokument vermerkt und unverändert in allen Ereignissen gespiegelt — der Aufrufer erkennt seine eigene Kennung wieder.
+- **`verdict: "reject"`** lehnt **vor** dem Answer mit `unallocated` ab und übergeht `UNKNOWN_NUMBER_BEHAVIOR` ausdrücklich: es entsteht weder ein Anruf noch ein Eintrag.
+- **`verdict: "announce"`** spricht die Begrüßung aus dem Overlay und legt danach auf. Der Satz wird vollständig ausgespielt (dieselbe Drain-Logik wie bei `end_call`). Mit `tools: []` hört der Agent gar nicht zu — die Ansage kann nicht in ein Gespräch kippen. Anders als `UNKNOWN_NUMBER_BEHAVIOR=announce` (feste WAV-Datei) ist der Text frei wählbar; gesprochen wird er über den Assistenten, es entsteht also eine kurze Provider-Session.
+- **Fail-open.** Timeout, Verbindungsfehler, Nicht-200, unlesbare Antwort oder ein unbekanntes `verdict` → der gespeicherte Agent gilt unverändert, der Anruf läuft. Am Request steht dann `resolverStatus: "unavailable"` (sonst `"ok"`), damit der Aufrufer erkennt, dass sein Overlay nicht griff. Begründung: Der Hook liegt auf dem Klingelpfad; ein Ausfall der Gegenstelle darf nicht alle Anschlüsse stumm schalten.
 
-**Einschränkung:** Ein überlagerter `greeting`-Text ist nicht vorübersetzt und wird deshalb in
-`contentLanguage` gesprochen, auch wenn für die Rufnummer eine andere Sprache bekannt ist. Die
-gespeicherten Ansagen des Agenten sind davon nicht betroffen.
+**Einschränkung:** Ein überlagerter `greeting`-Text ist nicht vorübersetzt und wird deshalb in `contentLanguage` gesprochen, auch wenn für die Rufnummer eine andere Sprache bekannt ist. Die gespeicherten Ansagen des Agenten sind davon nicht betroffen.
 
 ### Ereignis-Zustellung
 
-Ist `WEBHOOK_URL` gesetzt, stellt die Engine Gesprächsereignisse zu, statt dass der Empfänger
-`/api/requests` pollen muss.
+Ist `WEBHOOK_URL` gesetzt, stellt die Engine Gesprächsereignisse zu, statt dass der Empfänger `/api/requests` pollen muss.
 
 | Ereignis | ausgelöst durch |
 |---|---|
@@ -430,12 +300,7 @@ Ist `WEBHOOK_URL` gesetzt, stellt die Engine Gesprächsereignisse zu, statt dass
 | `recording.ready` | Aufnahme liegt in GridFS |
 | `tool.called` | ein Tool wurde ausgeführt |
 
-Kein Ereignis für einzelne Transkript-Turns — die kommen gesammelt in `call.ended`. Kein
-Ereignis, wenn der Overlay-Hook `report: false` geliefert hat (dann entsteht auch kein
-`requests`-Dokument, keine Aufnahme und keine Nacharbeit).
-Ausnahme: Agents im **Passthrough-Modus** werten `report: false` nicht aus — eine reine
-Durchleitung ist genau der Mitschnitt, den das Kennzeichen unterdrücken würde. Overlay-Felder
-und `announce` bleiben dort ebenfalls wirkungslos; `reject` und `agentRef` wirken.
+Kein Ereignis für einzelne Transkript-Turns — die kommen gesammelt in `call.ended`. Kein Ereignis, wenn der Overlay-Hook `report: false` geliefert hat (dann entsteht auch kein `requests`-Dokument, keine Aufnahme und keine Nacharbeit). Ausnahme: Agents im **Passthrough-Modus** werten `report: false` nicht aus — eine reine Durchleitung ist genau der Mitschnitt, den das Kennzeichen unterdrücken würde. Overlay-Felder und `announce` bleiben dort ebenfalls wirkungslos; `reject` und `agentRef` wirken.
 
 ```http
 POST <WEBHOOK_URL>
@@ -461,65 +326,35 @@ X-VOH-Delivery: <uuid, bei Wiederholung identisch>
   "metrics": { … } }
 ```
 
-`call.id` ist die `_id` des `requests`-Dokuments und steht in **jedem** Ereignis — daraus baut
-der Empfänger z. B. `<base>/api/requests/<id>/recording`.
+`call.id` ist die `_id` des `requests`-Dokuments und steht in **jedem** Ereignis — daraus baut der Empfänger z. B. `<base>/api/requests/<id>/recording`.
 
 Drei Felder kamen mit 0.10.0 dazu:
 
-- **`externalRef`** — die Kennung des anlegenden Systems vom Agenten, in **jedem** Ereignis.
-  Anders als `agentRef` gilt sie auch für Gespräche ohne Overlay-Hook.
-- **`call.endedReason`** — warum das Gespräch endete. Bekannte Werte: `caller` (Anrufer hat
-  aufgelegt), `agent` (`end_call`), `transfer` (an einen Menschen übergeben — beide
-  Auflegerichtungen), `idle` (Stille-Leiter), `announce` (reine Ansage), `maxDuration`,
-  `abandoned` (aufgelegt, bevor das Gespräch zustande kam — siehe unten),
-  `failed`. **Die Liste ist offen**: Das Feld ist ein freier String und wird nicht validiert;
-  ein künftig ergänzter Grund darf einen Empfänger nicht in einen Fehler laufen lassen.
-  Behandle Unbekanntes wie „sonstiges", nicht wie einen Fehler.
+- **`externalRef`** — die Kennung des anlegenden Systems vom Agenten, in **jedem** Ereignis. Anders als `agentRef` gilt sie auch für Gespräche ohne Overlay-Hook.
+- **`call.endedReason`** — warum das Gespräch endete. Bekannte Werte: `caller` (Anrufer hat aufgelegt), `agent` (`end_call`), `transfer` (an einen Menschen übergeben — beide Auflegerichtungen), `idle` (Stille-Leiter), `announce` (reine Ansage), `maxDuration`, `abandoned` (aufgelegt, bevor das Gespräch zustande kam — siehe unten), `failed`. **Die Liste ist offen**: Das Feld ist ein freier String und wird nicht validiert; ein künftig ergänzter Grund darf einen Empfänger nicht in einen Fehler laufen lassen. Behandle Unbekanntes wie „sonstiges", nicht wie einen Fehler.
 - **`greetingText`** — der tatsächlich gesprochene Eröffnungssatz (nur in `call.ended`/`call.failed`).
 
-**Vor der Annahme aufgelegte Anrufe** (0.10.1) melden sich als `call.ended` mit
-`endedReason: "abandoned"` — nicht als `call.failed`. Der Anrufer war zwischen `call.started`
-und dem Abheben wieder weg; das ist ein regulärer Ausgang und keine Störung. Erkennbar ist er
-zusätzlich am leeren Transkript und an `durationSec` im Sekundenbereich. Ein Empfänger, der
-daraus kein Gespräch anlegen will, filtert auf diesen Grund. Ganz ohne Ereignis bliebe das
-bereits gesendete `call.started` unbeantwortet, deshalb entfällt es nicht.
+**Vor der Annahme aufgelegte Anrufe** (0.10.1) melden sich als `call.ended` mit `endedReason: "abandoned"` — nicht als `call.failed`. Der Anrufer war zwischen `call.started` und dem Abheben wieder weg; das ist ein regulärer Ausgang und keine Störung. Erkennbar ist er zusätzlich am leeren Transkript und an `durationSec` im Sekundenbereich. Ein Empfänger, der daraus kein Gespräch anlegen will, filtert auf diesen Grund. Ganz ohne Ereignis bliebe das bereits gesendete `call.started` unbeantwortet, deshalb entfällt es nicht.
 
 **Zustellung:**
 
 - Asynchron; ein Anruf wartet nie auf den Empfänger.
-- `seq` zählt je Anruf aufwärts, die **Reihenfolge ist nicht zugesichert** (mehrere parallele
-  Zustellungen, Wiederholungen). Der Empfänger dedupliziert über (`call.id`, `event`, `seq`)
-  und sollte `call.ended` vor `call.started` vertragen.
-- Wiederholung bei Timeout, 5xx und 429 mit exponentiellem Backoff bis `WEBHOOK_MAX_RETRIES`;
-  `X-VOH-Delivery` bleibt dabei konstant. Bei 4xx außer 429 wird **nicht** wiederholt — das ist
-  ein Vertragsfehler und wird einmal als `error` protokolliert.
-- Die Warteschlange liegt **im Speicher** und ist auf `WEBHOOK_QUEUE_LIMIT` begrenzt; darüber
-  wird das älteste Ereignis verworfen und laut protokolliert. Ein Redeploy mitten in einem
-  Backoff verliert offene Zustellungen (beim Shutdown werden sie bis zu 5 s ausgeliefert).
-  Wer Lückenlosigkeit braucht, gleicht periodisch gegen `/api/requests` ab.
+- `seq` zählt je Anruf aufwärts, die **Reihenfolge ist nicht zugesichert** (mehrere parallele Zustellungen, Wiederholungen). Der Empfänger dedupliziert über (`call.id`, `event`, `seq`) und sollte `call.ended` vor `call.started` vertragen.
+- Wiederholung bei Timeout, 5xx und 429 mit exponentiellem Backoff bis `WEBHOOK_MAX_RETRIES`; `X-VOH-Delivery` bleibt dabei konstant. Bei 4xx außer 429 wird **nicht** wiederholt — das ist ein Vertragsfehler und wird einmal als `error` protokolliert.
+- Die Warteschlange liegt **im Speicher** und ist auf `WEBHOOK_QUEUE_LIMIT` begrenzt; darüber wird das älteste Ereignis verworfen und laut protokolliert. Ein Redeploy mitten in einem Backoff verliert offene Zustellungen (beim Shutdown werden sie bis zu 5 s ausgeliefert). Wer Lückenlosigkeit braucht, gleicht periodisch gegen `/api/requests` ab.
 
-**Datenschutz:** Die Ereignisse enthalten Rufnummern und das vollständige Transkript. Der
-Empfänger ist damit Teil der Verarbeitung — Endpunkt und Aufbewahrung entsprechend wählen.
+**Datenschutz:** Die Ereignisse enthalten Rufnummern und das vollständige Transkript. Der Empfänger ist damit Teil der Verarbeitung — Endpunkt und Aufbewahrung entsprechend wählen.
 
 ## SIP-Trunk (Appliance)
 
-Für die Produktiv-Appliance wird der SIP-Trunk **vollständig über ENV-Variablen** gesteuert — kein
-manuelles Editieren der Asterisk-Config nötig. Gilt nur bei `EMBED_ASTERISK=true` (eingebetteter
-Asterisk). **Ein Trunk pro Appliance, aber freie Provider-Wahl** über `TRUNK_AUTH_MODE`
-(`register` | `ip`) — eine Übersicht der Anbieter (sipgate, easybell, Placetel, Telekom, Twilio …)
-samt der jeweils nötigen ENV-Optionen steht in **[docs/trunks.md](trunks.md)**.
+Für die Produktiv-Appliance wird der SIP-Trunk **vollständig über ENV-Variablen** gesteuert — kein manuelles Editieren der Asterisk-Config nötig. Gilt nur bei `EMBED_ASTERISK=true` (eingebetteter Asterisk). **Ein Trunk pro Appliance, aber freie Provider-Wahl** über `TRUNK_AUTH_MODE` (`register` | `ip`) — eine Übersicht der Anbieter (sipgate, easybell, Placetel, Telekom, Twilio …) samt der jeweils nötigen ENV-Optionen steht in **[docs/trunks.md](trunks.md)**.
 
 **Funktionsweise (ENV → entrypoint → `#include`):**
 
 1. Beim Container-Start liest [docker/entrypoint.sh](../docker/entrypoint.sh) die `TRUNK_*`-Variablen.
-2. Bei `TRUNK_ENABLED=true` generiert der entrypoint daraus `/etc/asterisk/pjsip_trunk.conf`
-   (Registration/Auth/Endpoint/AOR/Identify aus `TRUNK_SIP_ID`, `TRUNK_SIP_PASSWORD`, `TRUNK_SERVER`,
-   `TRUNK_CODECS`). Bei `TRUNK_ENABLED!=true` wird eine **leere** Datei geschrieben (kein Trunk —
-   Dev nutzt das lokale Softphone).
+2. Bei `TRUNK_ENABLED=true` generiert der entrypoint daraus `/etc/asterisk/pjsip_trunk.conf` (Registration/Auth/Endpoint/AOR/Identify aus `TRUNK_SIP_ID`, `TRUNK_SIP_PASSWORD`, `TRUNK_SERVER`, `TRUNK_CODECS`). Bei `TRUNK_ENABLED!=true` wird eine **leere** Datei geschrieben (kein Trunk — Dev nutzt das lokale Softphone).
 3. [pjsip.conf](../docker/asterisk/pjsip.conf) bindet diese Datei per `#include pjsip_trunk.conf` ein.
-4. Der generierte Trunk-Endpoint nutzt `context = inbound` → eingehende Anrufe laufen in den Dialplan
-   ([extensions.conf](../docker/asterisk/extensions.conf)) und damit in die Stasis-App / das
-   DDI-Agent-Routing.
+4. Der generierte Trunk-Endpoint nutzt `context = inbound` → eingehende Anrufe laufen in den Dialplan ([extensions.conf](../docker/asterisk/extensions.conf)) und damit in die Stasis-App / das DDI-Agent-Routing.
 
 **Minimale `.env` für einen aktiven Trunk:**
 
@@ -532,59 +367,35 @@ TRUNK_SERVER=sipconnect.sipgate.de      # Default
 TRUNK_CODECS=!all,g722,alaw,ulaw        # Default
 ```
 
-> **Strategie (phasiert):** Aktuell **ein Trunk pro Appliance** über ENV — das deckt Single-Tenant-
-> Deployments (MonaHilft, Kunden-Self-Host/RZ) ab. Eine **Verwaltung mehrerer Trunks über die
-> Admin-UI** (Trunks in der DB → pjsip generieren + `pjsip reload`, verschlüsselte SIP-Credentials)
-> und **Multi-Trunk** (Failover/Multi-Provider) sind als spätere Ausbaustufen vorgesehen; das
-> Datenmodell ist bereits N-Trunk-fähig gedacht. Siehe [backlog.md](backlog.md#admin-ui-erweiterungen-zukunft).
+> **Strategie (phasiert):** Aktuell **ein Trunk pro Appliance** über ENV — das deckt Single-Tenant- Deployments (MonaHilft, Kunden-Self-Host/RZ) ab. Eine **Verwaltung mehrerer Trunks über die Admin-UI** (Trunks in der DB → pjsip generieren + `pjsip reload`, verschlüsselte SIP-Credentials) und **Multi-Trunk** (Failover/Multi-Provider) sind als spätere Ausbaustufen vorgesehen; das Datenmodell ist bereits N-Trunk-fähig gedacht. Siehe [backlog.md](backlog.md#admin-ui-erweiterungen-zukunft).
 
-Manuelle PJSIP-Trunk-Vorlagen (Fallback/Referenz, z. B. für externe PBX) stehen in
-[docs/asterisk-sipgate.md](asterisk-sipgate.md).
+Manuelle PJSIP-Trunk-Vorlagen (Fallback/Referenz, z. B. für externe PBX) stehen in [docs/asterisk-sipgate.md](asterisk-sipgate.md).
 
 ## NAT hinter Docker
 
-Läuft der eingebettete Asterisk hinter NAT — also praktisch **immer**, wenn der Container über
-Docker-Bridge/Swarm-Overlay auf einem Host mit öffentlicher IP betrieben wird (z. B. EasyPanel) —,
-muss Asterisk seine **öffentliche IP** in SDP und Contact-Header annoncieren. Sonst trägt es seine
-container-interne IP ein, der Provider schickt RTP dorthin, und das Ergebnis ist **einseitiges/
-stummes Audio**, obwohl Signalisierung und Registrierung funktionieren.
+Läuft der eingebettete Asterisk hinter NAT — also praktisch **immer**, wenn der Container über Docker-Bridge/Swarm-Overlay auf einem Host mit öffentlicher IP betrieben wird (z. B. EasyPanel) —, muss Asterisk seine **öffentliche IP** in SDP und Contact-Header annoncieren. Sonst trägt es seine container-interne IP ein, der Provider schickt RTP dorthin, und das Ergebnis ist **einseitiges/ stummes Audio**, obwohl Signalisierung und Registrierung funktionieren.
 
-1. **`PUBLIC_IP`** in der `.env` setzen (öffentliche IP/Hostname der Appliance). Ist sie leer und ein
-   Trunk aktiv, versucht der entrypoint eine Auto-Erkennung (best-effort via `curl`) — explizit setzen
-   ist robuster. `LOCAL_NETS` hält interne Subnetze vom Rewrite aus (Default deckt Docker ab).
-2. Der entrypoint injiziert daraus `external_media_address`/`external_signaling_address` + `local_net`
-   in den `transport-udp` und setzt am Trunk-Endpoint `rtp_symmetric`/`force_rport`/`rewrite_contact`.
+1. **`PUBLIC_IP`** in der `.env` setzen (öffentliche IP/Hostname der Appliance). Ist sie leer und ein Trunk aktiv, versucht der entrypoint eine Auto-Erkennung (best-effort via `curl`) — explizit setzen ist robuster. `LOCAL_NETS` hält interne Subnetze vom Rewrite aus (Default deckt Docker ab).
+2. Der entrypoint injiziert daraus `external_media_address`/`external_signaling_address` + `local_net` in den `transport-udp` und setzt am Trunk-Endpoint `rtp_symmetric`/`force_rport`/`rewrite_contact`.
 3. Bei externer PBX (`EMBED_ASTERISK=false`) ist das irrelevant.
 
-**Port-Veröffentlichung bei Orchestratoren (Swarm/EasyPanel):** `5060/udp` **und** die gesamte
-RTP-Range müssen im **Host-Modus** publiziert werden (nicht über das Swarm-Ingress-Mesh — das macht
-Source-NAT und bricht RTP). EasyPanel bildet weder Port-Ranges noch den Host-Modus in der UI ab; auf
-solchen Systemen die Ports per `docker service update --publish-add … ,mode=host` setzen (ein Helper-
-Skript pro Range genügt) und **nach jedem Redeploy erneut anwenden**, da der Orchestrator manuelle
-Service-Änderungen beim Deploy überschreibt.
+**Port-Veröffentlichung bei Orchestratoren (Swarm/EasyPanel):** `5060/udp` **und** die gesamte RTP-Range müssen im **Host-Modus** publiziert werden (nicht über das Swarm-Ingress-Mesh — das macht Source-NAT und bricht RTP). EasyPanel bildet weder Port-Ranges noch den Host-Modus in der UI ab; auf solchen Systemen die Ports per `docker service update --publish-add … ,mode=host` setzen (ein Helper-Skript pro Range genügt) und **nach jedem Redeploy erneut anwenden**, da der Orchestrator manuelle Service-Änderungen beim Deploy überschreibt.
 
-**Doppel-INVITE mancher Trunks:** sipgate (und andere) stellen einen eingehenden Anruf teils als
-**zwei parallele INVITEs** (zwei SIP-Dialoge, Call-IDs nur minimal verschieden) zu — ohne Gegenmaßnahme
-entstünden zwei Sessions/Requests/Summaries. `CALL_DEDUP_WINDOW_MS` (Default 4000) verwirft den zweiten
-Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters.
+**Doppel-INVITE mancher Trunks:** sipgate (und andere) stellen einen eingehenden Anruf teils als **zwei parallele INVITEs** (zwei SIP-Dialoge, Call-IDs nur minimal verschieden) zu — ohne Gegenmaßnahme entstünden zwei Sessions/Requests/Summaries. `CALL_DEDUP_WINDOW_MS` (Default 4000) verwirft den zweiten Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters.
 
 ## Ausgehende Anrufe / externer Transfer
 
 `transfer_call` leitet je nach Ziel unterschiedlich weiter ([transfer.ts](../src/ari/transfer.ts)):
 
 - **Internes Ziel** (kurze Durchwahl, z. B. `101`) → `PJSIP/<ziel>` wie bisher (registriertes Softphone).
-- **Externes Ziel** (PSTN/Mobil, ≥ 7 Ziffern bzw. `+`) → `PJSIP/<e164>@TRUNK_OUTBOUND_ENDPOINT`, also
-  **raus über den Trunk**. Die angezeigte **Absender-Rufnummer** wird über den SIP-Header
-  `P-Preferred-Identity: <sip:49…@TRUNK_SERVER>` gesetzt (sipgate-Format `49…`, kein `+`/keine `0`).
+- **Externes Ziel** (PSTN/Mobil, ≥ 7 Ziffern bzw. `+`) → `PJSIP/<e164>@TRUNK_OUTBOUND_ENDPOINT`, also **raus über den Trunk**. Die angezeigte **Absender-Rufnummer** wird über den SIP-Header `P-Preferred-Identity: <sip:49…@TRUNK_SERVER>` gesetzt (sipgate-Format `49…`, kein `+`/keine `0`).
 
 **Welche Absendernummer?** Zwei Stufen:
 
-1. **Installation** — `TRUNK_CLIP_NO_SCREENING`: Erlaubt der Trunk überhaupt eine **fremde** Nummer?
-   (Bei sipgate im Trunk freischalten.) `false` ⇒ es geht **immer** die eigene Nummer.
+1. **Installation** — `TRUNK_CLIP_NO_SCREENING`: Erlaubt der Trunk überhaupt eine **fremde** Nummer? (Bei sipgate im Trunk freischalten.) `false` ⇒ es geht **immer** die eigene Nummer.
 2. **Agent** — Feld `useTransferCallerId` (Admin-UI-Toggle „Anrufer-Nr. bei externem Transfer"):
    - **an** *und* `TRUNK_CLIP_NO_SCREENING=true` ⇒ **Original-Anrufernummer** (transparente Weiterleitung).
-   - **aus** (Default) oder Trunk verbietet es ⇒ **eigene Agent-Nummer** (`targetNumbers[0]`), ersatzweise
-     `OUTBOUND_CALLER_ID`.
+   - **aus** (Default) oder Trunk verbietet es ⇒ **eigene Agent-Nummer** (`targetNumbers[0]`), ersatzweise `OUTBOUND_CALLER_ID`.
 
 > Hinweis: Wir leiten **per ARI** weiter (kein SIP-REFER) — der Outbound-Kanal wird direkt mit Endpoint
 > + Header originiert. Die CLI muss eine dir gehörende Trunk-Rufnummer sein (außer bei CLIP no screening).
@@ -593,140 +404,79 @@ Anruf gleicher Anrufer→Ziel-Kombination innerhalb des Fensters.
 
 Persistiert werden muss **genau ein** Verzeichnis:
 
-- **`/data/db`** — MongoDB-Datenverzeichnis. Enthält **alles Dauerhafte**: die `requests` (Metadaten,
-  Transkripte, Summaries, functionCalls) **und** die Aufnahmen als **GridFS-Blobs**. Nur dieses Volume
-  braucht Persistenz/Backup — ein DB-Backup deckt Anrufe inkl. Audio vollständig ab.
+- **`/data/db`** — MongoDB-Datenverzeichnis. Enthält **alles Dauerhafte**: die `requests` (Metadaten, Transkripte, Summaries, functionCalls) **und** die Aufnahmen als **GridFS-Blobs**. Nur dieses Volume braucht Persistenz/Backup — ein DB-Backup deckt Anrufe inkl. Audio vollständig ab.
 
 Nicht persistieren:
 
-- **Aufnahme-Staging** (`/var/spool/asterisk/recording`): Asterisk schreibt die WAV nur kurz dorthin;
-  nach dem Anruf wird sie nach GridFS hochgeladen und die Temp-Datei **gelöscht**. Rein flüchtig — kein
-  Volume, kein Backup (das Verzeichnis legt das Image an, es muss nur existieren).
-- **`/data/recordings`** (`RECORDING_PATH`): aktuell **ungenutzt** (Altlast — der Code nutzt den
-  Spool-Pfad oben). Als Volume entbehrlich.
+- **Aufnahme-Staging** (`/var/spool/asterisk/recording`): Asterisk schreibt die WAV nur kurz dorthin; nach dem Anruf wird sie nach GridFS hochgeladen und die Temp-Datei **gelöscht**. Rein flüchtig — kein Volume, kein Backup (das Verzeichnis legt das Image an, es muss nur existieren).
+- **`/data/recordings`** (`RECORDING_PATH`): aktuell **ungenutzt** (Altlast — der Code nutzt den Spool-Pfad oben). Als Volume entbehrlich.
 
 ## Sicherheit / Härtung
 
 Leitlinien für den Produktivbetrieb der Appliance:
 
-- **Netzwerk / Ports (extern minimal):** Nach außen werden **nur** `5060/udp` (SIP) und die
-  **RTP-Portrange** (Default 10000–10100/udp) benötigt. **Intern bleiben:** ARI (`8088`) und der
-  Media-/AudioSocket-Port (`8090`) — diese sind in der Standard-Containerkonfiguration **nicht** nach
-  außen gemappt. Auch das Mongo-Mapping in [run.sh](../run.sh) (`127.0.0.1:27100:27017`) ist nur an
-  `localhost` gebunden = **Dev-Komfort**; für eine Prod-Appliance dieses Port-Mapping **entfernen**.
-- **SIP-Zutritt (kein anonymer Zugang):** Eingehende Anrufe werden **nur** vom konfigurierten Trunk
-  (IP-gebunden über `identify`) bzw. von angemeldeten Endpoints angenommen. Unidentifizierte INVITEs
-  (SIP-Scanner wie *sipvicious*, die `5060/udp` im Minutentakt abklopfen) weist PJSIP mit `401` ab —
-  es gibt **keinen** `anonymous`-Endpoint. **Lokale Dev-Softphones (`softphone`/`101`) sind per Default
-  AUS** und werden nur bei `DEV_SOFTPHONE_ENABLED=true` erzeugt — auf einer öffentlich erreichbaren
-  Appliance **niemals** aktivieren, da ihre (schwachen) Logins sonst brute-force-bar wären und Anrufe
-  in die Stasis-App einschleusen könnten.
-- **Unbekannte Rufnummern werden nicht beantwortet:** Eine DDI ohne zugeordneten Agent löst per Default
-  (`UNKNOWN_NUMBER_BEHAVIOR=reject`) **keine** KI-Session aus — der Anruf wird vor dem Answer abgelehnt
-  (keine Deepgram-/LLM-Kosten, kein Logeintrag). Der frühere „Default-Agent als Catch-all" ist nur noch
-  über `=agent` (Dev) aktiv. Siehe [Unbekannte Rufnummer](#unbekannte-rufnummer-kein-agent).
-- **ARI-Passwort:** `ARI_PASSWORD` setzen — der entrypoint **warnt** bei leerem oder Default-Wert
-  (`changeme`). ARI niemals nach außen exponieren.
-- **Admin-UI/-API:** läuft nur bei gesetztem `ADMIN_PASSWORD` (leer → Admin-Server startet nicht).
-  In Produktion zusätzlich ein eigenes `ADMIN_SESSION_SECRET` setzen. **Achtung:** Manche ENV-Editoren
-  (u. a. EasyPanel) schneiden ein `#` im Wert als Kommentar ab — Passwörter/Secrets ohne `#` wählen
-  oder korrekt quoten, sonst schlägt der Login mit gekürztem Passwort fehl.
-- **Externer API-Zugriff (Drittsysteme):** Über `ADMIN_API_KEY` (ENV) lässt sich die JSON-Management-
-  API per Header `x-api-key: <ADMIN_API_KEY>` ohne UI-Session nutzen (z. B. für Mona11/Kunden-Systeme).
-  Leerer Key = **nur** UI-Session, kein Header-Zugriff. Den Key wie ein Secret behandeln (nur über
-  TLS/internes Netz übertragen).
-- **DSGVO / Aufnahmen:** Gesprächsaufzeichnung erfordert i. d. R. eine Ansage/Einwilligung — siehe
-  [Aufnahme & Transkription](#aufnahme--transkription-gridfs).
+- **Netzwerk / Ports (extern minimal):** Nach außen werden **nur** `5060/udp` (SIP) und die **RTP-Portrange** (Default 10000–10100/udp) benötigt. **Intern bleiben:** ARI (`8088`) und der Media-/AudioSocket-Port (`8090`) — diese sind in der Standard-Containerkonfiguration **nicht** nach außen gemappt. Auch das Mongo-Mapping in [run.sh](../run.sh) (`127.0.0.1:27100:27017`) ist nur an `localhost` gebunden = **Dev-Komfort**; für eine Prod-Appliance dieses Port-Mapping **entfernen**.
+- **SIP-Zutritt (kein anonymer Zugang):** Eingehende Anrufe werden **nur** vom konfigurierten Trunk (IP-gebunden über `identify`) bzw. von angemeldeten Endpoints angenommen. Unidentifizierte INVITEs (SIP-Scanner wie *sipvicious*, die `5060/udp` im Minutentakt abklopfen) weist PJSIP mit `401` ab — es gibt **keinen** `anonymous`-Endpoint. **Lokale Dev-Softphones (`softphone`/`101`) sind per Default AUS** und werden nur bei `DEV_SOFTPHONE_ENABLED=true` erzeugt — auf einer öffentlich erreichbaren Appliance **niemals** aktivieren, da ihre (schwachen) Logins sonst brute-force-bar wären und Anrufe in die Stasis-App einschleusen könnten.
+- **Unbekannte Rufnummern werden nicht beantwortet:** Eine DDI ohne zugeordneten Agent löst per Default (`UNKNOWN_NUMBER_BEHAVIOR=reject`) **keine** KI-Session aus — der Anruf wird vor dem Answer abgelehnt (keine Deepgram-/LLM-Kosten, kein Logeintrag). Der frühere „Default-Agent als Catch-all" ist nur noch über `=agent` (Dev) aktiv. Siehe [Unbekannte Rufnummer](#unbekannte-rufnummer-kein-agent).
+- **ARI-Passwort:** `ARI_PASSWORD` setzen — der entrypoint **warnt** bei leerem oder Default-Wert (`changeme`). ARI niemals nach außen exponieren.
+- **Admin-UI/-API:** läuft nur bei gesetztem `ADMIN_PASSWORD` (leer → Admin-Server startet nicht). In Produktion zusätzlich ein eigenes `ADMIN_SESSION_SECRET` setzen. **Achtung:** Manche ENV-Editoren (u. a. EasyPanel) schneiden ein `#` im Wert als Kommentar ab — Passwörter/Secrets ohne `#` wählen oder korrekt quoten, sonst schlägt der Login mit gekürztem Passwort fehl.
+- **Externer API-Zugriff (Drittsysteme):** Über `ADMIN_API_KEY` (ENV) lässt sich die JSON-Management-API per Header `x-api-key: <ADMIN_API_KEY>` ohne UI-Session nutzen (z. B. für Mona11/Kunden-Systeme). Leerer Key = **nur** UI-Session, kein Header-Zugriff. Den Key wie ein Secret behandeln (nur über TLS/internes Netz übertragen).
+- **DSGVO / Aufnahmen:** Gesprächsaufzeichnung erfordert i. d. R. eine Ansage/Einwilligung — siehe [Aufnahme & Transkription](#aufnahme--transkription-gridfs).
 
 ## LLM-Umschalter (Requesty ↔ Deepgram-managed)
 
 Im Agent (`think.source`) bzw. global (`LLM_PROVIDER`):
 
-- `requesty` → `think.provider.type: "open_ai"` + `think.endpoint` (Requesty-Router). Standard.
-  Modell-IDs im Requesty-Format, z. B. `openai/gpt-4o-mini`, `vertex/gemini-3.1-flash-lite@eu`.
+- `requesty` → `think.provider.type: "open_ai"` + `think.endpoint` (Requesty-Router). Standard. Modell-IDs im Requesty-Format, z. B. `openai/gpt-4o-mini`, `vertex/gemini-3.1-flash-lite@eu`.
 - `deepgram` → von Deepgram integriert gehostetes Modell (z.B. `claude-…`/`gpt-…`/`gemini-…`) ohne Endpoint.
 
-> **Hinweis:** GPT-5-/o1-/o3-Modelle akzeptieren nur die Default-`temperature`; der Settings-Builder
-> lässt `temperature` für diese Modelle daher weg (sonst „Failed to think"). Deepgrams managed-Google
-> kann projektseitig gesperrt sein — dann Gemini über **Requesty** nutzen (eigene Google-Anbindung).
+> **Hinweis:** GPT-5-/o1-/o3-Modelle akzeptieren nur die Default-`temperature`; der Settings-Builder lässt `temperature` für diese Modelle daher weg (sonst „Failed to think"). Deepgrams managed-Google kann projektseitig gesperrt sein — dann Gemini über **Requesty** nutzen (eigene Google-Anbindung).
 
-Die **Post-Call-Summary** nutzt immer die Requesty-Request-API
-([summarize.ts](../src/llm/summarize.ts)) mit **eigenem Modell** (`SUMMARY_MODEL`) und eigenem Prompt
-(`SUMMARY_PROMPT`), beides pro Agent überschreibbar.
+Die **Post-Call-Summary** nutzt immer die Requesty-Request-API ([summarize.ts](../src/llm/summarize.ts)) mit **eigenem Modell** (`SUMMARY_MODEL`) und eigenem Prompt (`SUMMARY_PROMPT`), beides pro Agent überschreibbar.
 
 ## Tools (Function Calling)
 
-Pro Anruf wird **ein Toolset** aus drei Quellen zusammengeführt
-([tools/toolset.ts](../src/tools/toolset.ts)); Details + Endpoint-Kontrakt: **[docs/tools.md](tools.md)**.
+Pro Anruf wird **ein Toolset** aus drei Quellen zusammengeführt ([tools/toolset.ts](../src/tools/toolset.ts)); Details + Endpoint-Kontrakt: **[docs/tools.md](tools.md)**.
 
 1. **Eingebaute Tools** (`agent.tools`, im UI Toggle-Liste; [src/tools/handlers/](../src/tools/handlers/)):
-   - `transfer_call` — Weiterleitung mit Auto-Rückkehr (Vorstufe Warm Transfer). Parameter `target`
-     = Ziel-Durchwahl (nur bekannte verwenden; ohne Angabe `PASSTHROUGH_TARGET`). Während des Klingelns
-     läuft die Ansage weiter, der Agent hört nicht mehr zu; nach Connect ist er stumm.
+   - `transfer_call` — Weiterleitung mit Auto-Rückkehr (Vorstufe Warm Transfer). Parameter `target` = Ziel-Durchwahl (nur bekannte verwenden; ohne Angabe `PASSTHROUGH_TARGET`). Während des Klingelns läuft die Ansage weiter, der Agent hört nicht mehr zu; nach Connect ist er stumm.
    - `end_call` — Gespräch beenden/auflegen (nach dem gesprochenen Abschied).
-   - `get_weather` — Demo.
-   Neue eingebaute Tools: Handler unter `handlers/` anlegen, in [tools/index.ts](../src/tools/index.ts)
-   registrieren und den Namen in [tools/names.ts](../src/tools/names.ts) ergänzen.
-2. **Eigene HTTP-Tools** (`agent.customTools[]`, UI-Editor im Agent-Formular): Fachlogik als
-   externer Endpoint. Die Engine ruft selbst auf (POST-Envelope `{arguments, call}` bzw. GET-Query),
-   `${ENV:NAME}`-Platzhalter halten Secrets aus der DB, hartes Timeout; Fehler werden zum
-   sprechbaren `{error}`-Ergebnis (`functionCalls[].status: "error"`) — der Anruf hängt nie.
-3. **MCP-Server** (`agent.mcpServers[]`, UI-Editor): Tools eines MCP-Servers (Streamable HTTP)
-   erscheinen präfixiert als `<server>_<tool>`; Tool-Listen-Cache ~5 min, Verbindung lazy pro Call,
-   optionaler `toolFilter`.
+   - `get_weather` — Demo. Neue eingebaute Tools: Handler unter `handlers/` anlegen, in [tools/index.ts](../src/tools/index.ts) registrieren und den Namen in [tools/names.ts](../src/tools/names.ts) ergänzen.
+2. **Eigene HTTP-Tools** (`agent.customTools[]`, UI-Editor im Agent-Formular): Fachlogik als externer Endpoint. Die Engine ruft selbst auf (POST-Envelope `{arguments, call}` bzw. GET-Query), `${ENV:NAME}`-Platzhalter halten Secrets aus der DB, hartes Timeout; Fehler werden zum sprechbaren `{error}`-Ergebnis (`functionCalls[].status: "error"`) — der Anruf hängt nie.
+3. **MCP-Server** (`agent.mcpServers[]`, UI-Editor): Tools eines MCP-Servers (Streamable HTTP) erscheinen präfixiert als `<server>_<tool>`; Tool-Listen-Cache ~5 min, Verbindung lazy pro Call, optionaler `toolFilter`.
 
-> **Engine-Abgrenzung:** Die Engine deckt **Kern-Telefonie** ab. Fachliche Tools kommen pro Agent
-> dazu und leben in **externen APIs/MCP-Servern** — sie gehören nicht in die Engine. Das frühere
-> Demo-Tool `lookup_customer` (+ `customers`-Collection) wurde entfernt.
+> **Engine-Abgrenzung:** Die Engine deckt **Kern-Telefonie** ab. Fachliche Tools kommen pro Agent dazu und leben in **externen APIs/MCP-Servern** — sie gehören nicht in die Engine. Das frühere Demo-Tool `lookup_customer` (+ `customers`-Collection) wurde entfernt.
 
 ## Aufnahme & Transkription (GridFS)
 
-Beide Modi nehmen das Gespräch auf (ARI `bridge.record` → WAV im temp-Pfad → Streaming-Upload in
-**GridFS**); das `requests`-Dokument referenziert nur `recording.gridFsId`. Transkript:
+Beide Modi nehmen das Gespräch auf (ARI `bridge.record` → WAV im temp-Pfad → Streaming-Upload in **GridFS**); das `requests`-Dokument referenziert nur `recording.gridFsId`. Transkript:
 
 - agent-Modus: **live** aus `ConversationText` (`speaker` = `agent`/`caller`).
-- passthrough: **Batch** via Deepgram Pre-recorded + Diarization (`speaker` = `caller`/`callee`),
-  Sprache fest aus `agent.language` (statt `detect_language` — robuster bei leisem Audio).
+- passthrough: **Batch** via Deepgram Pre-recorded + Diarization (`speaker` = `caller`/`callee`), Sprache fest aus `agent.language` (statt `detect_language` — robuster bei leisem Audio).
 
-Die **Post-Call-Summary** läuft in **beiden** Modi (sofern `summary.enabled`): im agent-Modus über
-das Live-Transkript, im passthrough-Modus über das Batch-Transkript.
+Die **Post-Call-Summary** läuft in **beiden** Modi (sofern `summary.enabled`): im agent-Modus über das Live-Transkript, im passthrough-Modus über das Batch-Transkript.
 
-> **DSGVO:** Gesprächsaufzeichnung erfordert i.d.R. eine Ansage/Einwilligung — vor Produktivbetrieb
-> rechtlich absichern.
+> **DSGVO:** Gesprächsaufzeichnung erfordert i.d.R. eine Ansage/Einwilligung — vor Produktivbetrieb rechtlich absichern.
 
 ## Admin-UI & Management-API
 
-Eigener **Node/Fastify**-Prozess (kein Python), startet nur bei gesetztem `ADMIN_PASSWORD`, auf
-`UI_PORT` (Default 8080). API-First: das Frontend (Hybrids-SPA im GlassKit-Look, `webui/`, ohne Build)
-ist nur ein Client der **JSON-API**. Details: [architecture.md](architecture.md#admin-ui--management-api).
+Eigener **Node/Fastify**-Prozess (kein Python), startet nur bei gesetztem `ADMIN_PASSWORD`, auf `UI_PORT` (Default 8080). API-First: das Frontend (Hybrids-SPA im GlassKit-Look, `webui/`, ohne Build) ist nur ein Client der **JSON-API**. Details: [architecture.md](architecture.md#admin-ui--management-api).
 
-- **API:** `/api/login` · `/api/logout` · `/api/me`; `/api/agents` (GET/POST/PATCH/DELETE);
-  `/api/requests` (GET Liste/Detail, Filter `status=in_progress` für Live) +
-  `/api/requests/:id/recording` (WAV-Stream aus GridFS); `/api/tools` (GET, eingebaute Tools).
+- **API:** `/api/login` · `/api/logout` · `/api/me`; `/api/agents` (GET/POST/PATCH/DELETE); `/api/requests` (GET Liste/Detail, Filter `status=in_progress` für Live) + `/api/requests/:id/recording` (WAV-Stream aus GridFS); `/api/tools` (GET, eingebaute Tools).
 - **Auth:** UI-Login → signiertes Session-Cookie; extern alternativ `x-api-key: <ADMIN_API_KEY>`.
 - **OpenAPI/Doku:** Spec `/openapi.json`, Swagger-UI `/docs` (Version aus package.json).
-- **Agents pflegen:** über die UI **oder** das Seed-Skript ([seedAgents.ts](../src/scripts/seedAgents.ts),
-  `npm run seed`) **oder** direkt per API. Im Agent-Formular: Built-in-Tools als Toggles,
-  Editoren für Custom-HTTP-Tools und MCP-Server, STT-Modellwahl nova-3/Flux (mit eot-Feldern).
-- **Tab „Live":** laufende Anrufe mit tickender Dauer (3-s-Polling); das Anruf-Detail aktualisiert
-  sich bei laufendem Anruf und offener Summary/Transkription selbst (2-s-Takt).
-- **Metriken im Anruf-Detail:** Badges „Erste Antwort x,x s" (`metrics.timeToFirstAudioMs`),
-  Barge-ins, Tool-Aufrufe (inkl. Fehler) — nützlich für A/B nova-3 vs. Flux.
+- **Agents pflegen:** über die UI **oder** das Seed-Skript ([seedAgents.ts](../src/scripts/seedAgents.ts), `npm run seed`) **oder** direkt per API. Im Agent-Formular: Built-in-Tools als Toggles, Editoren für Custom-HTTP-Tools und MCP-Server, STT-Modellwahl nova-3/Flux (mit eot-Feldern).
+- **Tab „Live":** laufende Anrufe mit tickender Dauer (3-s-Polling); das Anruf-Detail aktualisiert sich bei laufendem Anruf und offener Summary/Transkription selbst (2-s-Takt).
+- **Metriken im Anruf-Detail:** Badges „Erste Antwort x,x s" (`metrics.timeToFirstAudioMs`), Barge-ins, Tool-Aufrufe (inkl. Fehler) — nützlich für A/B nova-3 vs. Flux.
 
 ## Betrieb / Troubleshooting
 
 - **Start lokal:** `cp .env.example .env` → ausfüllen → `./run.sh build && ./run.sh up && ./run.sh logs`.
 - **Logs:** strukturierte JSON-Zeilen auf stdout/stderr (`LOG_LEVEL=debug` für mehr Detail).
-- **Latenz:** `AgentStartedSpeaking` liefert `total_latency`/`tts_latency`/`ttt_latency` (Ziel < ~1 s);
-  zusätzlich steht pro Anruf `metrics.timeToFirstAudioMs` (Answer → Begrüßungs-Audio) am Request
-  und als Badge im Anruf-Detail.
-- **Keine Audio-Rückkehr:** `EXTERNAL_MEDIA_HOST/PORT` prüfen (Asterisk verbindet sich dorthin),
-  `direct_media=no` am Endpoint; bei `MEDIA_TRANSPORT=rtp` zusätzlich die RTP-Portrange.
-- **„Failed to think":** managed-LLM-Problem (z. B. GPT-5 + `temperature`, oder managed-Google gesperrt) →
-  Modell/Provider wechseln (Requesty) — siehe LLM-Umschalter.
-- **Aufnahme schlägt fehl (ARI 500):** Verzeichnis `/var/spool/asterisk/recording` muss existieren
-  und dem `asterisk`-User gehören (wird im Image angelegt).
-- **MongoDB von außen (Dev):** in [run.sh](../run.sh) ist `-p 127.0.0.1:27100:27017` gemappt →
-  GUI-Client (z. B. NoSQL Booster) auf `127.0.0.1:27100`, DB `voiceagent`.
+- **Latenz:** `AgentStartedSpeaking` liefert `total_latency`/`tts_latency`/`ttt_latency` (Ziel < ~1 s); zusätzlich steht pro Anruf `metrics.timeToFirstAudioMs` (Answer → Begrüßungs-Audio) am Request und als Badge im Anruf-Detail.
+- **Keine Audio-Rückkehr:** `EXTERNAL_MEDIA_HOST/PORT` prüfen (Asterisk verbindet sich dorthin), `direct_media=no` am Endpoint; bei `MEDIA_TRANSPORT=rtp` zusätzlich die RTP-Portrange.
+- **„Failed to think":** managed-LLM-Problem (z. B. GPT-5 + `temperature`, oder managed-Google gesperrt) → Modell/Provider wechseln (Requesty) — siehe LLM-Umschalter.
+- **Aufnahme schlägt fehl (ARI 500):** Verzeichnis `/var/spool/asterisk/recording` muss existieren und dem `asterisk`-User gehören (wird im Image angelegt).
+- **MongoDB von außen (Dev):** in [run.sh](../run.sh) ist `-p 127.0.0.1:27100:27017` gemappt → GUI-Client (z. B. NoSQL Booster) auf `127.0.0.1:27100`, DB `voiceagent`.
 - **Kein Agent gefunden:** DDI-Format (E.164) in `agents.targetNumbers` prüfen; sonst Default-Agent.
 - **Externe DB:** `MONGO_URI` setzen + `USE_LOCAL_MONGO=false` → kein lokales `mongod`.

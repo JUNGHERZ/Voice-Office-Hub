@@ -1,12 +1,8 @@
 # SIP-Trunk-Anbieter (DACH) & Anbindung
 
-Voice-Office-Hub bindet **einen** SIP-Trunk pro Appliance an — der **Anbieter ist aber frei wählbar**.
-Die Anbindung wird vollständig über `TRUNK_*`-ENV-Variablen gesteuert; der
-[entrypoint](../docker/entrypoint.sh) erzeugt daraus die PJSIP-Trunk-Config. Details zu allen
-Variablen: [configuration.md](configuration.md#env-variablen).
+Voice-Office-Hub bindet **einen** SIP-Trunk pro Appliance an — der **Anbieter ist aber frei wählbar**. Die Anbindung wird vollständig über `TRUNK_*`-ENV-Variablen gesteuert; der [entrypoint](../docker/entrypoint.sh) erzeugt daraus die PJSIP-Trunk-Config. Details zu allen Variablen: [configuration.md](configuration.md#env-variablen).
 
-> Mehrere Trunks gleichzeitig (Failover/Multi-Provider) sind bewusst **nicht** Teil dieser Stufe —
-> eine Appliance = ein Trunk. Siehe [backlog.md](backlog.md).
+> Mehrere Trunks gleichzeitig (Failover/Multi-Provider) sind bewusst **nicht** Teil dieser Stufe — eine Appliance = ein Trunk. Siehe [backlog.md](backlog.md).
 
 ## Die zwei Anbindungs-Modi
 
@@ -17,13 +13,7 @@ Welcher Modus gilt, steuert **`TRUNK_AUTH_MODE`**:
 | **`register`** (Default) | Provider verlangt SIP-**Registrierung** mit Benutzer/Passwort | `registration` + `auth` + `endpoint` + `identify` |
 | **`ip`** | Provider authentifiziert per **statischer IP** (kein Login) | nur `endpoint` + `identify` (Zuordnung über `TRUNK_MATCH`); `auth` nur, falls Credentials gesetzt |
 
-**Absender-Rufnummer (CLIP)** bei ausgehenden Anrufen/Transfers steuert **`TRUNK_CLIP_HEADER`**
-(`ppi` = `P-Preferred-Identity`, Default; `pai` = `P-Asserted-Identity`) zusammen mit
-`OUTBOUND_CALLER_ID` bzw. dem Agent-Feld `useTransferCallerId` (siehe
-[configuration.md → Ausgehende Anrufe](configuration.md#ausgehende-anrufe--externer-transfer)).
-Wichtig: Viele Provider verlangen, dass die Absendernummer dem Account gehört **und** eine
-**Fallback-/Standard-Absendernummer** im Provider-Portal hinterlegt ist (bei sipgate Pflicht-
-Voraussetzung), sonst erscheint „unbekannt".
+**Absender-Rufnummer (CLIP)** bei ausgehenden Anrufen/Transfers steuert **`TRUNK_CLIP_HEADER`** (`ppi` = `P-Preferred-Identity`, Default; `pai` = `P-Asserted-Identity`) zusammen mit `OUTBOUND_CALLER_ID` bzw. dem Agent-Feld `useTransferCallerId` (siehe [configuration.md → Ausgehende Anrufe](configuration.md#ausgehende-anrufe--externer-transfer)). Wichtig: Viele Provider verlangen, dass die Absendernummer dem Account gehört **und** eine **Fallback-/Standard-Absendernummer** im Provider-Portal hinterlegt ist (bei sipgate Pflicht-Voraussetzung), sonst erscheint „unbekannt".
 
 ## Anbieter-Übersicht
 
@@ -42,9 +32,7 @@ Voraussetzung), sonst erscheint „unbekannt".
 | **A1 / Magenta** | AT | `ip` (meist) | `pai` | |
 | **Twilio Elastic SIP / Telnyx / Vonage** | global | `ip` | `pai`/`from` | CPaaS, ideal für Voice-Agents; IP-ACL + optional Credentials, SRTP optional, E.164 |
 
-> Die Spalten `TRUNK_AUTH_MODE`/`TRUNK_CLIP_HEADER` sind **Richtwerte** — die genauen Anforderungen
-> stehen in der jeweiligen Provider-Doku. Im Zweifel beim Provider die SBC-/Gateway-IPs (für
-> `TRUNK_MATCH`) und die geforderte CLIP-Methode erfragen.
+> Die Spalten `TRUNK_AUTH_MODE`/`TRUNK_CLIP_HEADER` sind **Richtwerte** — die genauen Anforderungen stehen in der jeweiligen Provider-Doku. Im Zweifel beim Provider die SBC-/Gateway-IPs (für `TRUNK_MATCH`) und die geforderte CLIP-Methode erfragen.
 
 ## Beispiel-Konstellationen
 
@@ -77,6 +65,4 @@ TRUNK_SIP_PASSWORD=<pw>
 
 ## NAT & Ports (providerunabhängig)
 
-Hinter Docker-/Host-NAT immer `PUBLIC_IP` setzen (siehe
-[configuration.md → NAT hinter Docker](configuration.md#nat-hinter-docker)). Nach außen nur
-`5060/udp` + die RTP-Range freigeben; bei Orchestratoren (Swarm/EasyPanel) im **Host-Modus**.
+Hinter Docker-/Host-NAT immer `PUBLIC_IP` setzen (siehe [configuration.md → NAT hinter Docker](configuration.md#nat-hinter-docker)). Nach außen nur `5060/udp` + die RTP-Range freigeben; bei Orchestratoren (Swarm/EasyPanel) im **Host-Modus**.

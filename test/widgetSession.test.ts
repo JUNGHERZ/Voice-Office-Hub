@@ -13,7 +13,7 @@ import { test } from "node:test";
 import Fastify from "fastify";
 
 const { config } = await import("../src/config.js");
-const { widgetRoutes } = await import("../src/admin/routes/widget.js");
+const { widgetRoutes, widgetOriginAllowed } = await import("../src/admin/routes/widget.js");
 const { SlidingWindowLimiter } = await import("../src/admin/rateLimit.js");
 
 type Deps = Partial<import("../src/admin/routes/widget.js").WidgetRouteDeps>;
@@ -77,6 +77,41 @@ test("Session: fremder Origin → 403", async () => {
   const res = await app.inject(sessionReq(WIDGET_AGENT.widget.key, { origin: "https://boese-seite.de" }));
   assert.equal(res.statusCode, 403);
   await app.close();
+});
+
+// 3b ─ Fremde, aber am Agenten gelistete Origin → 200. Ohne das ließe sich das Widget nur
+// auf der Appliance selbst einbetten (0.10.2).
+test("Session: gelistete fremde Origin → 200", async () => {
+  const app = makeApp();
+  const res = await app.inject(sessionReq(WIDGET_AGENT.widget.key, { origin: "https://kunde.de" }));
+  assert.equal(res.statusCode, 200);
+  await app.close();
+});
+
+// 3c ─ Leere Liste = heutiges Verhalten: nur die Appliance selbst.
+test("Session: ohne allowedOrigins bleibt es bei same-origin", async () => {
+  const bare = { ...WIDGET_AGENT, widget: { ...WIDGET_AGENT.widget, allowedOrigins: [] } };
+  const app = makeApp({ findByWidgetKey: async () => bare });
+  const res = await app.inject(sessionReq(bare.widget.key, { origin: "https://kunde.de" }));
+  assert.equal(res.statusCode, 403);
+  await app.close();
+});
+
+// 3d ─ Ein Eintrag, der die Einbettung erlaubt, muss auch die Session erlauben — sonst lädt
+// derselbe Wert an zwei Stellen zu unterschiedlichem Verhalten ein. Deshalb dieselbe
+// Wildcard-Semantik wie in CSP frame-ancestors.
+test("widgetOriginAllowed: CSP-treue Semantik für Schema, Port und Unterdomänen", () => {
+  const ok = (o: string, list: string[]) => widgetOriginAllowed(o, list);
+  assert.equal(ok("https://kunde.de", ["https://kunde.de"]), true);
+  assert.equal(ok("https://KUNDE.de", ["https://kunde.de/"]), true, "Groß/Klein und Schrägstrich");
+  assert.equal(ok("http://kunde.de", ["https://kunde.de"]), false, "Schema muss stimmen");
+  assert.equal(ok("https://kunde.de:8443", ["https://kunde.de"]), false, "Port muss stimmen");
+  assert.equal(ok("https://shop.kunde.de", ["https://*.kunde.de"]), true);
+  assert.equal(ok("https://a.b.kunde.de", ["https://*.kunde.de"]), true);
+  assert.equal(ok("https://kunde.de", ["https://*.kunde.de"]), false, "Wildcard ≠ Domäne selbst");
+  assert.equal(ok("https://boese-kunde.de", ["https://*.kunde.de"]), false, "kein Suffix-Trick");
+  assert.equal(ok("null", ["https://kunde.de"]), false, "Opaque Origin (sandbox/data:)");
+  assert.equal(ok("https://kunde.de", []), false);
 });
 
 // 4 ─ Happy Path: Creds + Exten; wss-URL wird hinter Traefik aus x-forwarded-proto abgeleitet.
