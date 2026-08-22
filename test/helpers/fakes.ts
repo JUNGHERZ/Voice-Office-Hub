@@ -282,7 +282,7 @@ export function testAgent(overrides: Partial<ResolvedAgent> = {}): ResolvedAgent
     prompt: "Du bist ein Assistent.",
     listen: { model: "nova-3", language_hints: ["de", "en"], keyterms: [], smart_format: true },
     think: { source: "requesty", model: "openai/gpt-4o", temperature: 0.5 },
-    speak: { provider: "deepgram", model: "aura-2-thalia-en" },
+    speak: { provider: "deepgram", model: "aura-2-thalia-en", sanitize: true },
     tools: ["transfer_call", "end_call"],
     customTools: [],
     mcpServers: [],

@@ -17,6 +17,7 @@
 import { chatJson, extractJsonObject } from "./localize.js";
 import { config } from "../config.js";
 import { logger } from "../util/logger.js";
+import { sanitizeForSpeech } from "../native/speechText.js";
 
 const log = logger.child({ mod: "greetingPrompt" });
 
@@ -79,6 +80,10 @@ export function parseGreetingResponse(raw: string): string | undefined {
     return undefined;
   }
   if (typeof obj.greeting !== "string") return undefined;
-  const greeting = obj.greeting.replace(/\s+/g, " ").trim();
+  // Auch hier geputzt (0.11.2): Der Satz kommt aus einem Modell und geht direkt in die
+  // Synthese — beim gebündelten Voice-Provider sogar an der einzigen Stelle vorbei, an der
+  // die Engine sonst noch eingreifen könnte. Was hier steht, ist zugleich das, was als
+  // `greetingText` am Gespräch protokolliert wird: gesprochen wurde genau dieser Satz.
+  const greeting = sanitizeForSpeech(obj.greeting).replace(/\s+/g, " ").trim();
   return greeting || undefined;
 }

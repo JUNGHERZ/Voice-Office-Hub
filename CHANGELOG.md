@@ -6,6 +6,18 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.11.2] – 2026-08-23
+
+### Added
+
+- **Text wird vor der Sprachausgabe geputzt** (`speak.sanitize`, Default **an**, appliance-weit über `SPEECH_SANITIZE`). Sprachmodelle formatieren, als schrieben sie in ein Chatfenster: `**fett**`, Aufzählungsstriche, gelegentlich ein Emoji. Die Synthese las das wörtlich vor — „Sternchen Sternchen", und jedes Piktogramm als seine Beschreibung. Entfernt werden jetzt Markdown-Auszeichnung, Überschriften, Zitatpfeile, Listen- und Nummernmarker, Code-Zäune, Bild-Marker und Piktogramme; aus Links bleibt der Text, das Ziel entfällt; Zeilenumbrüche werden zu Sprechpausen. Ein Hinweis im Prompt ersetzt das nicht — er ist eine Bitte an ein Modell, keine Zusicherung.
+
+  **Nur der Weg zur Synthese ist betroffen.** Ins Transkript geht weiterhin, was das Modell geschrieben hat; Auswertungen und Zusammenfassungen laufen unverändert auf dem Rohtext.
+
+  Zwei Stellen, zwei Gründe: Zeilenumbrüche werden schon **vor** dem Satz-Zerleger zu Satzgrenzen — eine Aufzählung ohne Satzzeichen hätte sonst keine, der Zerleger hielte sie bis zum Ende der Antwort zurück und der Sprechbeginn verschöbe sich um genau diese Zeit. Alles Übrige läuft an der einen Stelle, an der Text in die Synthese geht, wo der Satz vollständig vorliegt. Was von einer Auszeichnung über die Satzgrenze hinausragt, fängt eine Schlussregel ab; ein Unterstrich mitten im Wort („snake_case") und ein freistehendes Sternchen („2 * 3") bleiben dagegen stehen.
+
+  Die Säuberung greift auf dem nativen Pfad. Beim gebündelten Voice-Agent formuliert und spricht der Anbieter selbst — dort erreicht sie die Begrüßung (auch die erzeugte) und eingespielte Ansagen, nicht die Antworten des Anbieters.
+
 ## [0.11.1] – 2026-08-22
 
 ### Added

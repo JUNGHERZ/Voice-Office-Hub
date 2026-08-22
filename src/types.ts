@@ -40,6 +40,8 @@ export interface ResolvedSpeak {
   temperature?: number;
   topP?: number;
   latencyMode?: "low" | "balanced" | "normal";
+  /** Markdown/Emoji vor der Synthese entfernen (0.11.2). Default an. */
+  sanitize: boolean;
 }
 
 export interface ResolvedCustomToolEndpoint {

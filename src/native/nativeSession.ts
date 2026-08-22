@@ -44,6 +44,7 @@ import {
   type OpenAiTool,
 } from "./llmStream.js";
 import { createSentenceChunker } from "./sentences.js";
+import { createBreakNormalizer, sanitizeForSpeech } from "./speechText.js";
 import { FluxSttStream, type SttStreamOptions } from "./sttStream.js";
 import { buildNativeTts } from "./ttsFactory.js";
 import type { SttStreamLike, TtsStreamLike } from "./types.js";
@@ -475,12 +476,23 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   /** Generation, in der zuletzt TTS-Text geschrieben wurde (Audio-Gate). */
   private ttsGen = 0;
 
+  /**
+   * Die EINE Stelle, an der Text in die Synthese geht — und deshalb die Stelle, an der er
+   * geputzt wird (0.11.2). Was ins Transkript geht, ist davon unberührt: Das emittiert der
+   * Aufrufer aus dem Rohtext des Modells.
+   *
+   * Bleibt nach dem Putzen nichts Sprechbares übrig (eine Zeile aus reiner Formatierung,
+   * ein einzelnes Emoji), wird gar nicht erst gesendet — sonst quittierte der Anbieter eine
+   * leere Anfrage, und das Audio-Gate stünde für nichts offen.
+   */
   private speak(text: string, gen: number): void {
     if (gen !== this.generation || this.closed) return;
+    const spoken = this.agent.speak.sanitize ? sanitizeForSpeech(text) : text;
+    if (!spoken.trim()) return;
     this.toolWaitSpoken = true; // die (Folge-)Runde spricht → ein wartender Filler ist unnötig
     if (!this.firstSentenceAt) this.firstSentenceAt = Date.now();
     this.ttsGen = gen;
-    this.tts.sendText(text);
+    this.tts.sendText(spoken);
   }
 
   // ── Timer-Filler (Tool-Wartezeiten) ─────────────────────────────────────────
@@ -553,7 +565,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     // Die Fortsetzung nach der Tool-Antwort wird dafür neu scharf geschaltet (s. runAssistantTurn).
     this.startedSpeakingEmitted = true;
     this.fillerSpokenThisTurn = true;
-    this.tts.sendText(text);
+    this.tts.sendText(this.agent.speak.sanitize ? sanitizeForSpeech(text) : text);
     this.tts.flush();
     this.emit("conversationText", { role: "assistant", content: text });
   }
@@ -619,6 +631,12 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       // Tool-Loop: LLM-Runden, bis eine Antwort ohne tool_calls kommt.
       for (;;) {
         let chunker = createSentenceChunker(config.native.minSentenceChars);
+        // VOR dem Zerleger: Zeilenumbrüche zu Satzgrenzen. Eine Aufzählung hat sonst keine,
+        // der Zerleger hielte sie bis zum Stream-Ende zurück, und der Sprechbeginn verschöbe
+        // sich um die gesamte Antwortdauer. Die eigentliche Säuberung folgt in speak().
+        const normalizeBreaks = this.agent.speak.sanitize
+          ? createBreakNormalizer()
+          : (delta: string) => delta;
         const result = await this.deps.streamLlm(
           {
             baseUrl: config.llm.requestyBaseUrl,
@@ -640,7 +658,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
           (delta) => {
             if (gen !== this.generation) return;
             if (!this.firstTokenAt) this.firstTokenAt = Date.now();
-            for (const sentence of chunker.push(delta)) {
+            for (const sentence of chunker.push(normalizeBreaks(delta))) {
               // TTS-Gate der Spekulation: puffern, bis das Turn-Ende bestätigt ist.
               if (spec && !spec.open) spec.buffer.push(sentence);
               else this.speak(sentence, gen);

@@ -180,6 +180,14 @@ export interface Config {
     /** Deckel für gleichzeitig offene Transkript-Ströme. */
     streamMax: number;
   };
+  speech: {
+    /**
+     * Voreinstellung für `speak.sanitize` (0.11.2): Formatierung vor der Synthese entfernen.
+     * Ein Agent kann davon abweichen; der Standard putzt, weil eine Synthese Sternchen und
+     * Emoji sonst vorliest.
+     */
+    sanitize: boolean;
+  };
   defaultAgent: {
     /** Betriebsmodus des Default-Agenten: "agent" (KI) oder "passthrough" (Durchleitung+Aufnahme). */
     mode: string;
@@ -415,6 +423,9 @@ export const config: Config = {
     sessionTtlSec: int("WIDGET_SESSION_TTL_SEC", 300),
     streamIntervalMs: int("WIDGET_STREAM_INTERVAL_MS", 250),
     streamMax: int("WIDGET_STREAM_MAX", 50),
+  },
+  speech: {
+    sanitize: bool("SPEECH_SANITIZE", true),
   },
   defaultAgent: {
     // "agent" (KI beantwortet) oder "passthrough" (Anruf an PASSTHROUGH_TARGET durchleiten + aufnehmen).

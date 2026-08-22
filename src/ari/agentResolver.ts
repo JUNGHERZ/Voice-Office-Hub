@@ -83,6 +83,7 @@ export function defaultAgent(): ResolvedAgent {
     speak: {
       provider: "deepgram",
       model: d.speakModel,
+      sanitize: config.speech.sanitize,
     },
     tools: ["transfer_call", "end_call"],
     customTools: [],
@@ -211,6 +212,9 @@ export function fromDoc(doc: Record<string, any>): ResolvedAgent {
       temperature: doc.speak?.temperature,
       topP: doc.speak?.topP,
       latencyMode: doc.speak?.latencyMode,
+      // Der `??`-Default trägt die Bestandsdokumente: Ein Agent, der vor diesem Feld
+      // angelegt wurde, soll geputzt sprechen und nicht plötzlich Sternchen vorlesen.
+      sanitize: doc.speak?.sanitize ?? config.speech.sanitize,
     },
     // Leere/fehlende Tools → sinnvolle Defaults (sonst kennt das LLM weder transfer_call noch
     // end_call; ein über die UI ohne Tools angelegter Agent würde nie weiterleiten/auflegen).

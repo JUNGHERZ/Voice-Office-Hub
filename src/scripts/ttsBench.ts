@@ -53,6 +53,8 @@ function benchAgent(entry: TtsProviderEntry): ResolvedAgent {
     provider: entry.id,
     model: pick.model ?? entry.defaultModel,
     ...(pick.voice ? { voice: pick.voice } : {}),
+    // Der Bench misst die Synthese, nicht die Textaufbereitung — die Messsätze sind roh.
+    sanitize: false,
   };
   // Nur die Felder, die der TTS-Bau liest — das Harness startet keine Session.
   return { speak } as ResolvedAgent;

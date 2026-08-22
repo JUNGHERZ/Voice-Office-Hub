@@ -944,3 +944,71 @@ test("NativeSession: getUsage() bleibt undefined, solange nichts verbraucht wurd
   assert.equal(s.session.getUsage(), undefined);
   s.session.close();
 });
+
+// ── Textaufbereitung vor der Synthese (0.11.2) ───────────────────────────────
+
+// Die Abnahme: „**Guten Tag** 👋" wird zu „Guten Tag" — und das Transkript behält, was das
+// Modell geschrieben hat. Auswertungen und Zusammenfassungen laufen darauf.
+test("NativeSession: Formatierung geht in die Synthese nicht mit, ins Transkript schon", async () => {
+  const raw = "**Guten Tag** 👋 Wie kann ich helfen?";
+  const s = makeSession(
+    [
+      async (_req, onDelta) => {
+        onDelta(raw);
+        return { content: raw, toolCalls: [] };
+      },
+    ],
+    "Hallo!",
+  );
+  await s.session.start();
+  s.stt.turn("Hallo?");
+  await waitFor(() => s.llmCalls.length === 1);
+  await settle();
+
+  assert.deepEqual(s.tts.texts.slice(1), ["Guten Tag Wie kann ich helfen?"]);
+  const spoken = s.events
+    .filter(([e]) => e === "conversationText")
+    .map(([, v]) => (v as { content: string }).content);
+  assert.ok(spoken.includes(raw), "Transkript trägt den Rohtext des Modells");
+  s.session.close();
+});
+
+// Eine Aufzählung ohne Satzzeichen hätte für den Zerleger keine Grenze — ohne den Vorlauf
+// käme sie erst am Stream-Ende als ein Block, und der Sprechbeginn verschöbe sich.
+test("NativeSession: Aufzählung wird zu einzelnen Sätzen ohne Marker", async () => {
+  const raw = "- Termin buchen\n- Rückruf anfordern\n";
+  const s = makeSession([
+    async (_req, onDelta) => {
+      onDelta(raw);
+      return { content: raw, toolCalls: [] };
+    },
+  ]);
+  await s.session.start();
+  s.stt.turn("Was geht?");
+  await waitFor(() => s.llmCalls.length === 1);
+  await settle();
+
+  assert.deepEqual(s.tts.texts.slice(1), ["Termin buchen.", "Rückruf anfordern."]);
+  s.session.close();
+});
+
+// Der Sonderfall bleibt möglich: Wer Sternchen vorgelesen haben will, schaltet es ab.
+test("NativeSession: speak.sanitize=false lässt den Text unangetastet", async () => {
+  const raw = "**Guten Tag** 👋";
+  const s = makeSession(
+    [
+      async (_req, onDelta) => {
+        onDelta(raw);
+        return { content: raw, toolCalls: [] };
+      },
+    ],
+    "Hallo!",
+    { agent: { speak: { provider: "deepgram", model: "aura-2-thalia-en", sanitize: false } } },
+  );
+  await s.session.start();
+  s.stt.turn("Hallo?");
+  await waitFor(() => s.llmCalls.length === 1);
+  await settle();
+  assert.deepEqual(s.tts.texts.slice(1), [raw]);
+  s.session.close();
+});

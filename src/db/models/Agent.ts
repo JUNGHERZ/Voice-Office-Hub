@@ -66,6 +66,9 @@ const SpeakSchema = new Schema(
     temperature: { type: Number, min: [0, "speak.temperature: 0–1"], max: [1, "speak.temperature: 0–1"] },
     topP: { type: Number, min: [0, "speak.topP: 0–1"], max: [1, "speak.topP: 0–1"] },
     latencyMode: { type: String, enum: ["low", "balanced", "normal"] },
+    // Formatierung vor der Synthese entfernen (0.11.2). Fehlt = an: Ein Modell, das
+    // „**fett**" schreibt, ist der Normalfall, und eine Synthese liest die Sternchen vor.
+    sanitize: { type: Boolean, default: true },
   },
   { _id: false },
 );
