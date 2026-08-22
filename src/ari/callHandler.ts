@@ -196,6 +196,7 @@ export async function handleStasisStart(
       channelId: channel.id,
       targetNumber,
       callerNumber,
+      ...(widgetToken ? { widgetToken } : {}),
     });
     if (decision.kind === "reject") {
       // Ablehnung geht ausdrücklich VOR UNKNOWN_NUMBER_BEHAVIOR: kein Answer, kein

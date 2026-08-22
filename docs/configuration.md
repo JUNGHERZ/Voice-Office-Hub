@@ -258,8 +258,11 @@ X-VOH-Signature: sha256=<hex>
   "from": "+491711234567",
   "channelId": "1755769964.42",
   "callId": "1755769964.42",                // veraltet, s. u.
+  "widgetToken": "a1b2c3d4e5f60718",        // nur bei "channel": "web"
   "receivedAt": "2026-08-21T09:12:44.120Z" }
 ```
+
+> **`widgetToken` ist der Griff für Per-Call-Kontext bei Web-Anrufen** (0.10.3). Bei einem Agenten, der pro Besucher mit anderen Werten sprechen soll, hilft weder `agentId` (bei jedem Besucher derselbe) noch `from`/`channelId` (entstehen erst im Moment des Anrufs). Das Token dagegen steht fest, bevor der Anruf beginnt: Der Client setzt es je Anruf als SIP-Header `X-Widget-Token`, der Dialplan reicht es durch. Wer es kennt, bevor gewählt wird, kann sich `Token → Kontext` merken und daraus hier das Overlay bauen. Dasselbe Token bedient anschließend `GET /api/widget/call/<token>` (Live-Transkript). Bei Telefonaten fehlt der Schlüssel im Umschlag.
 
 > **`channelId` statt `callId` lesen.** Zum Zeitpunkt des Aufrufs gibt es noch kein `requests`-Dokument, `callId` trägt hier deshalb die **Kanal**-Kennung — im Custom-Tool-Envelope (siehe [tools.md](tools.md)) ist `callId` dagegen die Request-ID. `channelId` ist eindeutig und taucht in jedem Ereignis als `call.channelId` wieder auf.
 

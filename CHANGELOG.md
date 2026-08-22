@@ -6,6 +6,12 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.10.3] – 2026-08-22
+
+### Added
+
+- **`widgetToken` im `agent.resolve`-Umschlag.** Ein Web-Anruf war für den Overlay-Hook bisher nicht wiedererkennbar: `agentId` ist bei jedem Besucher derselbe, `from` und `channelId` entstehen erst im Moment des Anrufs. Wer pro Anruf anderen Kontext einsetzen will, hatte damit keinen Anker — und ihn kurz vorher in den Agenten zu schreiben scheidet aus, weil zwei gleichzeitige Besucher sich gegenseitig überschrieben. Das Widget-Token, das der Dialplan schon als drittes Stasis-Argument durchreicht und die Engine am Gespräch speichert, steht jetzt zusätzlich im Auflöser-Aufruf und ist von der Signatur gedeckt. Bei Telefonaten fehlt der Schlüssel — der Umschlag ist dort unverändert.
+
 ## [0.10.2] – 2026-08-22
 
 ### Added

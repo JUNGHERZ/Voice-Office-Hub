@@ -33,6 +33,14 @@ export interface ResolveContext {
   channelId: string;
   targetNumber?: string;
   callerNumber?: string;
+  /**
+   * Widget-Token des Web-Anrufs (0.10.3), sonst leer.
+   *
+   * Der einzige Griff, an dem ein Web-Anruf VOR dem Answer wiedererkennbar ist: `agentId`
+   * ist bei jedem Besucher derselbe, `callerNumber` und `channelId` entstehen erst im
+   * Moment des Anrufs. Wer pro Anruf anderen Kontext einsetzen will, korreliert darüber.
+   */
+  widgetToken?: string;
 }
 
 export interface ResolverOptions {
@@ -92,6 +100,9 @@ export async function resolveOverlay(
     // Veraltet, nur aus Kompatibilität gesetzt: `callId` heißt im Custom-Tool-Envelope
     // die Request-_id — die es hier noch nicht gibt. Neue Empfänger lesen `channelId`.
     callId: ctx.channelId,
+    // Nur bei Web-Anrufen. Bewusst weggelassen statt leer gesetzt, damit ein Telefonat
+    // exakt denselben Umschlag wie bisher schickt.
+    ...(ctx.widgetToken ? { widgetToken: ctx.widgetToken } : {}),
     receivedAt: new Date().toISOString(),
   });
 

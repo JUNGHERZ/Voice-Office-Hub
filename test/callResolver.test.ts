@@ -114,6 +114,29 @@ test("Umschlag trägt channel, channelId und die Rufnummern", async () => {
   assert.equal(body.to, ctx.targetNumber);
   assert.equal(body.from, ctx.callerNumber);
   assert.ok(body.receivedAt);
+  assert.equal(body.widgetToken, undefined, "ohne Token bleibt das Feld weg");
+});
+
+// 3b ─ Web-Anruf: Das Widget-Token ist der einzige Griff, an dem sich ein Besucher vor dem
+// Answer wiedererkennen lässt — agentId ist bei allen gleich, from/channelId entstehen erst
+// jetzt. Es muss im Umschlag stehen UND von der Signatur gedeckt sein (0.10.3).
+test("Umschlag: widgetToken bei Web-Anrufen, signiert", async () => {
+  respond = () => ({ status: 200, body: JSON.stringify({ verdict: "allow" }) });
+  await resolveOverlay(
+    testAgent({ id: AGENT_ID }),
+    { ...ctx, channel: "web", callerNumber: "web-1755769964.42", widgetToken: "a1b2c3d4e5f60718" },
+    opts({ secret: "s3cr3t" }),
+  );
+  const body = JSON.parse(seen?.raw ?? "{}");
+  assert.equal(body.widgetToken, "a1b2c3d4e5f60718");
+  assert.equal(seen?.headers["x-voh-signature"], signBody(seen?.raw ?? "", "s3cr3t"));
+});
+
+// Ein Telefonat schickt exakt denselben Umschlag wie vor 0.10.3 — kein leeres Feld.
+test("Umschlag: Telefonat trägt keinen widgetToken-Schlüssel", async () => {
+  respond = () => ({ status: 200, body: JSON.stringify({ verdict: "allow" }) });
+  await resolveOverlay(testAgent({ id: AGENT_ID }), ctx, opts());
+  assert.ok(!("widgetToken" in JSON.parse(seen?.raw ?? "{}")));
 });
 
 // 4 ─ Identitätsfelder und Unbekanntes werden verworfen, der Anruf läuft weiter.
