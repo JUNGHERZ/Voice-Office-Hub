@@ -452,7 +452,7 @@ der alleinige Flaschenhals. Die laufende Round-Trip-Zeit verzögert zusätzlich
 jedes EndOfTurn um rund 136 ms, auf jedem Turn.
 
 Nebenbei geprüft: **`westeurope` ist Amsterdam, nicht Deutschland.** Azure bietet
-Frankfurt als `germanywestcentral` an, von arm2 aus 8 ms TCP gegen 15 ms. Der
+Frankfurt als `germanywestcentral` an, von der Dev-Instanz aus 8 ms TCP gegen 15 ms. Der
 Gewinn ist real, aber klein gegen eine Synthese-TTFA von 61–132 ms, und
 **Azure-Speech-Keys sind regionsgebunden** (200 gegen `westeurope`, 401 gegen
 `germanywestcentral`) — ein Wechsel braucht eine neue Ressource. DSGVO-seitig

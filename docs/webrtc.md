@@ -106,7 +106,7 @@ Der „Orb" im Widget pulsiert **echt pegelgesteuert**: ein Web-Audio-`AnalyserN
 
 `WEBRTC_ENABLED=true` in der `.env`, Container neu bauen/starten — mehr nicht: `/ws` läuft über den normalen Admin-Port 8080. Demo per `http://localhost:8080/widget-demo.html?key=<KEY>` (Chrome erlaubt Mikrofon auf localhost) **oder** über die OrbStack-HTTPS-Domain `https://voh-appliance.orb.local/widget-demo.html?key=<KEY>` — dank Single-Port-Design funktioniert auch dieses TLS-Tunneling ohne Zusatzkonfiguration.
 
-### Produktion (EasyPanel/Traefik, arm2-Muster)
+### Produktion (EasyPanel/Traefik)
 
 - **Kein neuer Host-Port, keine Sonderroute.** Die bestehende Domain (→ interner Port 8080) reicht — `/ws` proxyt der Admin-Server selbst. `/ari` bleibt komplett intern (Asterisks HTTP-Server hört weiter nur auf 127.0.0.1).
 - **Medien:** Die RTP-Range 10000–10100/udp ist für den Trunk bereits **host-mode** publiziert — WebRTC nutzt dieselbe Range. `PUBLIC_IP` muss gesetzt sein (ICE/SDP), sonst droht einseitiges Audio.
