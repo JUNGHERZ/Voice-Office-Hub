@@ -6,6 +6,12 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.11.3] – 2026-08-23
+
+### Changed
+
+- **Der eingebettete Asterisk stellt sich als Appliance vor, nicht als Asterisk.** Bisher stand in jedem `User-Agent`- und `Server`-Header „Asterisk PBX 20.6.0~dfsg+…" — eine PBX-Versionsnummer, die jede Gegenstelle mitlas und die niemanden außerhalb etwas angeht. Jetzt steht dort `VOH Appliance <version>`, also das Produkt samt **seiner** Version; sie kommt aus `package.json` und veraltet damit nicht mit dem nächsten Release. `SIP_USER_AGENT` überschreibt den Wert frei (für Betreiber, die unter eigenem Namen auftreten). Gilt für PJSIP und den internen HTTP-Server, dessen `Server`-Header über den `/ws`-Proxy auch beim Browser ankommt.
+
 ## [0.11.2] – 2026-08-23
 
 ### Added

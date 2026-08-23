@@ -17,6 +17,7 @@ Die gesamte Komponente wird über **ENV-Variablen** gesteuert (siehe [.env.examp
 | `ARI_URL` / `ARI_USERNAME` / `ARI_PASSWORD` | `http://127.0.0.1:8088` / `voiceagent` / — | ARI-Zugang. |
 | `ARI_APP` | `voice-office-hub` | Name der Stasis-App. |
 | `EMBED_ASTERISK` | `true` | Asterisk im Container starten (Dev/Appliance) vs. externe PBX. |
+| `SIP_USER_AGENT` *(0.11.3)* | `VOH Appliance <version>` | Kennung im `User-Agent` (SIP-Anfragen) und `Server` (SIP-Antworten und interner HTTP-Server). Ohne sie nennt Asterisk seine eigene Version („Asterisk PBX 20.6.0~dfsg+…") — eine PBX-Versionsnummer, die jede Gegenstelle mitliest. Der Default nennt stattdessen das Produkt samt dessen Version aus `package.json`; frei überschreibbar, wer unter eigenem Namen auftreten will. Greift nur mit `EMBED_ASTERISK=true`. |
 | `DEV_SOFTPHONE_ENABLED` | `false` | Lokale SIP-Testkonten (`softphone`, `101`) erzeugen. **Sicherheit: Standard AUS; auf öffentlich erreichbaren Hosts NIEMALS aktivieren** (5060/udp wird von SIP-Scannern abgeklopft). Siehe [Sicherheit / Härtung](#sicherheit--härtung). |
 | `DEV_SOFTPHONE_PASSWORD` / `DEV_SOFTPHONE_101_PASSWORD` | `softphone` / `101` | Passwörter der Dev-Konten (nur bei `DEV_SOFTPHONE_ENABLED=true`). |
 | `TRUNK_ENABLED` | `false` | SIP-Trunk der Appliance aktivieren. Nur wirksam bei `EMBED_ASTERISK=true`. `false` → kein Trunk (Dev nutzt Softphone). Siehe [SIP-Trunk (Appliance)](#sip-trunk-appliance). |

@@ -25,6 +25,19 @@ if [[ "${EMBED_ASTERISK:-true}" == "true" ]]; then
   if [[ -n "${ARI_PASSWORD:-}" && -f /etc/asterisk/ari.conf ]]; then
     sed -i "s/^password = .*/password = ${ARI_PASSWORD}/" /etc/asterisk/ari.conf
   fi
+
+  # SIP-Kennung: Ohne sie stellt sich Asterisk jedem Gegenüber mit seiner eigenen
+  # Versionsnummer vor ("Asterisk PBX 20.6.0~dfsg+..."). Das ist eine PBX-Version, die
+  # niemanden außerhalb etwas angeht — und die Appliance ist auch keine nackte PBX.
+  # Genannt wird stattdessen das Produkt samt SEINER Version (aus package.json, damit die
+  # Angabe nicht mit jedem Release veraltet). `SIP_USER_AGENT` überschreibt frei.
+  APP_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /app/package.json 2>/dev/null | head -1)"
+  SIP_UA="${SIP_USER_AGENT:-VOH Appliance ${APP_VERSION:-}}"
+  SIP_UA="${SIP_UA//|/}"          # Trennzeichen des sed-Ausdrucks
+  SIP_UA="${SIP_UA%"${SIP_UA##*[![:space:]]}"}"   # Leerraum am Ende (fehlende Version)
+  sed -i -E "s|^[[:space:]]*user_agent[[:space:]]*=.*|user_agent = ${SIP_UA}|" /etc/asterisk/pjsip.conf
+  sed -i -E "s|^[[:space:]]*servername[[:space:]]*=.*|servername = ${SIP_UA}|" /etc/asterisk/http.conf
+  echo "entrypoint: SIP-Kennung = ${SIP_UA}"
 else
   export SUPERVISOR_ASTERISK=false
 fi
