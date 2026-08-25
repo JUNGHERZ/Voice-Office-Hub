@@ -257,3 +257,59 @@ Alle sieben Engines gemessen (`npm run tts-bench`, drei deutsche Sätze, frische
 
 Die übrigen geben jeweils mindestens eines auf: ElevenLabs die EU-Residency (außer im Enterprise-Tarif) und den Preis, Flux TTS die deutsche Sprache, Voxtral und Speechify die Latenz, Fish den Datenschutz.
 
+### Was eine Gesprächsminute wirklich kostet
+
+Die Tabelle oben vergleicht **TTS isoliert** und stammt aus einem synthetischen
+Bench. Seit die Engine LLM-Tokens, STT-Sekunden und TTS-Zeichen je Anruf
+persistiert, lässt sich der Gesamtpreis stattdessen messen. Basis: 16 echte
+Anrufe über Azure Neural TTS (Seraphina), 18,75 Gesprächsminuten, Ø 70 s.
+
+Verbrauch je Gesprächsminute: **59 s STT · 1.020 TTS-Zeichen · 7.232
+Prompt-Tokens · 339 Completion-Tokens** bei 3,1 LLM-Aufrufen.
+
+| Komponente | $/Gesprächsminute | Anteil |
+|---|---:|---:|
+| STT — Deepgram `flux-general-multi` | 0,0077 | 23 % |
+| TTS — Azure Neural (S0, $16/1 Mio.) | 0,0163 | 48 % |
+| LLM Input — `bedrock/claude-haiku-4-5@eu-central-1` | 0,0080 | 24 % |
+| LLM Output | 0,0019 | 6 % |
+| **Summe** | **0,0339** | |
+
+Rund **$0,040 je Anruf** bei Ø 70 s, ohne SIP-Trunk-Minuten.
+
+**Die frühere Schätzung lag 21 % zu niedrig, und zwar fast ausschließlich beim
+LLM** ($0,0060 geschätzt gegen $0,0098 gemessen). Der Grund ist der
+Kontextaufbau: der System-Prompt samt Tool-Definitionen geht bei jedem
+Agenten-Turn erneut raus, und das summiert sich schneller, als eine Rechnung auf
+dem Papier vermuten lässt. Wer den Minutenpreis eines Sprachagenten schätzt,
+unterschätzt verlässlich den LLM-Anteil.
+
+**Prompt-Caching greift bei diesen Prompts nicht** — über alle Anrufe hinweg
+steht `llmCachedPromptTokens` auf 0. Mit rund 2.300 Prompt-Tokens je Aufruf liegt
+das Präfix unter dem Mindestwert von Haiku 4.5 (4.096 Tokens), und die API
+ignoriert den Breakpoint dann kostenneutral. Der Hebel entsteht erst mit
+größeren Wissensbasen; siehe `LLM_PROMPT_CACHE` in `docs/configuration.md`.
+
+### Hochrechnung nach Volumen
+
+Bei 1.020 TTS-Zeichen je Gesprächsminute:
+
+| Zeichen/Monat | Gesprächsmin. | Azure S0 | STT | LLM | **Gesamt** |
+|---:|---:|---:|---:|---:|---:|
+| 100.000 | 98 | $1,60 | $0,75 | $0,96 | **$3,32** |
+| 500.000 | 490 | $8,00 | $3,77 | $4,82 | **$16,59** |
+| 1.000.000 | 980 | $16,00 | $7,55 | $9,64 | **$33,19** |
+| 5.000.000 | 4.902 | $80,00 | $37,75 | $48,19 | **$165,93** |
+| 20.000.000 | 19.608 | $320,00 | $150,98 | $192,75 | **$663,73** |
+
+**Der kostenlose Azure-Tarif F0 deckt 500.000 Zeichen Neural TTS pro Monat** —
+das sind rund **490 Gesprächsminuten**. Darunter kostet die Sprachausgabe nichts,
+STT und LLM laufen aber weiter mit; bei 490 Minuten bleiben also $8,59 statt
+$16,59. Oberhalb greift S0 mit $16 je Million Zeichen.
+
+Bemerkenswert ist das Verhältnis: **ab etwa einer Million Zeichen im Monat kosten
+STT und LLM zusammen mehr als die Sprachausgabe.** Die Anbieterwahl beim TTS
+entscheidet den Minutenpreis also nur, solange man bei ElevenLabs bleibt — mit
+Azure ist der Posten so weit gesunken, dass die andere Hälfte des Stacks
+überwiegt.
+

@@ -200,8 +200,12 @@ const AZURE_VOICES: TtsModelEntry[] = [
   { id: "de-DE-ConradNeural", label: "Conrad (deutsch, männlich)", languages: ["de"] },
   { id: "de-DE-AmalaNeural", label: "Amala (deutsch, weiblich)", languages: ["de"] },
   {
+    // Nicht in jeder Region: germanywestcentral (Frankfurt) führt KEINE einzige
+    // DragonHD-Stimme, westeurope schon. Steht der Name im Modellfeld und die
+    // Region kennt ihn nicht, quittiert Azure jeden Satz mit einem Fehler — der
+    // Hinweis gehört deshalb ins Label, wo er bei der Auswahl sichtbar ist.
     id: "de-DE-Seraphina:DragonHDLatestNeural",
-    label: "Seraphina HD (deutsch, weiblich)",
+    label: "Seraphina HD (deutsch, weiblich — nicht in Frankfurt)",
     languages: ["de"],
   },
   { id: "de-AT-IngridNeural", label: "Ingrid (österreichisch, weiblich)", languages: ["de"] },

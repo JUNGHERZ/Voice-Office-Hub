@@ -6,6 +6,45 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.11.4] – 2026-08-25
+
+### Gemessen
+
+**Der Minutenpreis steht erstmals aus echten Tokens statt aus einer Schätzung.**
+Seit die Engine LLM-Tokens, STT-Sekunden und TTS-Zeichen je Anruf persistiert,
+ist er messbar. Basis: 16 Anrufe über Azure Neural TTS, 18,75 Gesprächsminuten.
+
+| Komponente | $/Gesprächsminute | Anteil |
+|---|---:|---:|
+| STT — `flux-general-multi` | 0,0077 | 23 % |
+| TTS — Azure Neural (S0) | 0,0163 | 48 % |
+| LLM — `bedrock/claude-haiku-4-5@eu-central-1` | 0,0098 | 29 % |
+| **Summe** | **0,0339** | |
+
+**Die frühere Schätzung lag 21 % zu niedrig, fast ausschließlich beim LLM**
+($0,0060 geschätzt gegen $0,0098 gemessen): der System-Prompt samt
+Tool-Definitionen geht bei jedem Agenten-Turn erneut raus, und das summiert sich
+schneller als eine Papierrechnung vermuten lässt.
+
+`llmCachedPromptTokens` steht über alle Anrufe auf 0 — mit rund 2.300
+Prompt-Tokens je Aufruf liegt das Präfix unter Haikus Mindestwert von 4.096, und
+die API ignoriert den Breakpoint kostenneutral. Genau das dokumentierte Verhalten.
+
+Ab etwa einer Million Zeichen im Monat kosten **STT und LLM zusammen mehr als die
+Sprachausgabe** — mit Azure ist der TTS-Posten so weit gesunken, dass die andere
+Hälfte des Stacks überwiegt. Hochrechnung nach Volumen in `docs/tts-provider.md`.
+
+### Fixed
+
+- **`de-DE-Seraphina:DragonHDLatestNeural` ist regionsabhängig.** Die Region
+  `germanywestcentral` (Frankfurt) führt **keine einzige** DragonHD-Stimme —
+  556 Stimmen gegen 774 in `westeurope`, 21 deutsche gegen 27. Steht der Name im
+  Modellfeld und die Region kennt ihn nicht, quittiert Azure jeden Satz mit einem
+  Fehler. Der Katalogeintrag trägt den Hinweis jetzt im Label, wo er bei der
+  Auswahl sichtbar ist. Die übrigen neun Katalogstimmen — beide mehrsprachigen
+  eingeschlossen — sind in Frankfurt verfügbar.
+
+
 ## [0.11.3] – 2026-08-23
 
 ### Changed
