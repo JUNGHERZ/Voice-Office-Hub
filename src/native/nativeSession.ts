@@ -44,6 +44,7 @@ import {
   type OpenAiTool,
 } from "./llmStream.js";
 import { createSentenceChunker } from "./sentences.js";
+import { SpeechClock } from "./speechClock.js";
 import { createBreakNormalizer, sanitizeForSpeech } from "./speechText.js";
 import { FluxSttStream, type SttStreamOptions } from "./sttStream.js";
 import { buildNativeTts } from "./ttsFactory.js";
@@ -145,6 +146,15 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   private startedSpeakingEmitted = false;
   private llmDone = false;
 
+  // Sprechuhr (0.12.0): Wie weit war die Sprachausgabe, als der Anrufer ins Wort fiel?
+  private readonly clock: SpeechClock;
+  /**
+   * Steht der Assistententext dieses Turns schon in der Historie? Dann darf die
+   * Sprechuhr nicht noch einmal schreiben. Greeting und injectMessage tragen ihn
+   * VOR dem Sprechen ein, die LLM-Runde erst danach — genau diese Lücke füllt sie.
+   */
+  private assistantTextWritten = false;
+
   // Timer-Filler bei Tool-Wartezeiten (0.6.26).
   private fillerIndex = 0;
   private toolWaitSpoken = false;
@@ -182,6 +192,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       agent.prompt,
       agent.think.context_length ?? config.native.contextChars,
     );
+    // speak.speed skaliert die geschätzte Sprechrate; gemessen wird sie ohnehin
+    // nach dem ersten ungestörten Turn (meist schon am Greeting).
+    this.clock = new SpeechClock(agent.speak.speed ?? 1);
 
     // Konstruktion bleibt inert: die Clients verbinden erst in start().
     this.stt = this.deps.createStt(this.buildSttOptions(), callId);
@@ -237,7 +250,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
 
     if (this.agent.greeting) {
       // Transkript-Parität zum Deepgram-Agent: das Greeting erscheint als Assistant-Turn.
+      this.startSpeechUnit();
       this.history.addAssistant(this.agent.greeting);
+      this.assistantTextWritten = true;
       this.emit("conversationText", { role: "assistant", content: this.agent.greeting });
       this.speak(this.agent.greeting, this.generation);
       this.tts.flush();
@@ -267,7 +282,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     // Die danach eintreffende (stale) Tool-Response landet nur in der Historie — keine
     // automatische LLM-Fortsetzung, kein Doppel-Sprechen.
     this.cancelActiveTurn();
+    this.startSpeechUnit();
     this.history.addAssistant(message);
+    this.assistantTextWritten = true;
     this.emit("conversationText", { role: "assistant", content: message });
     this.speak(message, this.generation);
     this.tts.flush();
@@ -419,6 +436,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       // Schicht 2 der Barge-in-Quarantäne: Audio nur, solange die Generation lebt,
       // in der zuletzt Text geschrieben wurde.
       if (this.ttsGen !== this.generation) return;
+      this.clock.audio((chunk.length / 2 / config.audio.sampleRate) * 1000);
       if (!this.startedSpeakingEmitted && this.eotAt > 0) {
         this.startedSpeakingEmitted = true;
         const now = Date.now();
@@ -437,8 +455,18 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       }
       this.emit("audio", chunk);
     });
+    /**
+     * Der Anbieter ordnet sein Audio einem Textstück zu (HTTP-Anbieter: ein Auftrag
+     * = ein Satz). Gleiche Torbedingung wie beim Audio, damit Grenzen und Frames
+     * eines abgebrochenen Turns gemeinsam wegfallen.
+     */
+    this.tts.on("segment", (text: string) => {
+      if (this.ttsGen === this.generation) this.clock.segment(text);
+    });
     this.tts.on("flushed", () => {
       if (!this.closed && this.llmDone && this.ttsGen === this.generation) {
+        // Turn ohne Barge-in zu Ende gebracht → die Sprechrate dieser Stimme messen.
+        this.clock.calibrate();
         this.emit("agentAudioDone");
       }
     });
@@ -462,6 +490,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
         audioPlayedMs: ev.audioPlayedMs,
       });
       this.history.addAssistant(text);
+      this.assistantTextWritten = true;
       this.emit("conversationText", { role: "assistant", content: text });
     });
 
@@ -492,6 +521,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.toolWaitSpoken = true; // die (Folge-)Runde spricht → ein wartender Filler ist unnötig
     if (!this.firstSentenceAt) this.firstSentenceAt = Date.now();
     this.ttsGen = gen;
+    this.clock.queued(spoken);
     this.tts.sendText(spoken);
   }
 
@@ -565,7 +595,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     // Die Fortsetzung nach der Tool-Antwort wird dafür neu scharf geschaltet (s. runAssistantTurn).
     this.startedSpeakingEmitted = true;
     this.fillerSpokenThisTurn = true;
-    this.tts.sendText(this.agent.speak.sanitize ? sanitizeForSpeech(text) : text);
+    const spoken = this.agent.speak.sanitize ? sanitizeForSpeech(text) : text;
+    this.clock.queued(spoken);
+    this.tts.sendText(spoken);
     this.tts.flush();
     this.emit("conversationText", { role: "assistant", content: text });
   }
@@ -589,7 +621,57 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.toolRound = undefined;
     round?.resolve(); // wartende Runde aufwecken — sie erkennt ihre stale Generation selbst
     this.clearFiller(); // laufenden Filler-Timer abbrechen (Barge-in/injectMessage/close)
-    this.tts.clear(this.pendingPlayoutMs?.() ?? 0);
+    const unplayed = this.pendingPlayoutMs?.() ?? 0;
+    this.recordSpokenSoFar(unplayed); // erst lesen — clear() verwirft den Zustand
+    this.tts.clear(unplayed);
+  }
+
+  /**
+   * Beginn einer zusammenhängenden Sprecheinheit — Greeting, injectMessage oder ein
+   * Assistententurn. Die Sprechuhr fängt von vorn an.
+   *
+   * Bewusst NICHT an die Generation gekoppelt: Zwischen Greeting und erstem Turn
+   * wechselt sie nicht, das Greeting stünde sonst noch im Text des ersten Turns.
+   * Ein Filler während einer Tool-Runde setzt hier NICHT zurück — er gehört zur
+   * laufenden Einheit, und sein Audio zählt für die Position mit.
+   */
+  private startSpeechUnit(): void {
+    this.clock.reset();
+  }
+
+  /**
+   * Barge-in: festhalten, was der Anrufer WIRKLICH gehört hat (0.12.0).
+   *
+   * Ohne das fehlt der angefangene Satz vollständig — runAssistantTurn schreibt den
+   * Assistententurn erst nach vollständigem LLM-Stream, und hier kehrt der catch
+   * vorher zurück. Das Modell weiß dann nicht, dass es gesprochen hat, und fängt im
+   * nächsten Turn gern von vorne an.
+   *
+   * Bewusst NICHT generationsgegated: Gesprochen ist gesprochen (gleiche Begründung
+   * wie bei sendFunctionResponse).
+   */
+  private recordSpokenSoFar(unplayedMs: number): void {
+    if (this.closed) return;
+    // Anbieter mit serverseitigem Truncate melden es selbst (Flux via
+    // SpeechInterrupted) — sonst stünde der Turn zweimal in der Historie.
+    if (this.tts.reportsSpokenText) return;
+    // Historie dieses Turns steht schon (Greeting, injectMessage, fertige Runde).
+    if (this.assistantTextWritten) return;
+    const slice = this.clock.spokenAt(this.clock.emittedMs() - unplayedMs);
+    if (!slice.text) return;
+    // Hier anzukommen heißt, der Turn wurde abgebrochen — die drei Punkte sagen dem
+    // Modell, dass der Satz nicht zu Ende ging, ohne Meta-Text in die Assistentenrolle
+    // zu schreiben (den ahmen Modelle nach).
+    // „Satz.…" liest sich falsch — nach einem Satzzeichen bekommt die Auslassung Luft.
+    const text = /[.!?…]$/u.test(slice.text) ? `${slice.text} …` : `${slice.text}…`;
+    this.log.debug("Barge-in: tatsächlich gesprochener Text", {
+      chars: text.length,
+      playedMs: Math.round(this.clock.emittedMs() - unplayedMs),
+      complete: slice.complete,
+    });
+    this.history.addAssistant(text);
+    this.assistantTextWritten = true;
+    this.emit("conversationText", { role: "assistant", content: text });
   }
 
   /** Bestätigtes EndOfTurn: Gate öffnen, gepufferte Sätze sprechen, Latenz ab JETZT messen. */
@@ -618,6 +700,8 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.firstTokenAt = 0;
     this.firstSentenceAt = 0;
     this.startedSpeakingEmitted = false;
+    this.assistantTextWritten = false;
+    this.startSpeechUnit();
     this.fillerSpokenThisTurn = false;
     this.llmDone = false;
 
@@ -711,6 +795,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
         if (result.toolCalls.length) {
           this.history.addAssistantToolCalls(result.content, result.toolCalls);
           if (result.content) {
+            this.assistantTextWritten = true;
             this.emit("conversationText", { role: "assistant", content: result.content });
           }
           const done = new Promise<void>((resolve) => {
@@ -750,6 +835,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
 
         this.history.addAssistant(result.content);
         if (result.content) {
+          this.assistantTextWritten = true;
           this.emit("conversationText", { role: "assistant", content: result.content });
         }
         this.llmDone = true;

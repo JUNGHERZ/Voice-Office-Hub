@@ -6,6 +6,64 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.12.0] – 2026-08-26
+
+### Added
+
+**Die Sprechuhr — festhalten, was der Anrufer wirklich gehört hat.**
+Fiel ein Anrufer dem Agenten ins Wort, verschwand der angefangene Satz bisher
+spurlos: `runAssistantTurn` schreibt den Assistententurn erst nach vollständigem
+LLM-Stream in die Historie, und bei einem Barge-in kehrt der `catch` vorher
+zurück. Nicht ein gekürzter Satz landete dort, sondern **gar nichts** — weder im
+Modellkontext noch im Transkript in der Datenbank noch im Live-Transkript des
+Widgets. Das Modell wusste danach nicht einmal, dass es gesprochen hatte, und
+fing im nächsten Turn gern von vorne an.
+
+`src/native/speechClock.ts` rechnet die Abspielposition auf eine Textposition um,
+schneidet dort ab und hängt eine Auslassung an: `„Der Kontostand beträgt
+zwölftausend Euro. Soll ich…"`.
+
+**Sie sitzt in der NativeSession, nicht in einem Adapter** — nur dort ist die
+Turn-Grenze bekannt, und nur so ist das Verhalten von der Wahl der Sprachausgabe
+unabhängig. Die Anbieter liefern lediglich unterschiedlich genaue Zuleitungen:
+
+| Zuleitung | Anbieter | Genauigkeit |
+|---|---|---|
+| `segment`-Ereignis je Auftrag | Azure · Mistral · Speechify (`ttsHttp.ts`) | Satz, darin proportional |
+| keine Meldung → Sprechrate | Deepgram Aura | Wort ± 1 |
+| meldet selbst (`text_spoken`) | Deepgram Flux TTS | exakt |
+
+Die Rate für den geschätzten Fall ist kein fester Wert: Nach dem ersten Turn ohne
+Barge-in misst die Uhr sie an der eigenen Stimme — in der Praxis schon am
+Greeting. `speak.speed` skaliert den Startwert.
+
+**Die Regel, die den Entwurf sicher macht: immer abrunden, immer auf die vorige
+Wortgrenze schnappen.** Zu wenig zu behaupten kostet höchstens eine kleine
+Wiederholung; zu viel zu behaupten hieße, die Historie führt Sätze, die nie
+jemand gehört hat — und das wäre schlechter als das bisherige Loch.
+
+Nebenwirkung, die über das Modellverhalten hinausgeht: Gesprächsprotokoll und
+Live-Widget zeigen ab jetzt das **Gehörte** statt der Modellausgabe.
+
+### Changed
+
+- `TtsStreamEvents` kennt `segment(text)`; `TtsStreamLike` trägt das optionale
+  Fähigkeitsflag `reportsSpokenText` (Flux setzt es — sonst stünde der gekürzte
+  Turn zweimal in der Historie).
+- `HttpTtsStream` meldet die Segmentgrenze im **Head-of-Line-Emitter**, nicht beim
+  Einreihen: Die Sprechuhr braucht sie in Ausgabereihenfolge, sonst verrutscht die
+  Zuordnung bei `NATIVE_HTTP_TTS_CONCURRENCY=2`.
+
+### Bekannte Grenzen
+
+- **Der Widget-Pfad schätzt.** Nur der AudioSocket führt einen Playout-Puffer; die
+  RTP-Brücke schiebt alles sofort raus und puffert im Browser. Dort meldet
+  `pendingMs()` null, und es bleibt beim Schätzwert über die Sprechrate.
+- **Greeting und `injectMessage`** tragen ihren Text vor dem Sprechen in die
+  Historie ein. Ein Barge-in währenddessen kürzt ihn nicht nach — dazu müsste der
+  letzte Eintrag ersetzt statt ergänzt werden.
+
+
 ## [0.11.4] – 2026-08-25
 
 ### Gemessen

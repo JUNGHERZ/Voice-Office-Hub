@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { HttpTtsStream, type HttpTtsBaseOptions } from "../src/native/ttsHttp.js";
 import type { TtsUsage } from "../src/native/types.js";
 import { logger } from "../src/util/logger.js";
-import { waitFor } from "./helpers/fakes.js";
+import { settle, waitFor } from "./helpers/fakes.js";
 
 /** Steuerung eines laufenden synthesize()-Aufrufs aus dem Test heraus. */
 interface Gate {
@@ -64,10 +64,16 @@ function collect(tts: ScriptedTts) {
   const audio: Buffer[] = [];
   const flushed: number[] = [];
   const errors: string[] = [];
-  tts.on("audio", (b) => audio.push(b));
+  /** Segmentgrenzen als Spur: ["seg:A", 0x11, "seg:B", …] — Reihenfolge ist der Punkt. */
+  const trace: Array<string | number> = [];
+  tts.on("audio", (b) => {
+    audio.push(b);
+    trace.push(b[0] as number);
+  });
+  tts.on("segment", (text) => trace.push(`seg:${text}`));
   tts.on("flushed", () => flushed.push(audio.length));
   tts.on("error", (e) => errors.push(e));
-  return { audio, flushed, errors };
+  return { audio, flushed, errors, trace };
 }
 
 // 1 ─ Reihenfolge: drei Sätze, seriell abgearbeitet, Audio in Auftragsreihenfolge.
@@ -264,5 +270,70 @@ test("HttpTtsStream: resampelt auf die System-Rate", async () => {
   await waitFor(() => seen.audio.length > 0);
   const outSamples = seen.audio.reduce((n, b) => n + b.length / 2, 0);
   assert.ok(Math.abs(outSamples - 400) <= 2, `erwartet ~400 Samples, waren ${outSamples}`);
+  tts.close();
+});
+
+// ── Segmentgrenzen für die Sprechuhr (0.12.0) ───────────────────────────────
+// Ein Auftrag IST hier ein Satz — deshalb kann diese Basisklasse als einzige die
+// Zuordnung Audio→Text exakt melden. Entscheidend ist, dass die Grenze in
+// AUSGABE-Reihenfolge kommt (Head-of-Line), nicht in Einreihungsreihenfolge.
+
+test("HttpTtsStream: meldet je Auftrag genau eine Segmentgrenze vor dessen Audio", async () => {
+  const tts = new ScriptedTts();
+  const seen = collect(tts);
+
+  tts.sendText("A");
+  tts.sendText("B");
+
+  const a = await tts.gate("A");
+  a.emit(0x11);
+  a.emit(0x12); // zweiter Chunk desselben Auftrags → KEINE zweite Grenze
+  a.finish();
+  const b = await tts.gate("B");
+  b.emit(0x22);
+  b.finish();
+
+  await waitFor(() => seen.audio.length === 3);
+  assert.deepEqual(seen.trace, ["seg:A", 0x11, 0x12, "seg:B", 0x22]);
+  tts.close();
+});
+
+test("HttpTtsStream: Prefetch meldet die Grenzen trotzdem in Ausgabereihenfolge", async () => {
+  const tts = new ScriptedTts({ concurrency: 2 });
+  const seen = collect(tts);
+
+  tts.sendText("A");
+  tts.sendText("B");
+
+  const a = await tts.gate("A");
+  const b = await tts.gate("B");
+  b.emit(0x22); // B ist zuerst fertig …
+  b.finish();
+  await settle();
+  assert.deepEqual(seen.trace, [], "vor A darf nichts hinaus — auch keine Grenze");
+
+  a.emit(0x11);
+  a.finish();
+  await waitFor(() => seen.audio.length === 2);
+  assert.deepEqual(seen.trace, ["seg:A", 0x11, "seg:B", 0x22]);
+  tts.close();
+});
+
+test("HttpTtsStream: ein per Barge-in verworfener Auftrag meldet keine Grenze", async () => {
+  const tts = new ScriptedTts();
+  const seen = collect(tts);
+
+  tts.sendText("A");
+  tts.sendText("B");
+  const a = await tts.gate("A");
+  a.emit(0x11);
+  await waitFor(() => seen.audio.length === 1);
+
+  tts.clear(0);
+  a.emit(0x99); // verspäteter Chunk des abgebrochenen Turns
+  a.finish();
+  await settle();
+
+  assert.deepEqual(seen.trace, ["seg:A", 0x11], "nach clear() kommt weder Audio noch Grenze");
   tts.close();
 });

@@ -75,6 +75,10 @@ class FakeTts extends EventEmitter {
   emitFlushed(): void {
     this.emit("flushed", 0);
   }
+  /** Anbieter ordnet sein Audio einem Textstück zu (HTTP-Basisklasse kann das). */
+  emitSegment(text: string): void {
+    this.emit("segment", text);
+  }
 }
 
 type LlmHandler = (
@@ -98,6 +102,8 @@ function makeSession(
   opts: {
     agent?: Parameters<typeof testAgent>[0];
     localizer?: { resolve(key: string, index?: number): string };
+    /** Noch nicht abgespieltes Agent-Audio (ms) — steuert die Sprechuhr. */
+    pendingPlayoutMs?: () => number;
   } = {},
 ) {
   const stt = new FakeStt();
@@ -131,6 +137,7 @@ function makeSession(
       },
     },
     opts.localizer,
+    opts.pendingPlayoutMs,
   );
 
   const events: Array<[string, unknown?]> = [];
@@ -1010,5 +1017,147 @@ test("NativeSession: speak.sanitize=false lässt den Text unangetastet", async (
   await waitFor(() => s.llmCalls.length === 1);
   await settle();
   assert.deepEqual(s.tts.texts.slice(1), [raw]);
+  s.session.close();
+});
+
+// ── Sprechuhr (0.12.0) ──────────────────────────────────────────────────────
+// Ohne sie fehlt der angefangene Satz nach einem Barge-in vollständig: Die Historie
+// entsteht erst nach dem vollen LLM-Stream, der catch kehrt vorher zurück.
+
+/** Ein 20-ms-Frame bei 8 kHz linear16 (160 Samples × 2 Byte). */
+const FRAME_20MS = Buffer.alloc(320);
+const emitMs = (tts: FakeTts, ms: number) => {
+  for (let i = 0; i < ms / 20; i += 1) tts.emitAudio(FRAME_20MS);
+};
+
+/** Assistententexte, die der NÄCHSTE LLM-Aufruf in der Historie mitträgt. */
+function assistantHistory(req: ChatStreamRequest): string[] {
+  return req.messages.filter((m) => m.role === "assistant").map((m) => String(m.content ?? ""));
+}
+
+test("Sprechuhr: Barge-in schreibt den gehörten Teil mit Auslassung in die Historie", async () => {
+  let unplayed = 0;
+  const s = makeSession(
+    [
+      async (req, onDelta) => {
+        onDelta("Erster Satz ist hier. Zweiter Satz kommt jetzt auch noch.");
+        return new Promise((_, reject) => {
+          req.signal.addEventListener("abort", () =>
+            reject(new DOMException("abgebrochen", "AbortError")),
+          );
+        });
+      },
+      async (_req, onDelta) => {
+        onDelta("Alles klar.");
+        return { content: "Alles klar.", toolCalls: [] };
+      },
+    ],
+    "Hallo!",
+    { pendingPlayoutMs: () => unplayed },
+  );
+  await s.session.start();
+  s.tts.emitFlushed(); // Greeting durch
+
+  s.stt.turn("Erste Frage");
+  await waitFor(() => s.tts.texts.length === 3, 1000); // Greeting + zwei Sätze
+  assert.equal(s.tts.texts[1], "Erster Satz ist hier.");
+
+  // Der Anbieter ordnet sein Audio zu: 200 ms für Satz 1, 100 ms für Satz 2.
+  s.tts.emitSegment("Erster Satz ist hier.");
+  emitMs(s.tts, 200);
+  s.tts.emitSegment("Zweiter Satz kommt jetzt auch noch.");
+  emitMs(s.tts, 100);
+
+  // 100 ms stehen noch in der Playout-Queue → gehört wurde nur Satz 1.
+  unplayed = 100;
+  s.stt.speech();
+  await settle();
+
+  const spoken = s.events.find(
+    ([e, arg]) => e === "conversationText" && (arg as { content: string }).content.includes("…"),
+  );
+  assert.ok(spoken, "gekürzter Turn muss als conversationText erscheinen");
+  assert.equal((spoken[1] as { content: string }).content, "Erster Satz ist hier. …");
+
+  s.stt.turn("Zweite Frage");
+  await waitFor(() => s.llmCalls.length === 2);
+  assert.deepEqual(assistantHistory(s.llmCalls[1]), ["Hallo!", "Erster Satz ist hier. …"]);
+  s.session.close();
+});
+
+test("Sprechuhr: ohne Segmentmeldung wird über die Sprechrate geschätzt — und nicht überschätzt", async () => {
+  const s = makeSession(
+    [
+      async (req, onDelta) => {
+        onDelta("Erster Satz ist hier. Zweiter Satz kommt jetzt auch noch.");
+        return new Promise((_, reject) => {
+          req.signal.addEventListener("abort", () =>
+            reject(new DOMException("abgebrochen", "AbortError")),
+          );
+        });
+      },
+      async (_req, onDelta) => {
+        onDelta("Alles klar.");
+        return { content: "Alles klar.", toolCalls: [] };
+      },
+    ],
+    "Hallo!",
+    { pendingPlayoutMs: () => 0 },
+  );
+  await s.session.start();
+  s.tts.emitFlushed();
+
+  s.stt.turn("Erste Frage");
+  await waitFor(() => s.tts.texts.length === 3, 1000);
+
+  // Aura-Fall: Audio ohne Satzgrenzen. Eine Sekunde ≈ 14 Zeichen.
+  emitMs(s.tts, 1000);
+  s.stt.speech();
+  await settle();
+
+  s.stt.turn("Zweite Frage");
+  await waitFor(() => s.llmCalls.length === 2);
+  const [, cut] = assistantHistory(s.llmCalls[1]);
+  assert.ok(cut?.endsWith("…"), `Auslassung erwartet, war: "${cut}"`);
+  assert.ok(
+    cut.length < 25,
+    `eine Sekunde Audio darf nicht den ganzen Turn behaupten, war: "${cut}"`,
+  );
+  const full = "Erster Satz ist hier. Zweiter Satz kommt jetzt auch noch.";
+  assert.ok(full.startsWith(cut.slice(0, -1).trim()), "muss ein Präfix des Turns sein");
+  s.session.close();
+});
+
+test("Sprechuhr: fertiger Turn wird nicht doppelt in die Historie geschrieben", async () => {
+  const s = makeSession(
+    [
+      async (_req, onDelta) => {
+        onDelta("Ein vollständiger Satz.");
+        return { content: "Ein vollständiger Satz.", toolCalls: [] };
+      },
+      async (_req, onDelta) => {
+        onDelta("Und weiter.");
+        return { content: "Und weiter.", toolCalls: [] };
+      },
+    ],
+    "Hallo!",
+    { pendingPlayoutMs: () => 0 },
+  );
+  await s.session.start();
+  s.tts.emitFlushed();
+
+  s.stt.turn("Erste Frage");
+  await waitFor(() => s.llmCalls.length === 1);
+  await settle();
+  s.tts.emitSegment("Ein vollständiger Satz.");
+  emitMs(s.tts, 400);
+
+  // Anrufer spricht NACH der fertigen Antwort — die Historie steht bereits.
+  s.stt.speech();
+  await settle();
+  s.stt.turn("Zweite Frage");
+  await waitFor(() => s.llmCalls.length === 2);
+
+  assert.deepEqual(assistantHistory(s.llmCalls[1]), ["Hallo!", "Ein vollständiger Satz."]);
   s.session.close();
 });

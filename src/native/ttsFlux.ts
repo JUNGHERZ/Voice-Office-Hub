@@ -74,6 +74,8 @@ export class FluxTtsStream extends EventEmitter {
   private connecting?: Promise<void>;
   private closed = false;
   private everOpened = false;
+  /** Flux truncatet serverseitig und meldet den gesprochenen Text selbst. */
+  readonly reportsSpokenText = true;
   /** Interrupt gesendet, SpeechInterrupted noch nicht da → Binärframes unterdrücken. */
   private interrupting = false;
   private interruptTimer?: NodeJS.Timeout;

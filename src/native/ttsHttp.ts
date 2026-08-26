@@ -38,6 +38,8 @@ interface TtsJob {
   chunks: Buffer[];
   running: boolean;
   done: boolean;
+  /** Segmentgrenze schon gemeldet? (genau einmal, vor dem ersten eigenen PCM) */
+  announced: boolean;
 }
 
 export interface HttpTtsBaseOptions {
@@ -103,6 +105,7 @@ export abstract class HttpTtsStream extends EventEmitter {
       chunks: [],
       running: false,
       done: false,
+      announced: false,
     });
     this.startPending();
   }
@@ -184,7 +187,14 @@ export abstract class HttpTtsStream extends EventEmitter {
         const raw = head.chunks.shift();
         if (!raw) break;
         const pcm = this.resampler.push(raw);
-        if (pcm.length) this.emit("audio", pcm);
+        if (!pcm.length) continue;
+        // Erst hier — nicht beim Einreihen: Die Sprechuhr braucht die Grenze in
+        // AUSGABE-Reihenfolge, und die stellt allein der Head-of-Line-Emitter her.
+        if (!head.announced) {
+          head.announced = true;
+          this.emit("segment", head.text);
+        }
+        this.emit("audio", pcm);
       }
       if (!head.done) return; // läuft noch — der Nachfolger muss warten
       this.jobs.shift();

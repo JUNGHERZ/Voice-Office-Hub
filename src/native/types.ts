@@ -171,6 +171,13 @@ export interface TtsStreamEvents {
   /** Server hat den Flush verarbeitet — das Turn-Audio ist vollständig übergeben. */
   flushed: (sequenceId: number | undefined) => void;
   /**
+   * Ab jetzt gehört das ausgegebene Audio zu diesem Text (0.12.0). Nur Anbieter,
+   * die ihre Ausgabe stückweise zuordnen KÖNNEN, melden das — bei der
+   * HTTP-Basisklasse ist ein Auftrag exakt ein Satz. Ohne dieses Signal schätzt
+   * die Sprechuhr über die Sprechrate (Aura: Binärstrom ohne Satzgrenzen).
+   */
+  segment: (text: string) => void;
+  /**
    * Barge-in vom Anbieter bestätigt, inklusive dem, was der Anrufer WIRKLICH
    * gehört hat. Nur Anbieter mit serverseitigem Truncate liefern das
    * (Flux TTS via SpeechInterrupted); Aura und ElevenLabs kennen es nicht.
@@ -181,6 +188,12 @@ export interface TtsStreamEvents {
 }
 
 export interface TtsStreamLike {
+  /**
+   * true = der Anbieter meldet nach einem Barge-in SELBST, was gesprochen wurde
+   * (Flux TTS via SpeechInterrupted). Die Session lässt ihre Sprechuhr dann in
+   * Ruhe — sonst stünde der gekürzte Turn zweimal in der Historie.
+   */
+  readonly reportsSpokenText?: boolean;
   start(): Promise<void>;
   sendText(text: string): void;
   flush(): void;
