@@ -437,3 +437,69 @@ test("ohne preload: Turns während des ersten Laufs lösen weiterhin einen Rerun
   await settle();
   assert.equal(calls, 2, "mehr Kontext rechtfertigt den zweiten Lauf");
 });
+
+// ── Zweitmeinung der Spracherkennung (0.16.0) ────────────────────────────────
+// Der Stopwort-Scorer liest den TEXT — und genau der ist die unzuverlässige Grösse.
+// Am 26.08.2026 lieferte Flux für kurze deutsche Äusserungen englische Phantasie-
+// sätze („Ja, ja" → „Yep. Yep."). Der Scorer hätte darin folgerichtig Englisch
+// gesehen, die Ansagen wären übersetzt worden, und nach dem Gespräch stünde „en"
+// im Anrufer-Profil: Der nächste Anruf derselben Nummer würde englisch begrüsst.
+
+test("Vorbelegung: Textabweichung ohne Rückhalt der Erkennung schaltet NICHT um", async () => {
+  const { loc, langs } = makeLocalizer(
+    {},
+    { scoreLanguage: () => ({ lang: "en", confidence: 0.5 }), localize: async () => ({ language: "de" }) },
+  );
+  loc.preload("de", { "filler.0": "Einen Moment." });
+
+  // Der Text sieht englisch aus, die Erkennung hat aber Deutsch gehört.
+  loc.observeTurn("caller", "Yep. Yep.", "de");
+  await settle();
+
+  assert.equal(loc.getLanguage(), "de", "die Sprache bleibt stehen");
+  assert.ok(!langs.includes("en"), "und nichts Englisches wird ins Request-Dokument geschrieben");
+});
+
+test("Vorbelegung: bestätigt die Erkennung die Abweichung, wird umgeschaltet", async () => {
+  const { loc } = makeLocalizer(
+    {},
+    { scoreLanguage: () => ({ lang: "en", confidence: 0.5 }), localize: async () => ({ language: "en" }) },
+  );
+  loc.preload("de", { "filler.0": "Einen Moment." });
+
+  loc.observeTurn("caller", "I would like to practise some English today", "en");
+  await settle();
+  assert.equal(loc.getLanguage(), "en");
+});
+
+// Regressionsschutz: Ohne das Signal muss sich exakt das alte Verhalten zeigen —
+// der deepgram-Pfad und ältere Adapter liefern es nicht.
+test("Vorbelegung: ohne Signal der Erkennung bleibt das bisherige Verhalten", async () => {
+  const { loc } = makeLocalizer(
+    {},
+    { scoreLanguage: () => ({ lang: "en", confidence: 0.5 }), localize: async () => ({ language: "en" }) },
+  );
+  loc.preload("de", { "filler.0": "Einen Moment." });
+  loc.observeTurn("caller", "Yep. Yep."); // kein sttLanguage
+  await settle();
+  assert.equal(loc.getLanguage(), "en", "wie bisher: der Text allein entscheidet");
+});
+
+test("Re-Detection: ein Widerspruch bricht die Abweichungsserie, statt sie zu zählen", async () => {
+  const { loc, langs } = makeLocalizer(
+    {},
+    { scoreLanguage: () => ({ lang: "en", confidence: 0.5 }), localize: async () => ({ language: "de" }) },
+  );
+  // Sprache steht bestätigt auf de.
+  loc.observeTurn("caller", "Guten Tag ich hätte da eine Frage", "de");
+  await settle();
+  assert.equal(loc.getLanguage(), "de");
+
+  // Drei „englische" Turns, denen die Erkennung durchweg widerspricht.
+  for (const t of ["Yep. Yep.", "Yeah. I", "Nine nine is my discounts."]) {
+    loc.observeTurn("caller", t, "de");
+  }
+  await settle();
+  assert.equal(loc.getLanguage(), "de", "die Hysterese kommt nie ins Zählen");
+  assert.deepEqual(langs, ["de"]);
+});

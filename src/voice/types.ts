@@ -40,6 +40,12 @@ export interface VoiceConversationText {
   role: "user" | "assistant";
   content: string;
   /**
+   * Von der Spracherkennung ERMITTELTE Sprache dieses Turns (0.16.0, nur Anrufer,
+   * nur Flux). Zweitmeinung neben der Stopwort-Heuristik über dem Text — bei einem
+   * Widerspruch bewegt eine Textabweichung die Gesprächssprache nicht mehr.
+   */
+  sttLanguage?: string;
+  /**
    * true = ersetzt den letzten Agenten-Eintrag, statt einen neuen anzuhängen
    * (Sprechuhr: der Turn stand schon vollständig im Protokoll, gehört wurde weniger).
    */

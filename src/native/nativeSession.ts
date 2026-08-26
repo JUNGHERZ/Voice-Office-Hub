@@ -440,7 +440,11 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
         // Spekulation bestätigt: Historie/Transkript nachziehen, TTS-Gate öffnen —
         // der LLM-Turn läuft bereits (oder ist sogar schon fertig).
         this.history.addUser(ready);
-        this.emit("conversationText", { role: "user", content: ready });
+        this.emit("conversationText", {
+          role: "user",
+          content: ready,
+          ...(this.lastLanguages?.[0] ? { sttLanguage: this.lastLanguages[0] } : {}),
+        });
         this.confirmSpeculation(spec);
         return;
       }
@@ -536,7 +540,12 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   /** Nutzerturn übernehmen und den Assistententurn starten. */
   private beginUserTurn(text: string): void {
     this.history.addUser(text);
-    this.emit("conversationText", { role: "user", content: text });
+    this.emit("conversationText", {
+      role: "user",
+      content: text,
+      // Zweitmeinung für die Sprachwahl der Ansagen (0.16.0) — siehe callLocalizer.
+      ...(this.lastLanguages?.[0] ? { sttLanguage: this.lastLanguages[0] } : {}),
+    });
     void this.runAssistantTurn(this.generation);
   }
 

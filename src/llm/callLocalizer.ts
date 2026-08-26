@@ -37,7 +37,11 @@ export interface LocalizationCatalog {
 
 /** Öffentlicher Vertrag des CallLocalizer (callHandler-Tests reichen ein Fake ein). */
 export interface CallLocalizerLike {
-  observeTurn(speaker: string, text: string): void;
+  /**
+   * @param sttLanguage Von der Spracherkennung ermittelte Sprache dieses Turns
+   *   (nur Anrufer, nur Flux). Optional — ohne sie verhält sich alles wie bisher.
+   */
+  observeTurn(speaker: string, text: string, sttLanguage?: string): void;
   resolve(key: string, index?: number): string;
   getLanguage(): string | undefined;
   preload(lang: string, phrases: Record<string, string>): void;
@@ -152,7 +156,7 @@ export class CallLocalizer implements CallLocalizerLike {
    * Einziger Einstieg (non-blocking): puffert beide Rollen; die Trigger-/Scorer-Logik läuft
    * nur bei `speaker === "caller"`. Wird vom callHandler bei jedem conversationText-Event gefüttert.
    */
-  observeTurn(speaker: string, text: string): void {
+  observeTurn(speaker: string, text: string, sttLanguage?: string): void {
     if (!this.active || this.closed || !text.trim()) return;
     this.window.push(`${speaker === "caller" ? "caller" : "agent"}: ${text}`);
     this.trimWindow();
@@ -172,7 +176,8 @@ export class CallLocalizer implements CallLocalizerLike {
       // klarer Widerspruch reicht, weil die Vorbelegung selbst nur eine Vermutung ist.
       if (this.provisional) {
         const guess = this.deps.scoreLanguage(text);
-        if (guess && guess.lang !== this.currentLang) this.switchTo(guess.lang);
+        if (guess && guess.lang !== this.currentLang && this.deviationTrusted(guess.lang, sttLanguage))
+          this.switchTo(guess.lang);
       }
       return;
     }
@@ -180,6 +185,12 @@ export class CallLocalizer implements CallLocalizerLike {
     // Re-Detection: der Scorer beobachtet nur; das LLM bleibt autoritativ.
     const guess = this.deps.scoreLanguage(text);
     if (!guess) return;
+    if (!this.deviationTrusted(guess.lang, sttLanguage)) {
+      // Text und Erkennung sind uneins → die Serie bricht, statt weiterzuzählen.
+      this.deviationStreak = 0;
+      this.deviationLang = undefined;
+      return;
+    }
     if (guess.lang === this.currentLang) {
       this.deviationStreak = 0;
       this.deviationLang = undefined;
@@ -239,6 +250,32 @@ export class CallLocalizer implements CallLocalizerLike {
   }
 
   // — intern —
+
+  /**
+   * Darf eine Abweichung des Stopwort-Scorers die Gesprächssprache bewegen? (0.16.0)
+   *
+   * Nur, wenn die Spracherkennung NICHT widerspricht. Der Scorer liest den Text —
+   * und genau der ist die unzuverlässige Grösse: Am 26.08.2026 lieferte Flux mit
+   * Hinweis `["de", "en"]` für kurze deutsche Äusserungen englische Phantasiesätze
+   * („Ja, ja" → „Yep. Yep."). Der Scorer hätte darin folgerichtig Englisch gesehen,
+   * die Ansagen wären übersetzt worden, und nach dem Gespräch stünde „en" im
+   * Anrufer-Profil — der nächste Anruf derselben Nummer würde englisch begrüsst.
+   *
+   * Das akustische Signal wird bewusst NICHT übergeordnet, sondern nur als Veto
+   * benutzt: Belegt ist, dass ein Widerspruch ein Warnzeichen ist — nicht, dass die
+   * Erkennung im Streitfall recht hat. Ohne Signal bleibt alles wie bisher.
+   */
+  private deviationTrusted(guessLang: string, sttLanguage?: string): boolean {
+    const stt = (sttLanguage ?? "").trim().toLowerCase().split(/[-_]/)[0];
+    if (!stt) return true;
+    if (stt === guessLang) return true;
+    this.log.debug("Sprachabweichung ohne Rückhalt der Erkennung — nicht umgeschaltet", {
+      text: guessLang,
+      erkennung: stt,
+      aktuell: this.currentLang,
+    });
+    return false;
+  }
 
   private effectiveKey(key: string, index?: number): string | null {
     const count = this.pools[key];

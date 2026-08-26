@@ -1045,7 +1045,7 @@ async function runAgentCall(
         .catch(() => {})
         .then(() => store.appendTranscript(requestId, { t: elapsed(), speaker, text: ev.content }));
       // Sprach-/Register-Erkennung füttern (beide Rollen; Caller treibt Trigger, Agent = Register-Kontext).
-      localizer.observeTurn(speaker, ev.content);
+      localizer.observeTurn(speaker, ev.content, ev.sttLanguage);
       if (speaker === "caller") {
         idleWatcher.noteCallerActivity(Date.now());
       } else {

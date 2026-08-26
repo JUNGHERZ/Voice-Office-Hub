@@ -4,6 +4,32 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.16.0] – 2026-08-26
+
+### Fixed
+
+**Eine Fehlerkennung konnte die Gesprächssprache umstellen — und blieb über den Anruf hinaus stehen.** Die Sprachwahl für Filler, Ansagen und das Anrufer-Profil lief vollständig über eine Stopwort-Heuristik auf dem **Transkript-Text**: `observeTurn(text)` → `scoreLanguage(text)` → `switchTo()` → `setLanguage(request)` → nach dem Gespräch `rememberLanguage(profil)`.
+
+Genau dieser Text war die unzuverlässige Grösse. Mit dem alten Hinweis `["de", "en"]` wurden kurze deutsche Äusserungen zu englischen Phantasiesätzen — aus „Ja, ja" wurde „Yep. Yep.". Der Scorer sah darin folgerichtig Englisch, und bei vorbelegter Sprache genügt **ein** klarer Widerspruch zum Umschalten. Ergebnis: Ansagen auf Englisch, „en" am Request — und im Anrufer-Profil, das auf **7 von 15 Agenten** aktiv ist. Der nächste Anruf derselben Nummer wäre englisch begrüsst worden.
+
+Der Anrufer-Turn trägt jetzt die von der Erkennung ermittelte Sprache als Zweitmeinung mit (`conversationText.sttLanguage`). Widerspricht sie dem Text, bewegt eine Textabweichung die Gesprächssprache **nicht** — weder auf dem schnellen Pfad der Vorbelegung noch über die Re-Detection-Hysterese, deren Serie dabei abbricht statt weiterzuzählen.
+
+**Bewusst ein Veto und keine Übersteuerung.** Belegt ist, dass ein Widerspruch zwischen Erkennung und Text ein Warnzeichen ist — nicht, dass die Erkennung im Streitfall recht hat. Das autoritative Urteil bleibt beim LLM-Detect. Ohne Signal (gebündelter `deepgram`-Pfad, ältere Adapter) verhält sich alles unverändert; ein Regressionstest hält das fest.
+
+### Gemessen
+
+Gegenprobe zur Ursache aus 0.14.0, gleicher Agent, gleiche Gesprächsführung:
+
+| | Anrufer-Turns | davon englisch halluziniert |
+|---|---|---|
+| v0.13.2 mit `["de", "en"]` | 14 | **6** |
+| v0.15.1 mit abgeleitetem `["de"]` | 9 | **0** |
+
+Auch die kurzen Beiträge kamen sauber an („Ja.", „Ja, gute Frage."). Zusätzlich bestätigt: Flux befüllt `TurnInfo.languages` bei echter Sprache verlässlich — 70 von 70 Updates mit Text meldeten `de`. Damit steht das Fundament der Sprachnachführung aus 0.15.0.
+
+Nebenbefund: Alle 9 Turn-Entscheidungen des Duplex-Pfads lauteten `terminal-punctuation`. **Die Sprachkorrektur verbessert also auch die Gesprächsführung**, deren Regel auf Satzzeichen beruht — verlässliche Erkennung liefert verlässliche Satzenden.
+
+
 ## [0.15.1] – 2026-08-26
 
 ### Changed
