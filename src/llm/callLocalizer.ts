@@ -269,7 +269,10 @@ export class CallLocalizer implements CallLocalizerLike {
     const stt = (sttLanguage ?? "").trim().toLowerCase().split(/[-_]/)[0];
     if (!stt) return true;
     if (stt === guessLang) return true;
-    this.log.debug("Sprachabweichung ohne Rückhalt der Erkennung — nicht umgeschaltet", {
+    // `info`, nicht `debug`: Die Zeile fällt nur im Streitfall an — und ohne sie ist am
+    // laufenden System nicht feststellbar, ob das Veto gegriffen hat (dieselbe Lehre wie
+    // bei der Gesprächsführung in 0.13.1; sie ist mir hier ein zweites Mal durchgerutscht).
+    this.log.info("Sprachabweichung ohne Rückhalt der Erkennung — nicht umgeschaltet", {
       text: guessLang,
       erkennung: stt,
       aktuell: this.currentLang,
