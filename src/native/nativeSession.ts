@@ -398,19 +398,38 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       this.speculation = undefined;
       // Fürs A/B-Log: Trug eine Spekulation diesen Turn (hit) oder wurde sie verworfen (miss)?
       this.eagerOutcome = spec ? "miss" : undefined;
-      if (spec && spec.gen === this.generation && text && sameUtterance(spec.transcript, text)) {
+      /**
+       * Die Gesprächsführung entscheidet VOR der Spekulationsprüfung (0.13.2).
+       *
+       * Der Eager-Modus startet den LLM-Turn bereits auf das VORLÄUFIGE Turn-Ende —
+       * also genau auf das Ereignis, das holdOff zurückhalten soll. Stand die
+       * Führung hinter dem bestätigten Eager-Pfad, lief sie nie: Der Zweig kehrt
+       * vorher zurück, und bei aktivem Eager trifft die Spekulation praktisch immer
+       * (10 von 10 Turns im Anruf vom 26.08., 29 von 29 in der Messreihe vom 22.07.).
+       */
+      let ready = text;
+      if (this.turnGate && text) {
+        const gated = this.gateUserTurn(text);
+        if (!gated) {
+          // Zurückgehalten. Eine laufende Spekulation hängt an einem Satzfetzen und ist
+          // damit hinfällig — sie wurde nie gehört, der Abbruch kostet nur Input-Tokens.
+          if (spec) this.abortSpeculation(spec);
+          return;
+        }
+        ready = gated;
+      }
+      if (spec && spec.gen === this.generation && ready && sameUtterance(spec.transcript, ready)) {
         this.eagerOutcome = "hit";
         // Spekulation bestätigt: Historie/Transkript nachziehen, TTS-Gate öffnen —
         // der LLM-Turn läuft bereits (oder ist sogar schon fertig).
-        this.history.addUser(text);
-        this.emit("conversationText", { role: "user", content: text });
+        this.history.addUser(ready);
+        this.emit("conversationText", { role: "user", content: ready });
         this.confirmSpeculation(spec);
         return;
       }
       if (spec) this.abortSpeculation(spec); // Final-Transkript weicht ab → sauber neu
-      if (!text) return; // "ähm"/Leerlauf: kein LLM-Turn
-      const ready = this.turnGate ? this.gateUserTurn(text) : text;
-      if (ready) this.beginUserTurn(ready);
+      if (!ready) return; // "ähm"/Leerlauf: kein LLM-Turn
+      this.beginUserTurn(ready);
     });
     this.stt.on("eagerTurnEnded", (transcript: string) => {
       if (this.closed || !this.eagerEnabled) return;

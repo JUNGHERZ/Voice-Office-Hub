@@ -4,6 +4,29 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.13.2] – 2026-08-26
+
+### Fixed
+
+**Bei aktivem Eager-Modus lief die Gesprächsführung nie — der Duplex-Pfad war im Betrieb wirkungslos.** Der Testanruf zeigte `voiceProvider: duplex`, Version 0.13.1, 426 Update-Zeilen im Log — und **null** Entscheidungen. Die Ursache steht in der Turn-Latenz-Zeile: **10 von 10 Turns meldeten `eager: hit`.**
+
+Der bestätigte Eager-Zweig kehrt zurück, bevor die Gesprächsführung an der Reihe war. Und er trifft praktisch immer: 10 von 10 in diesem Anruf, 29 von 29 in der Messreihe vom 22.07.2026.
+
+Dahinter steckt kein Flüchtigkeitsfehler, sondern ein **Zielkonflikt**: EagerEndOfTurn startet den LLM-Turn auf das *vorläufige* Turn-Ende — also genau auf das Ereignis, das `holdOff` zurückhalten soll. Die Führung entscheidet deshalb jetzt **vor** der Spekulationsprüfung. Hält sie zurück, wird eine laufende Spekulation verworfen: Sie hängt an einem Satzfetzen, wurde nie gehört, und der Abbruch kostet nur Eingabe-Token. Winkt sie durch, bleibt der Eager-Treffer erhalten — Duplex kostet also keine Antwortzeit.
+
+Zwei Regressionstests decken beide Richtungen ab; der erste schlägt gegen den Stand von 0.13.1 nachweislich fehl.
+
+### Was daran zu lernen war
+
+Dreimal in Folge war eine Funktion im Betrieb wirkungslos, obwohl Tests und Typprüfung grün waren — und jedes Mal aus einem Grund, den die Unit-Tests bauartbedingt nicht sehen konnten:
+
+1. **0.12.0 → 0.12.1**: Der Wächter fragte „Text geschrieben?" statt „Text gesprochen?" (in einer streamenden Kaskade zwei sehr verschiedene Zeitpunkte), und die Abspielposition wurde nach dem synchronen Media-Flush gelesen.
+2. **0.13.1**: Die Entscheidungszeile stand auf `debug`, während die Instanz auf `info` läuft — die Frage „hat es gehalten?" musste aus Zeitstempeln geraten werden.
+3. **0.13.2**: Die Testsuite läuft mit `NATIVE_EAGER_EOT=false`, die Instanz mit `true`. Damit lief in den Tests ein anderer Codepfad als im Betrieb.
+
+Gemeinsamer Nenner: Nicht die Logik war falsch, sondern die **Annahme über die Umgebung**. Neue Verhaltensänderungen im Anrufpfad brauchen deshalb (a) eine Logzeile auf dem Pegel, den die Zielinstanz tatsächlich fährt, und (b) mindestens einen Test unter der Konfiguration, die dort wirklich gesetzt ist.
+
+
 ## [0.13.1] – 2026-08-26
 
 ### Fixed

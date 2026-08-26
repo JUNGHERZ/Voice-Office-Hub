@@ -1358,3 +1358,46 @@ test("ohne Gesprächsführung antwortet die Session sofort — auch auf einen Sa
   assert.equal(s.timers.filter((t) => t.ms === 700).length, 0, "kein Halte-Timer");
   s.session.close();
 });
+
+// Regression (0.13.2): Bei aktivem Eager-Modus lief die Gesprächsführung NIE.
+// Der bestätigte Eager-Zweig kehrte vorher zurück — und die Spekulation trifft
+// praktisch immer (10/10 Turns im Anruf vom 26.08.2026). Der Duplex-Pfad war damit
+// im Betrieb wirkungslos, obwohl Provider und Version stimmten.
+test("holdOff greift auch, wenn die Eager-Spekulation den Turn bestätigt", () =>
+  withEagerEot(async () => {
+    const s = makeSession([echoLlm("Antwort.")], "Hallo!", { turnGate: createTurnGate() });
+    await s.session.start();
+    const spokenBefore = s.tts.texts.length;
+
+    s.stt.update("Genau, sonst", 0.159);
+    s.stt.eager("Genau, sonst"); // Spekulation läuft auf den Satzfetzen
+    await settle();
+    s.stt.turn("Genau, sonst"); // gleicher Wortlaut → wäre ein Eager-Treffer
+    await settle();
+
+    assert.ok(
+      !s.events.some(([e, a]) => e === "conversationText" && (a as { role: string }).role === "user"),
+      "der Fetzen darf trotz bestätigter Spekulation nicht in den Turn gehen",
+    );
+    assert.equal(s.tts.texts.length, spokenBefore, "und es wird nichts gesprochen");
+    s.session.close();
+  }));
+
+// Gegenprobe: Ein vollständiger Satz muss den Eager-Vorteil behalten — die Führung
+// darf die Spekulation nicht verschlucken, sonst kostet Duplex Antwortzeit.
+test("Eager-Treffer bleibt erhalten, wenn die Gesprächsführung durchwinkt", () =>
+  withEagerEot(async () => {
+    const s = makeSession([echoLlm("Antwort.")], "Hallo!", { turnGate: createTurnGate() });
+    await s.session.start();
+
+    s.stt.update("Wie mache ich das Update?", 0.6);
+    s.stt.eager("Wie mache ich das Update?");
+    await waitFor(() => s.llmCalls.length === 1); // Spekulation läuft
+    s.stt.turn("Wie mache ich das Update?");
+    await settle();
+
+    assert.equal(s.llmCalls.length, 1, "kein zweiter LLM-Call — die Spekulation wurde bestätigt");
+    const users = s.llmCalls[0]!.messages.filter((m) => m.role === "user").map((m) => m.content);
+    assert.deepEqual(users, ["Wie mache ich das Update?"]);
+    s.session.close();
+  }));
