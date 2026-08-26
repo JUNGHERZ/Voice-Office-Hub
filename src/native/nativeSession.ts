@@ -509,7 +509,11 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       confidence: this.lastConfidence,
       heldBefore: held !== undefined,
     });
-    this.log.debug("Gesprächsführung", {
+    // Bewusst `info`: Die Zeile fällt nur bei Duplex-Agenten an, einmal je Turn — und
+    // sie ist die EINZIGE Stelle, an der ablesbar ist, ob die Führung eingegriffen hat.
+    // Auf `debug` wäre sie auf einer Instanz mit LOG_LEVEL=info unsichtbar, und die
+    // Frage „hat es gehalten?" müsste aus Zeitstempeln rekonstruiert werden.
+    this.log.info("Gesprächsführung", {
       action: verdict.action,
       reason: verdict.reason,
       conf: Math.round(this.lastConfidence * 1000) / 1000,
@@ -528,7 +532,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.heldText = undefined;
     this.cancelHoldTimer = undefined;
     if (!text || this.closed) return;
-    this.log.debug("Gesprächsführung: Wartefrist abgelaufen", { chars: text.length });
+    this.log.info("Gesprächsführung: Wartefrist abgelaufen", { chars: text.length });
     this.beginUserTurn(text);
   }
 

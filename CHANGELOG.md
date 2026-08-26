@@ -4,6 +4,21 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.13.1] – 2026-08-26
+
+### Fixed
+
+**Die Entscheidung der Gesprächsführung stand auf `debug` und war damit im Betrieb unsichtbar.** Auf einer Instanz mit `LOG_LEVEL=info` liess sich nach dem ersten Duplex-Testanruf nicht ablesen, ob überhaupt gehalten wurde — die Frage musste aus Zeitstempeln rekonstruiert werden und blieb dabei unentschieden. Genau der Fehler, der beim `Flux-Update` eine Datei weiter bewusst vermieden worden war.
+
+Die Zeile steht jetzt auf `info`. Sie fällt nur bei Duplex-Agenten an, einmal je Turn, und nennt Aktion, Grund, Konfidenz und ob zusammengeführt wurde.
+
+### Gemessen
+
+Erster Duplex-Anruf (13 Turns, 4 Barge-ins): **12 von 13 Turns endeten mit Satzzeichen** — die Gesprächsführung hatte fast nichts zu tun. Der einzige Haltekandidat („…zwei Minuten oder", Konfidenz 0,115) zeigte 0,55 s Verzug gegenüber 0,14 s im Median der übrigen Turns; ein echter Halt müsste rund 0,84 s ergeben. **Ein Datenpunkt, nicht eindeutig** — die Differenz erklärt sich genauso gut durch ein späteres Zuschlagen von Flux' Stille-Timeout.
+
+Daraus folgt für die Erwartung: Die Wirkung von `holdOff` hängt am Sprechstil. Im Messanruf vom Vormittag endeten 2 von 9 Turns ohne Satzzeichen, hier 1 von 13. Der Effekt ist real, aber selten — und deshalb nur an gezielt unfertigen Sätzen zu beobachten, nicht am Gesamteindruck eines Gesprächs.
+
+
 ## [0.13.0] – 2026-08-26
 
 ### Added
