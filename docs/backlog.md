@@ -58,6 +58,22 @@ Der Tauschpunkt existiert seit 0.7.0 bereits: Der Sprach-Prior greift **vor** de
   + eot-Werte machen den A/B-Test billig.)
 - **Status 2026-07-20 (0.6.0): weitgehend beantwortet.** Flux ist pro Agent über die Admin-UI schaltbar (STT-Modell-Select + eot-Felder); Settings-Format an die aktuelle v2-Spec angepasst (Fix `eed7cac` — Flux verlangt `version: "v2"`, lehnt `language`/`smart_format` ab). **Deutsch über `flux-general-multi` funktioniert** — vom Nutzer im Live-Test bestätigt (Agent 121), inkl. sauberer Mehrsprachigkeit. Gemessene Antwortlatenz lokal: Flux ≈ 2,6 s vs. nova-3 ≈ 3,5 s ab Sprechende. **Offen nur noch:** Qualitäts-/Langzeitvergleich am echten Trunk (A/B pro DDI). Achtung fürs Testen: loopendes Einspiel-Audio cancelt Flux-Antworten (Barge-in) — Test-Audio mit einer Äußerung + Stille verwenden.
 
+### 3a. Erkannte Gesprächssprache an die STT zurückgeben
+
+**Beobachtet am 26.08.2026 (Anruf `1787759851.0`, `flux-general-multi` mit `language_hints: ["de"]`):** 6 von 14 Anrufer-Beiträgen kamen als reines Englisch zurück, ein weiterer gemischt — und ausschliesslich bei **kurzen** Äusserungen. Lange deutsche Sätze wurden sauber erkannt, kurze wurden zu `"Yep. Yep."`, `"Nine nine is my discounts."`, `"You all good customer?"`, `"because..."`.
+
+Der Schaden ist nicht kosmetisch. Auf `"You all good customer?"` antwortete der Agent mit *„Ja, mir geht's gut"* — die Fehlerkennung hat den Gesprächsverlauf umgelenkt. Sie verfälscht ausserdem die Gesprächsführung des Duplex-Pfads: `"Yep. Yep."` trägt ein Satzendzeichen und gilt damit als vollständiger Beitrag, obwohl der Anrufer „Ja, ja" gesagt hat.
+
+**Idee:** Sobald im Gespräch feststeht, dass Deutsch gesprochen wird, die Spracherkennung darauf festlegen, statt weiter mehrsprachig zu raten. Die Erkennung dafür existiert bereits: `detectContentLanguage()` in `src/llm/languageScorer.ts`, gefüttert über `localizer.observeTurn()` aus dem `conversationText`-Ereignis (`callHandler.ts`). Es fehlt nur der Rückweg zur STT.
+
+**Vor der Umsetzung zu klären:**
+- Gibt es ein einsprachiges Flux-Modell für Deutsch (analog `flux-general-en`)? Falls nein: Reicht es, `language_hints` zur Laufzeit zu verschärfen?
+- Der Modellwechsel bedeutet einen Neuaufbau der Flux-Verbindung. Wie lange ist der Anrufer dabei taub, und lässt sich das in eine Agentensprechphase legen?
+- Ab wann gilt die Sprache als sicher? Zwei lange Turns dürften reichen; genau die kurzen, unsicheren Beiträge sollen ja gerade nicht mitentscheiden.
+- Rückfallweg für echte Sprachwechsel mitten im Gespräch — die Anlage kann heute bewusst umschalten (Laufzeit-Übersetzung der Ansagen), und das darf eine Festlegung nicht zunichtemachen.
+
+**Nutzen:** Vermutlich grösser als jede weitere Feinjustierung am Duplex-Pfad. Eine falsch erkannte Äusserung kostet einen ganzen Gesprächszug; ein zu früh beantworteter Satzfetzen kostet eine Wiederholung.
+
 ## Architektur / Engine-Weiterentwicklung (Architektur-Review 2026-07-18)
 
 ### 4. ✅ Umgesetzt in 0.6.0 (2026-07-20): Voice-Provider-Abstraktion (`VoiceAgentSession`)
