@@ -44,8 +44,8 @@ import {
   toOpenAiTools,
   type OpenAiTool,
 } from "./llmStream.js";
+import { isFluxLanguage } from "./fluxLanguages.js";
 import { createSentenceChunker } from "./sentences.js";
-import { LanguageLock } from "./languageLock.js";
 import { SpeechClock } from "./speechClock.js";
 import { createBreakNormalizer, sanitizeForSpeech } from "./speechText.js";
 import { FluxSttStream, type SttStreamOptions, type TurnUpdate } from "./sttStream.js";
@@ -167,10 +167,10 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   private heldText?: string;
   private cancelHoldTimer?: () => void;
 
-  // Sprachnachführung (0.15.0) — nur beim mehrsprachigen Flux-Modell sinnvoll.
-  private readonly languageLock?: LanguageLock;
   /** Von Flux erkannte Sprachen des laufenden Turns (aus den Update-Ereignissen). */
   private lastLanguages?: string[];
+  /** Aktuell an die Erkennung gesendeter Sprach-Hinweis (0.17.0). */
+  private activeHint: string;
 
   // Timer-Filler bei Tool-Wartezeiten (0.6.26).
   private fillerIndex = 0;
@@ -221,11 +221,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     // speak.speed skaliert die geschätzte Sprechrate; gemessen wird sie ohnehin
     // nach dem ersten ungestörten Turn (meist schon am Greeting).
     this.clock = new SpeechClock(agent.speak.speed ?? 1);
-    // Hinweise gelten nur für flux-general-multi; bei einsprachigen Modellen gibt es
-    // nichts nachzuführen (siehe buildSttOptions/fluxLanguages.ts).
-    if (config.native.sttLanguageLock && agent.listen.model.includes("multi")) {
-      this.languageLock = new LanguageLock(agent.listen.language_hints);
-    }
+    this.activeHint = agent.listen.language_hints[0] ?? "";
 
     // Konstruktion bleibt inert: die Clients verbinden erst in start().
     this.stt = this.deps.createStt(this.buildSttOptions(), callId);
@@ -410,7 +406,6 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.stt.on("turnEnded", (transcript: string) => {
       if (this.closed) return;
       const text = transcript.trim();
-      this.followCallerLanguage(text);
       const spec = this.speculation;
       this.speculation = undefined;
       // Fürs A/B-Log: Trug eine Spekulation diesen Turn (hit) oder wurde sie verworfen (miss)?
@@ -443,7 +438,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
         this.emit("conversationText", {
           role: "user",
           content: ready,
-          ...(this.lastLanguages?.[0] ? { sttLanguage: this.lastLanguages[0] } : {}),
+          ...this.independentLanguage(),
         });
         this.confirmSpeculation(spec);
         return;
@@ -521,21 +516,43 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   };
 
   /**
-   * Spricht der Anrufer nachweislich eine andere Sprache als eingestellt, den
-   * Flux-Hinweis nachziehen. Bewusst NICHT an den ersten Turn gekoppelt: Kurze
-   * Äusserungen werden falsch erkannt, und genau die sollen nicht umschalten
-   * (siehe languageLock.ts).
+   * Der Localizer hat die Gesprächssprache bestimmt → den Hinweis der Erkennung
+   * nachziehen (0.17.0). Verifiziert gegen die echte API: Der Server quittiert mit
+   * `ConfigureSuccess`, das nächste `TurnInfo` trägt bereits den neuen Hinweis —
+   * kein Neuaufbau, kein taubes Fenster.
+   *
+   * Warum von hier und nicht aus dem Audiostrom: Ein gesetzter Hinweis verbiegt die
+   * Spracherkennung selbst. Am 26.08.2026 gemessen — mit `["de"]` meldete Flux auch
+   * für einen überwiegend englischen Satz `de`. Ein Regelkreis auf dieses Signal
+   * bestätigt nur seine eigene Vorgabe. Der Localizer urteilt dagegen per LLM über
+   * das ganze Gesprächsfenster und ist vom Hinweis unbeeinflusst.
    */
-  private followCallerLanguage(text: string): void {
-    if (!this.languageLock) return;
-    const from = this.languageLock.active();
-    const next = this.languageLock.observe(text, this.lastLanguages);
-    if (!next) return;
-    this.log.info("Sprachnachführung", { von: from || "(keiner)", nach: next.join(",") });
-    this.stt.configure?.(next);
+  setRecognitionLanguage(lang: string): void {
+    if (!config.native.sttLanguageLock || this.closed) return;
+    const next = (lang ?? "").trim().toLowerCase().split(/[-_]/)[0];
+    // Hinweise gelten nur beim mehrsprachigen Modell; einsprachige kennen keine.
+    if (!next || next === this.activeHint || !this.agent.listen.model.includes("multi")) return;
+    if (!isFluxLanguage(next)) return;
+    this.log.info("Sprach-Hinweis nachgezogen", { von: this.activeHint || "(keiner)", nach: next });
+    this.activeHint = next;
+    this.stt.configure?.([next]);
   }
 
   // ── Gesprächsführung (0.13.0, nur `voiceProvider: "duplex"`) ────────────────
+
+  /**
+   * Die erkannte Sprache — aber NUR, wenn sie dem eigenen Hinweis widerspricht (0.17.0).
+   *
+   * Stimmt sie mit dem Hinweis überein, ist sie kein Zeugnis, sondern dessen Echo: Ein
+   * auf `["de"]` gestelltes Modell meldet `de` auch für einen englischen Satz (gemessen
+   * am 26.08.2026). Nur ein Widerspruch zur eigenen Vorgabe ist ein unabhängiger Beleg —
+   * und nur der darf im Localizer eine Textabweichung überstimmen.
+   */
+  private independentLanguage(): { sttLanguage?: string } {
+    const seen = this.lastLanguages?.[0];
+    if (!seen || seen === this.activeHint) return {};
+    return { sttLanguage: seen };
+  }
 
   /** Nutzerturn übernehmen und den Assistententurn starten. */
   private beginUserTurn(text: string): void {
@@ -543,8 +560,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.emit("conversationText", {
       role: "user",
       content: text,
-      // Zweitmeinung für die Sprachwahl der Ansagen (0.16.0) — siehe callLocalizer.
-      ...(this.lastLanguages?.[0] ? { sttLanguage: this.lastLanguages[0] } : {}),
+      ...this.independentLanguage(),
     });
     void this.runAssistantTurn(this.generation);
   }

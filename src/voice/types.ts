@@ -134,6 +134,17 @@ export interface VoiceAgentSession {
   sendFunctionResponse(id: string, name: string, result: unknown): void;
   /** Den Agenten eine vorgegebene Nachricht sprechen lassen (z. B. Transfer-Fehlschlag). */
   injectMessage(message: string): void;
+  /**
+   * Der Erkennung sagen, welche Sprache im Gespräch gesprochen wird (0.17.0).
+   *
+   * Aufgerufen wird das vom callHandler, sobald der Localizer die Sprache
+   * AUTORITATIV bestimmt hat (LLM über das Gesprächsfenster). Bewusst diese
+   * Richtung: Der Sprach-Hinweis der Erkennung verbiegt ihre eigene Sprachausgabe —
+   * ein Regelkreis, der auf dieses Signal hört, bestätigt nur sich selbst.
+   *
+   * Optional: Der gebündelte Voice-Agent-Pfad kennt keinen solchen Schalter.
+   */
+  setRecognitionLanguage?(lang: string): void;
   /** Verbrauch der Session (TTS-Zeichen/Credits), sofern der Adapter ihn kennt. */
   getUsage?(): VoiceSessionUsage | undefined;
   close(): void;

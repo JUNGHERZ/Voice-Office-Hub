@@ -4,6 +4,25 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.17.0] – 2026-08-26
+
+### Fixed
+
+**Die Sprachnachführung aus 0.15.0 lief in die falsche Richtung — sie hörte auf ihre eigene Ausgabe.** Ein Testanruf mit dem Demo-Agenten „Englischlehrerin" (auf Deutsch begonnen, dann auf Englisch gewechselt) hat es gezeigt: `TurnInfo.languages` meldete **43-mal `de` und kein einziges Mal `en`** — auch nicht für „und I have very, very enjoying my freetime at the evening" (58 Zeichen, überwiegend Englisch).
+
+Der Grund ist der Hinweis selbst: Ein auf `["de"]` gestelltes Modell meldet `de`. Eine Nachführung, die auf dieses Signal hört, kann sich aus einem falschen Hinweis nie befreien.
+
+**Die Richtung ist jetzt umgekehrt.** Autorität ist der Localizer: Er urteilt per LLM über das ganze Gesprächsfenster und ist vom Hinweis unbeeinflusst. Steht sein Befund, zieht der callHandler den Flux-Hinweis über `VoiceAgentSession.setRecognitionLanguage()` nach. Damit entfällt auch die 25-Zeichen-/Zwei-Turn-Regel aus 0.15.0 — sie war ein Ersatz für Autorität, die wir längst haben. `src/native/languageLock.ts` samt Tests ist entfallen.
+
+**Das Veto aus 0.16.0 war zu scharf und hat vermutlich genau den richtigen Wechsel blockiert.** Es liess eine Textabweichung nicht mehr durch, wenn die Erkennung widersprach — nur war deren `de` an dieser Stelle kein Beleg, sondern das Echo des Hinweises. Die Zweitmeinung wird jetzt nur noch weitergereicht, **wenn sie dem eigenen Hinweis widerspricht**: Nur dann hat das Modell seine Vorgabe überstimmt, und nur dann ist es ein unabhängiges Zeugnis.
+
+Offen eingeräumt: Ob das Veto den ursprünglichen Fehler überhaupt verhindert hätte, ist **unbelegt** — als „Yep. Yep." entstand, wurde `languages` noch nicht protokolliert. Die Ursache ist mit 0.14.0 ohnehin an der Wurzel behoben; das Veto bleibt als schmale Absicherung.
+
+### Changed
+
+- Die Veto-Diagnose steht auf `info` statt `debug`. Dieselbe Lehre wie in 0.13.1 — sie ist mir hier ein zweites Mal durchgerutscht, und wieder liess sich am laufenden System nicht ablesen, ob der Mechanismus gegriffen hat.
+
+
 ## [0.16.0] – 2026-08-26
 
 ### Fixed

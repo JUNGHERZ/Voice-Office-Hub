@@ -1407,57 +1407,74 @@ test("Eager-Treffer bleibt erhalten, wenn die Gesprächsführung durchwinkt", ()
     s.session.close();
   }));
 
-// ── Sprachnachführung (0.15.0) ──────────────────────────────────────────────
-// Der Demo-Agent „Englischlehrerin" begrüßt auf Deutsch und wechselt dann absichtlich
-// ins Englische. Mit einem festen Hinweis würde die Erkennung genau dann schlechter,
-// wenn die Übung anfängt.
-const LONG_EN = "I would like to practise a little bit of English with you today.";
+// ── Erkennungssprache nachziehen (0.17.0) ──────────────────────────────────
+// Die Richtung ist tragend: NICHT der Audiostrom entscheidet, sondern der Localizer.
+// Ein gesetzter Hinweis verbiegt die Erkennung selbst — am 26.08.2026 gemessen meldete
+// Flux mit `["de"]` auch für einen überwiegend englischen Satz `de`. Ein Regelkreis auf
+// dieses Signal bestätigt nur seine eigene Vorgabe.
 
-test("Sprachnachführung: zwei englische Turns ziehen den Flux-Hinweis nach", async () => {
-  const s = makeSession([echoLlm("Sure."), echoLlm("Of course.")], "Hallo!", {
-    agent: { listen: { model: "flux-general-multi", language_hints: ["de"], keyterms: [], smart_format: true } },
-  });
+const multiListen = {
+  listen: { model: "flux-general-multi", language_hints: ["de"], keyterms: [], smart_format: true },
+};
+
+test("Erkennungssprache: der Localizer-Befund zieht den Flux-Hinweis nach", async () => {
+  const s = makeSession([], "Hallo!", { agent: multiListen });
   await s.session.start();
 
-  s.stt.update(LONG_EN, 0.6, ["en"]);
-  s.stt.turn(LONG_EN);
-  await settle();
-  assert.deepEqual(s.stt.configured, [], "ein Turn schaltet noch nicht um");
+  s.session.setRecognitionLanguage("en");
+  assert.deepEqual(s.stt.configured, [["en"]]);
 
-  s.stt.update(LONG_EN, 0.6, ["en"]);
-  s.stt.turn(LONG_EN);
-  await settle();
-  assert.deepEqual(s.stt.configured, [["en"]], "der zweite bestätigt");
+  s.session.setRecognitionLanguage("en");
+  assert.deepEqual(s.stt.configured, [["en"]], "derselbe Wert schickt nicht erneut");
   s.session.close();
 });
 
-// Der Kern: Genau die kurzen Äußerungen werden falsch erkannt („Ja, ja" → „Yep. Yep.").
-// Dürften sie umschalten, verstärkte sich der Erkennungsfehler selbst.
-test("Sprachnachführung: kurze Fehlerkennungen schalten nichts um", async () => {
-  const s = makeSession([echoLlm("Ja."), echoLlm("Ja."), echoLlm("Ja.")], "Hallo!", {
-    agent: { listen: { model: "flux-general-multi", language_hints: ["de"], keyterms: [], smart_format: true } },
-  });
+test("Erkennungssprache: der bereits gesetzte Hinweis löst nichts aus", async () => {
+  const s = makeSession([], "Hallo!", { agent: multiListen });
   await s.session.start();
-
-  for (let i = 0; i < 3; i += 1) {
-    s.stt.update("Yep. Yep.", 0.6, ["en"]); // in Wahrheit „Ja, ja"
-    s.stt.turn("Yep. Yep.");
-    await settle();
-  }
-  assert.deepEqual(s.stt.configured, [], "der Hinweis bleibt auf Deutsch");
+  s.session.setRecognitionLanguage("de"); // entspricht dem Start-Hinweis
+  assert.deepEqual(s.stt.configured, []);
   s.session.close();
 });
 
-test("Sprachnachführung: einsprachiges Modell bekommt gar keine — dort gibt es keine Hinweise", async () => {
-  const s = makeSession([echoLlm("Sure.")], "Hallo!", {
+test("Erkennungssprache: einsprachiges Modell und unbekannte Sprachen bleiben unberührt", async () => {
+  const mono = makeSession([], "Hallo!", {
     agent: { listen: { model: "flux-general-en", language_hints: [], keyterms: [], smart_format: true } },
   });
+  await mono.session.start();
+  mono.session.setRecognitionLanguage("en");
+  assert.deepEqual(mono.stt.configured, [], "einsprachige Modelle kennen keine Hinweise");
+  mono.session.close();
+
+  const multi = makeSession([], "Hallo!", { agent: multiListen });
+  await multi.session.start();
+  multi.session.setRecognitionLanguage("pl"); // kennt flux-general-multi nicht
+  assert.deepEqual(multi.stt.configured, []);
+  multi.session.close();
+});
+
+// Der Grund für die Einengung aus 0.17.0: Stimmt die erkannte Sprache mit dem eigenen
+// Hinweis überein, ist sie dessen Echo — und darf im Localizer nichts überstimmen.
+test("Zweitmeinung: nur ein Widerspruch zum eigenen Hinweis wird weitergereicht", async () => {
+  const s = makeSession([echoLlm("Ja.")], "Hallo!", { agent: multiListen });
   await s.session.start();
-  s.stt.update(LONG_EN, 0.6, ["en"]);
-  s.stt.turn(LONG_EN);
-  s.stt.update(LONG_EN, 0.6, ["en"]);
-  s.stt.turn(LONG_EN);
+
+  s.stt.update("Ein hinreichend langer deutscher Satz.", 0.6, ["de"]); // = Hinweis
+  s.stt.turn("Ein hinreichend langer deutscher Satz.");
   await settle();
-  assert.deepEqual(s.stt.configured, []);
+  const echo = s.events.find(([e, a]) => e === "conversationText" && (a as { role: string }).role === "user");
+  assert.equal((echo?.[1] as { sttLanguage?: string }).sttLanguage, undefined, "Echo wird verschwiegen");
+  s.session.close();
+});
+
+test("Zweitmeinung: weicht die Erkennung vom Hinweis ab, geht sie mit", async () => {
+  const s = makeSession([echoLlm("Sure.")], "Hallo!", { agent: multiListen });
+  await s.session.start();
+
+  s.stt.update("I would like to practise English today.", 0.6, ["en"]); // ≠ Hinweis
+  s.stt.turn("I would like to practise English today.");
+  await settle();
+  const ev = s.events.find(([e, a]) => e === "conversationText" && (a as { role: string }).role === "user");
+  assert.equal((ev?.[1] as { sttLanguage?: string }).sttLanguage, "en");
   s.session.close();
 });

@@ -663,6 +663,8 @@ async function runAgentCall(
   // Transkript-Schreibvorgänge laufen offen (fire-and-forget); die Sprechuhr-Korrektur
   // muss sich hinter den Eintrag ketten, den sie korrigiert.
   let transcriptWrites: Promise<unknown> = Promise.resolve();
+  /** Zuletzt an die Erkennung gemeldete Gesprächssprache (0.17.0). */
+  let recognitionLang: string | undefined;
   let lastAudioAt = 0; // Zeitpunkt des zuletzt empfangenen Agent-Audios (für Drain-Erkennung)
   // Geschätztes Ende der Agent-Sprache aus der Textlänge. Nötig, weil nur der AudioSocket einen
   // Playout-Puffer (pendingMs) führt — die RTP-Bridge feuert alles sofort raus (media.ts:sendAudio),
@@ -1046,6 +1048,14 @@ async function runAgentCall(
         .then(() => store.appendTranscript(requestId, { t: elapsed(), speaker, text: ev.content }));
       // Sprach-/Register-Erkennung füttern (beide Rollen; Caller treibt Trigger, Agent = Register-Kontext).
       localizer.observeTurn(speaker, ev.content, ev.sttLanguage);
+      // Autoritative Sprachwahl an die Erkennung zurückgeben (0.17.0). Der Localizer
+      // urteilt per LLM über das Gesprächsfenster; die Erkennung darf das nicht selbst
+      // entscheiden, weil ihr eigener Hinweis ihre Ausgabe verbiegt.
+      const spoken = localizer.getLanguage();
+      if (spoken && spoken !== recognitionLang) {
+        recognitionLang = spoken;
+        session?.setRecognitionLanguage?.(spoken);
+      }
       if (speaker === "caller") {
         idleWatcher.noteCallerActivity(Date.now());
       } else {
