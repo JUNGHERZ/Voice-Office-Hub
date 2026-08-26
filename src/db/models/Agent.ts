@@ -19,7 +19,6 @@ export type ThinkSource = "requesty" | "deepgram";
 const ListenSchema = new Schema(
   {
     model: { type: String, default: "nova-3" },
-    language_hints: { type: [String], default: ["de", "en"] },
     keyterms: { type: [String], default: [] },
     smart_format: { type: Boolean, default: true },
     eot_threshold: { type: Number },

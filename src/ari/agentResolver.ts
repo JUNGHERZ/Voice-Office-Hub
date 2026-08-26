@@ -6,6 +6,7 @@
  * Beide Wege liefern einen normalisierten `ResolvedAgent`, mit dem der restliche Code arbeitet.
  */
 import { config } from "../config.js";
+import { languageHintsFor } from "../native/fluxLanguages.js";
 import { Agent } from "../db/models/Agent.js";
 import type { ResolvedAgent, ThinkSource, VoiceProvider } from "../types.js";
 import { logger } from "../util/logger.js";
@@ -71,7 +72,7 @@ export function defaultAgent(): ResolvedAgent {
     prompt: d.prompt,
     listen: {
       model: d.listenModel,
-      language_hints: ["de", "en"],
+      language_hints: languageHintsFor(d.contentLanguage),
       keyterms: [],
       smart_format: true,
     },
@@ -187,7 +188,8 @@ export function fromDoc(doc: Record<string, any>): ResolvedAgent {
     prompt: doc.prompt ?? config.defaultAgent.prompt,
     listen: {
       model: doc.listen?.model ?? config.defaultAgent.listenModel,
-      language_hints: doc.listen?.language_hints ?? ["de", "en"],
+      // Abgeleitet aus der Sprache der Agent-Texte, nicht gespeichert — siehe fluxLanguages.ts.
+      language_hints: languageHintsFor(doc.contentLanguage || config.defaultAgent.contentLanguage),
       keyterms: doc.listen?.keyterms ?? [],
       smart_format: doc.listen?.smart_format ?? true,
       eot_threshold: doc.listen?.eot_threshold,

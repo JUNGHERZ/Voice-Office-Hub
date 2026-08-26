@@ -4,6 +4,23 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.14.0] – 2026-08-26
+
+### Fixed
+
+**Kurze deutsche Äußerungen kamen als englische Phantasiesätze zurück — verursacht durch unsere eigene Vorgabe.** Jeder Agent trug `language_hints: ["de", "en"]`, und zwar ohne Feld im Admin-Panel: von niemandem gewählt, nur geerbt. Damit war Flux ausdrücklich gesagt, dass es auch Englisch erwarten soll.
+
+Gemessen am 26.08.2026 (Anruf `1787759851.0`): **6 von 14 Anrufer-Beiträgen kamen als reines Englisch zurück, einer gemischt** — ausschliesslich bei kurzen Äußerungen. Lange deutsche Sätze wurden sauber erkannt, kurze wurden zu `"Yep. Yep."`, `"Nine nine is my discounts."`, `"because..."`. Der Schaden war nicht kosmetisch: Auf `"You all good customer?"` antwortete der Agent mit *„Ja, mir geht's gut"* — die Fehlerkennung hat den Gesprächsverlauf umgelenkt. Nebenbei verfälschte sie die Gesprächsführung des Duplex-Pfads, weil `"Yep. Yep."` ein Satzendzeichen trägt und damit als vollständiger Beitrag gilt.
+
+Der Hinweis wird jetzt **abgeleitet statt gespeichert**: aus `contentLanguage`, also der Sprache von Begrüßung und System-Prompt. Genau ein Hinweis — oder gar keiner, wenn das Modell die Sprache nicht kennt, denn ein falscher Hinweis ist schlechter als keiner. Deepgram beschreibt das Verhalten passend dazu: Ein einzelner Hinweis „biases strongly toward one language" und erreicht die Genauigkeit eines einsprachigen Modells, mehrere sind für Mehrsprach-Hotlines gedacht. Ein einsprachiges deutsches Flux-Modell gibt es nicht.
+
+Wichtig für Bestandsanlagen: `language: "multi"` am Agenten ändert daran nichts. Es beschreibt, in welchen Sprachen der Agent **antwortet** — welche Sprache hereinkommt, sagt die Textsprache. Wer auf Deutsch begrüßt, bekommt überwiegend deutschsprachige Anrufer.
+
+### Removed
+
+- `listen.language_hints` als Feld im Agenten-Schema. Es hatte kein Bedienelement, keine Dokumentation und keinen Nutzer — nur eine falsche Vorgabe, die still weiterwirkte. Gespeicherte Altwerte werden ignoriert; ein Regressionstest hält das fest, damit der Fehler nicht über die Bestandsdaten zurückkehrt.
+
+
 ## [0.13.2] – 2026-08-26
 
 ### Fixed

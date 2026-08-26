@@ -19,58 +19,14 @@ Gesammelte Ideen/Erkenntnisse aus den Testgesprächen. Reihenfolge = grobe Prior
 ### 2b. Kontextuelle Stille-Nachfrage (LLM statt fester Phrasen)
 **Nutzer-Wunsch (2026-07-26): „definitiv in einer späteren Version".** Ergänzung zum in 0.6.27 gebauten Stille-Reengagement (`agent.idlePrompts`, fester Phrasen-Pool je Eskalationsstufe).
 
-- **Idee:** Statt einer hinterlegten Zeile bekommt das Modell bei Stille einen System-Nudge („Der Anrufer schweigt seit 8 s — frag kurz nach") und formuliert die Nachfrage selbst, bezogen auf die zuletzt gestellte Frage: „Ich hatte gefragt, ob Dienstag passt — passt der?" Deutlich natürlicher als eine generische Ansage.
-- **Kosten der Natürlichkeit:** LLM-Latenz genau im ungünstigsten Moment (die Stille wird erst noch länger), Kosten pro Vorfall, nicht vorab übersetzbar (der Pool geht heute gratis durch den Lokalisierungs-One-Shot mit) und unvorhersagbar — ein Betreiber kann nicht mehr garantieren, was der Agent sagt.
-- **Umsetzung:** additiv als `idlePrompts.mode: "phrases" | "llm"` neben dem Pool; der `IdleWatcher` ([src/ari/idleWatcher.ts](../src/ari/idleWatcher.ts)) bliebe unverändert, nur der `speak`-Hook im callHandler würde im LLM-Modus statt `injectMessage` einen Turn anstoßen. Sinnvoll erst mit Messwerten aus `metrics.idlePrompts` (wie oft greift das überhaupt?).
+- **Teil 1 — umgesetzt in 0.14.0.** Die Ursache war die eigene Vorgabe: Jeder Agent trug `language_hints: ["de", "en"]`, ohne Feld im Panel. Der Hinweis wird jetzt aus `contentLanguage` abgeleitet — genau einer, oder gar keiner. Ein einsprachiges deutsches Flux-Modell existiert nicht; `language_hint` auf `flux-general-multi` ist der einzige Hebel, erreicht laut Deepgram aber „accuracy comparable to a dedicated monolingual model".
 
-### 2c. Nicht-übersetzen-Liste (Eigennamen, Produktbegriffe)
-Ergänzung zur Vorübersetzung aus 0.7.0 ([translationStore.ts](../src/llm/translationStore.ts)).
+**Teil 2 — offen: zur Laufzeit nachziehen.** Deepgram beschreibt das als „Detect-then-Lock": Der Hinweis lässt sich **mitten im Strom** per `Configure`-Nachricht ändern, ohne die Verbindung neu aufzubauen. Damit fällt der Haupteinwand gegen die dynamische Variante weg (kein taubes Fenster). Nützlich für Agenten, die wirklich mehrsprachig bedienen: Start beim abgeleiteten Hinweis, und wenn der Anrufer nachweislich eine andere Sprache spricht, umschalten. Die Erkennung dafür existiert (`detectContentLanguage()` in `src/llm/languageScorer.ts`, gefüttert über `localizer.observeTurn()`).
 
-- **Problem:** „Rufen Sie unsere Apfel-Hotline an" — Produkt-, Firmen- und Eigennamen sollen in jeder Zielsprache stehen bleiben. Der Übersetzungs-Prompt weist das heute allgemein an („Eigennamen bleiben unverändert"), kennt aber die konkreten Begriffe nicht.
-- **Idee:** Feld `doNotTranslate: string[]` am Agenten, das in jeden Übersetzungs-Prompt geht. Wirkt für **alle** Sprachen gleichzeitig — im Gegensatz zu einer Handkorrektur pro Sprache.
-- **Bewusst statt eines Editors:** Ein editierbares Übersetzungsfeld pro Sprache wurde 0.7.0 verworfen. Wer eine Übersetzung korrigiert, korrigiert meist ein Symptom (die Ursache liegt im Original oder im Prompt), und wer im Admin sitzt, spricht selten alle Zielsprachen. Dazu käme ein dauerhafter Sonderfall im Lebenszyklus (handkorrigierte Einträge vor der Regeneration schützen), der bei jeder Änderung mitgedacht werden müsste.
-- **Aufwand:** klein — ein Agent-Feld, eine Prompt-Zeile, ein Formularfeld.
-
-### 2d. Sprachspezifische Stimme
-Der Tauschpunkt existiert seit 0.7.0 bereits: Der Sprach-Prior greift **vor** dem Session-Aufbau, im callHandler wird dort schon `agent.greeting` ersetzt.
-
-- **Idee:** Im selben Schritt `speak.voice`/`speak.model` je Zielsprache wählen. Weil die Wahl vor der ersten Silbe fällt, ist der Wechsel unhörbar — anders als eine Umschaltung mitten im Gespräch, die irritieren würde.
-- **Warum es fehlt:** Eine einsprachige Stimme (z. B. `aura-2-aurelia-de`) spricht korrektes Englisch mit deutschem Akzent. Solange das so konfiguriert ist, klingt eine fremdsprachige Begrüßung schlechter, als sie formuliert ist.
-- **Aufwand:** klein (Feld `speak.byLanguage`), sobald geklärt ist, ob pro Sprache eine Voice-ID gepflegt oder aus einer Matrix abgeleitet wird.
-
-### 2e. Ambience-Ducking während der Agentensprache
-**Befund aus der Anrufanalyse vom 18.08.2026.** `AmbienceMixer.mix()` addiert den Loop mit konstantem Gain auf jedes Frame — auch auf die Sprachframes. Bei `volume: 0.25` liegt das Bett bei **−38,9 dBFS RMS**, praktisch auf dem Pegel des Median-Sprachsignals; der Boden in Sprechpausen bei **−48,4 dBFS**. Zum Vergleich: das Komfortrauschen ohne Ambience liegt bei −73 dBFS, also 25 dB darunter.
-
-- **Symptom:** Der Anrufer beschreibt „Rauschen und Klacken" und hält es für einen Fehler der TTS-Strecke. Gemessen ist es die Ambience selbst — das Raumbett plus die Tipp-Schübe des `office`-Presets (einer alle 4,0 s, je 3–4 Anschläge im Abstand von 180 ms, exakt wie entworfen). Auf einer Freisprecheinrichtung hebt die automatische Verstärkungsregelung das Bett in Sprechpausen zusätzlich an.
-- **Warum Ducking und nicht einfach leiser:** Ein niedrigerer `volume` löst beides zugleich — aber die Ambience soll in Pausen ja hörbar sein, sonst trägt sie nichts bei. Genau dafür ist Ducking da: unter der Sprache absenken (typisch −12 bis −18 dB, Attack ~20 ms, Release ~300 ms), in Pausen auf vollen Pegel. Der eingestellte `volume` bliebe dann der Pausenpegel und wäre bei 0.25 unproblematisch.
-- **Ansatz:** `MediaSession.tick()` weiß bereits, ob gerade ein TTS-Frame läuft (`frame` vs. `null`) — das ist das Steuersignal, ohne neue Verkabelung. Die Hüllkurve gehört in den `AmbienceMixer` (Zustand über Frames hinweg, wie der Loop-Offset), damit `tick()` schlank bleibt. Attack/Release müssen über Frame-Grenzen laufen, sonst klickt die Absenkung selbst.
-- **Aufwand:** klein bis mittel — eine Hüllkurve in `AmbienceMixer`, ein Parameter in `agent.ambience` (z. B. `duckDb`, Default an), Tests analog `test/ambience.test.ts`.
-- **Sofortmaßnahme bis dahin:** `volume` auf 0.10–0.12, oder Preset `room` (gleiches Bett ohne Tippen).
-
-## STT / Modelle
-
-### 3. Flux als listen-Modell evaluieren (Turn-Detection)
-**Frage des Nutzers:** Lohnt sich Flux jetzt schon?
-- **Klarstellung:** Wir nutzen für STT aktuell **nova-3** (nicht „Aura 3"). Aura‑2 ist die TTS‑Stimme.
-- **Flux:** Deepgrams neues STT-Modell speziell für Voice Agents, mit **modell-integrierter End-of-Turn-Erkennung** (`StartOfTurn`, `EagerEndOfTurn`, `TurnResumed`, `EndOfTurn`), „Nova‑3-Level-Genauigkeit", geringere Turn-Latenz/weniger Talk-over. Modelle: `flux-general-en`, `flux-general-multi` (mehrsprachig). Parameter: `eot_threshold`, `eager_eot_threshold`, `eot_timeout_ms` — sind in unserem Code/Resolver bereits vorgesehen.
-- **Bewertung:** Verbessert vor allem das Turn-Taking-Gefühl (Stille→Antwort, Barge-in). Integration ist bei uns gering-invasiv (nur listen-Modell + eot-Parameter; der `language_hints`-Zweig ist schon Flux-spezifisch). **Offen:** Reifegrad/Qualität für **Deutsch** über `flux-general-multi` (in der Doc nicht explizit bestätigt).
-- **Empfehlung:** **Erst die funktionalen Stufen (Persistenz, Tools/Transfer, Summary) finalisieren**, dann Flux als gezielten A/B-Test gegen nova-3 — sofern sich Turn-Taking als Schwachpunkt zeigt. Aktuell antwortet der Agent zuverlässig, also kein Blocker. (Eigene `.env`-Schalter `LISTEN_MODEL`
-  + eot-Werte machen den A/B-Test billig.)
-- **Status 2026-07-20 (0.6.0): weitgehend beantwortet.** Flux ist pro Agent über die Admin-UI schaltbar (STT-Modell-Select + eot-Felder); Settings-Format an die aktuelle v2-Spec angepasst (Fix `eed7cac` — Flux verlangt `version: "v2"`, lehnt `language`/`smart_format` ab). **Deutsch über `flux-general-multi` funktioniert** — vom Nutzer im Live-Test bestätigt (Agent 121), inkl. sauberer Mehrsprachigkeit. Gemessene Antwortlatenz lokal: Flux ≈ 2,6 s vs. nova-3 ≈ 3,5 s ab Sprechende. **Offen nur noch:** Qualitäts-/Langzeitvergleich am echten Trunk (A/B pro DDI). Achtung fürs Testen: loopendes Einspiel-Audio cancelt Flux-Antworten (Barge-in) — Test-Audio mit einer Äußerung + Stille verwenden.
-
-### 3a. Erkannte Gesprächssprache an die STT zurückgeben
-
-**Beobachtet am 26.08.2026 (Anruf `1787759851.0`, `flux-general-multi` mit `language_hints: ["de"]`):** 6 von 14 Anrufer-Beiträgen kamen als reines Englisch zurück, ein weiterer gemischt — und ausschliesslich bei **kurzen** Äusserungen. Lange deutsche Sätze wurden sauber erkannt, kurze wurden zu `"Yep. Yep."`, `"Nine nine is my discounts."`, `"You all good customer?"`, `"because..."`.
-
-Der Schaden ist nicht kosmetisch. Auf `"You all good customer?"` antwortete der Agent mit *„Ja, mir geht's gut"* — die Fehlerkennung hat den Gesprächsverlauf umgelenkt. Sie verfälscht ausserdem die Gesprächsführung des Duplex-Pfads: `"Yep. Yep."` trägt ein Satzendzeichen und gilt damit als vollständiger Beitrag, obwohl der Anrufer „Ja, ja" gesagt hat.
-
-**Idee:** Sobald im Gespräch feststeht, dass Deutsch gesprochen wird, die Spracherkennung darauf festlegen, statt weiter mehrsprachig zu raten. Die Erkennung dafür existiert bereits: `detectContentLanguage()` in `src/llm/languageScorer.ts`, gefüttert über `localizer.observeTurn()` aus dem `conversationText`-Ereignis (`callHandler.ts`). Es fehlt nur der Rückweg zur STT.
-
-**Vor der Umsetzung zu klären:**
-- Gibt es ein einsprachiges Flux-Modell für Deutsch (analog `flux-general-en`)? Falls nein: Reicht es, `language_hints` zur Laufzeit zu verschärfen?
-- Der Modellwechsel bedeutet einen Neuaufbau der Flux-Verbindung. Wie lange ist der Anrufer dabei taub, und lässt sich das in eine Agentensprechphase legen?
-- Ab wann gilt die Sprache als sicher? Zwei lange Turns dürften reichen; genau die kurzen, unsicheren Beiträge sollen ja gerade nicht mitentscheiden.
-- Rückfallweg für echte Sprachwechsel mitten im Gespräch — die Anlage kann heute bewusst umschalten (Laufzeit-Übersetzung der Ansagen), und das darf eine Festlegung nicht zunichtemachen.
+**Für Teil 2 zu klären:**
+- Genaues Wire-Format der `Configure`-Nachricht (nicht geraten übernehmen — einmal gegen die echte API prüfen).
+- Ab wann gilt die Sprache als sicher? Zwei lange Turns dürften reichen; genau die kurzen, unsicheren Beiträge sollen nicht mitentscheiden.
+- Zusammenspiel mit der Laufzeit-Übersetzung der Ansagen: Ein bewusster Sprachwechsel im Gespräch darf nicht gegen eine Festlegung arbeiten.
 
 **Nutzen:** Vermutlich grösser als jede weitere Feinjustierung am Duplex-Pfad. Eine falsch erkannte Äusserung kostet einen ganzen Gesprächszug; ein zu früh beantworteter Satzfetzen kostet eine Wiederholung.
 
