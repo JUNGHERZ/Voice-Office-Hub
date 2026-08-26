@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.15.1] – 2026-08-26
+
+### Changed
+
+Der Messschalter `NATIVE_LOG_TURN_UPDATES` protokolliert zusätzlich die von Flux **erkannte** Sprache (`langs`). Sie trägt die Sprachnachführung aus 0.15.0, war bis hierher aber unbelegt: Im Protokollversuch gegen die echte API stand dort `[]`, weil nur Stille gesendet wurde. Ohne diese Spalte liesse sich am echten Anruf nicht unterscheiden, ob die Nachführung korrekt schweigt oder ob das Feld schlicht leer bleibt.
+
+
 ## [0.15.0] – 2026-08-26
 
 ### Added

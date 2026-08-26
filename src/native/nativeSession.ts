@@ -385,6 +385,10 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
           conf: Math.round(ev.confidence * 1000) / 1000,
           chars: ev.transcript.length,
           speaking: this.responding,
+          // Von Flux ERKANNTE Sprache dieses Turns. Trägt die Sprachnachführung
+          // (0.15.0) — und ist bislang unbelegt: Im Protokollversuch gegen die echte
+          // API stand hier [], weil nur Stille gesendet wurde.
+          langs: ev.languages?.join(",") ?? "",
           tail: ev.transcript.slice(-48),
         });
       }
