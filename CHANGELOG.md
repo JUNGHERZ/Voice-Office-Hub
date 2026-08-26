@@ -4,6 +4,30 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.15.0] – 2026-08-26
+
+### Added
+
+**Sprachnachführung: der Sprach-Hinweis folgt dem Anrufer.** 0.14.0 leitet den Hinweis aus der Textsprache des Agenten ab — für einsprachige Agenten richtig, für einen bewusst mehrsprachigen aber zu starr. Der Demo-Agent „Englischlehrerin" begrüßt auf Deutsch und wechselt dann absichtlich ins Englische; ein fester Hinweis machte die Erkennung genau dann schlechter, wenn die Übung anfängt.
+
+Meldet Flux über **zwei aufeinanderfolgende lange Turns** eine andere Sprache, wird der Hinweis nachgezogen. Deepgram nennt das „Detect-then-Lock".
+
+**Gegen die echte API verifiziert** statt aus der Doku übernommen (26.08.2026): `{"type":"Configure","language_hints":["en"]}` wird mit `ConfigureSuccess` quittiert, und das nächste `TurnInfo` trägt bereits `languages_hinted: ["en"]` — **kein Neuaufbau, kein taubes Fenster**. Dabei kam auch heraus, dass `TurnInfo` ein `languages`-Feld mitführt: **Flux liefert die erkannte Sprache selbst.** Eine eigene Heuristik wäre schlechter und überflüssig.
+
+Zwei Regeln stammen direkt aus dem Fehler, den die Funktion beheben soll:
+
+- **Kurze Turns zählen nicht** (< 25 Zeichen). Genau dort verhaspelt sich die Erkennung — aus „Ja, ja" wurde „Yep. Yep.". Dürfte so ein Turn umschalten, verstärkte sich der Erkennungsfehler selbst.
+- **Einmal reicht nicht.** Erst zwei aufeinanderfolgende Turns derselben fremden Sprache schalten um; ein zwischengeschobener Turn in der alten Sprache bricht die Serie.
+
+### Fixed
+
+- **Ein Protokollfehler von Flux blieb unsichtbar.** Der Server beantwortet eine unverständliche Nachricht mit `Error` und **trennt die Verbindung** (verifiziert: fehlendes `type` → `UNPARSABLE_CLIENT_MESSAGE`, danach Close 1005). Bisher lief das durch den `default`-Zweig; jetzt steht es auf `error`-Pegel im Log, sonst sucht man den Abbruch an der falschen Stelle. Die `Configure`-Nutzlast wird deshalb im Client gebaut und nie durchgereicht — ein Anruf darf nicht an einer Feinjustierung sterben.
+
+### Changed
+
+- `NATIVE_STT_LANGUAGE_LOCK` (Default **an**) als Not-Aus, falls die Umschaltung im Feld flattert.
+
+
 ## [0.14.0] – 2026-08-26
 
 ### Fixed

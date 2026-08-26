@@ -42,9 +42,14 @@ class FakeStt extends EventEmitter {
   resumed(): void {
     this.emit("turnResumed");
   }
-  /** Flux-Zwischenstand: liefert der Gesprächsführung ihre Konfidenz. */
-  update(transcript: string, confidence: number): void {
-    this.emit("update", { transcript, confidence });
+  /** Flux-Zwischenstand: liefert Konfidenz und erkannte Sprache. */
+  update(transcript: string, confidence: number, languages?: string[]): void {
+    this.emit("update", { transcript, confidence, ...(languages ? { languages } : {}) });
+  }
+  /** Zur Laufzeit gesetzte Sprach-Hinweise (Sprachnachführung). */
+  configured: string[][] = [];
+  configure(languageHints: readonly string[]): void {
+    this.configured.push([...languageHints]);
   }
 }
 
@@ -1401,3 +1406,58 @@ test("Eager-Treffer bleibt erhalten, wenn die Gesprächsführung durchwinkt", ()
     assert.deepEqual(users, ["Wie mache ich das Update?"]);
     s.session.close();
   }));
+
+// ── Sprachnachführung (0.15.0) ──────────────────────────────────────────────
+// Der Demo-Agent „Englischlehrerin" begrüßt auf Deutsch und wechselt dann absichtlich
+// ins Englische. Mit einem festen Hinweis würde die Erkennung genau dann schlechter,
+// wenn die Übung anfängt.
+const LONG_EN = "I would like to practise a little bit of English with you today.";
+
+test("Sprachnachführung: zwei englische Turns ziehen den Flux-Hinweis nach", async () => {
+  const s = makeSession([echoLlm("Sure."), echoLlm("Of course.")], "Hallo!", {
+    agent: { listen: { model: "flux-general-multi", language_hints: ["de"], keyterms: [], smart_format: true } },
+  });
+  await s.session.start();
+
+  s.stt.update(LONG_EN, 0.6, ["en"]);
+  s.stt.turn(LONG_EN);
+  await settle();
+  assert.deepEqual(s.stt.configured, [], "ein Turn schaltet noch nicht um");
+
+  s.stt.update(LONG_EN, 0.6, ["en"]);
+  s.stt.turn(LONG_EN);
+  await settle();
+  assert.deepEqual(s.stt.configured, [["en"]], "der zweite bestätigt");
+  s.session.close();
+});
+
+// Der Kern: Genau die kurzen Äußerungen werden falsch erkannt („Ja, ja" → „Yep. Yep.").
+// Dürften sie umschalten, verstärkte sich der Erkennungsfehler selbst.
+test("Sprachnachführung: kurze Fehlerkennungen schalten nichts um", async () => {
+  const s = makeSession([echoLlm("Ja."), echoLlm("Ja."), echoLlm("Ja.")], "Hallo!", {
+    agent: { listen: { model: "flux-general-multi", language_hints: ["de"], keyterms: [], smart_format: true } },
+  });
+  await s.session.start();
+
+  for (let i = 0; i < 3; i += 1) {
+    s.stt.update("Yep. Yep.", 0.6, ["en"]); // in Wahrheit „Ja, ja"
+    s.stt.turn("Yep. Yep.");
+    await settle();
+  }
+  assert.deepEqual(s.stt.configured, [], "der Hinweis bleibt auf Deutsch");
+  s.session.close();
+});
+
+test("Sprachnachführung: einsprachiges Modell bekommt gar keine — dort gibt es keine Hinweise", async () => {
+  const s = makeSession([echoLlm("Sure.")], "Hallo!", {
+    agent: { listen: { model: "flux-general-en", language_hints: [], keyterms: [], smart_format: true } },
+  });
+  await s.session.start();
+  s.stt.update(LONG_EN, 0.6, ["en"]);
+  s.stt.turn(LONG_EN);
+  s.stt.update(LONG_EN, 0.6, ["en"]);
+  s.stt.turn(LONG_EN);
+  await settle();
+  assert.deepEqual(s.stt.configured, []);
+  s.session.close();
+});

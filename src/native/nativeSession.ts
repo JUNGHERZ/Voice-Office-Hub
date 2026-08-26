@@ -45,9 +45,10 @@ import {
   type OpenAiTool,
 } from "./llmStream.js";
 import { createSentenceChunker } from "./sentences.js";
+import { LanguageLock } from "./languageLock.js";
 import { SpeechClock } from "./speechClock.js";
 import { createBreakNormalizer, sanitizeForSpeech } from "./speechText.js";
-import { FluxSttStream, type SttStreamOptions } from "./sttStream.js";
+import { FluxSttStream, type SttStreamOptions, type TurnUpdate } from "./sttStream.js";
 import { buildNativeTts } from "./ttsFactory.js";
 import type { SttStreamLike, TtsStreamLike } from "./types.js";
 
@@ -166,6 +167,11 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   private heldText?: string;
   private cancelHoldTimer?: () => void;
 
+  // Sprachnachführung (0.15.0) — nur beim mehrsprachigen Flux-Modell sinnvoll.
+  private readonly languageLock?: LanguageLock;
+  /** Von Flux erkannte Sprachen des laufenden Turns (aus den Update-Ereignissen). */
+  private lastLanguages?: string[];
+
   // Timer-Filler bei Tool-Wartezeiten (0.6.26).
   private fillerIndex = 0;
   private toolWaitSpoken = false;
@@ -215,6 +221,11 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     // speak.speed skaliert die geschätzte Sprechrate; gemessen wird sie ohnehin
     // nach dem ersten ungestörten Turn (meist schon am Greeting).
     this.clock = new SpeechClock(agent.speak.speed ?? 1);
+    // Hinweise gelten nur für flux-general-multi; bei einsprachigen Modellen gibt es
+    // nichts nachzuführen (siehe buildSttOptions/fluxLanguages.ts).
+    if (config.native.sttLanguageLock && agent.listen.model.includes("multi")) {
+      this.languageLock = new LanguageLock(agent.listen.language_hints);
+    }
 
     // Konstruktion bleibt inert: die Clients verbinden erst in start().
     this.stt = this.deps.createStt(this.buildSttOptions(), callId);
@@ -362,11 +373,12 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
      * Gesprächssteuerung. `tail` statt des ganzen Transkripts, weil `transcript`
      * kumulativ ist und sonst jede Zeile den kompletten Turn wiederholte.
      */
-    this.stt.on("update", (ev: { transcript: string; confidence: number; turnIndex?: number }) => {
+    this.stt.on("update", (ev: TurnUpdate) => {
       if (this.closed) return;
       // Die Konfidenz des LETZTEN Update mit Text ist der Wert, auf dem die
       // Gesprächsführung entscheidet — beim EndOfTurn selbst liefert Flux keinen.
       if (ev.transcript) this.lastConfidence = ev.confidence;
+      if (ev.languages?.length) this.lastLanguages = ev.languages;
       if (config.native.logTurnUpdates) {
         this.log.info("Flux-Update", {
           turn: ev.turnIndex,
@@ -394,6 +406,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     this.stt.on("turnEnded", (transcript: string) => {
       if (this.closed) return;
       const text = transcript.trim();
+      this.followCallerLanguage(text);
       const spec = this.speculation;
       this.speculation = undefined;
       // Fürs A/B-Log: Trug eine Spekulation diesen Turn (hit) oder wurde sie verworfen (miss)?
@@ -498,6 +511,21 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     completionTokens: 0,
     requests: 0,
   };
+
+  /**
+   * Spricht der Anrufer nachweislich eine andere Sprache als eingestellt, den
+   * Flux-Hinweis nachziehen. Bewusst NICHT an den ersten Turn gekoppelt: Kurze
+   * Äusserungen werden falsch erkannt, und genau die sollen nicht umschalten
+   * (siehe languageLock.ts).
+   */
+  private followCallerLanguage(text: string): void {
+    if (!this.languageLock) return;
+    const from = this.languageLock.active();
+    const next = this.languageLock.observe(text, this.lastLanguages);
+    if (!next) return;
+    this.log.info("Sprachnachführung", { von: from || "(keiner)", nach: next.join(",") });
+    this.stt.configure?.(next);
+  }
 
   // ── Gesprächsführung (0.13.0, nur `voiceProvider: "duplex"`) ────────────────
 

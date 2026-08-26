@@ -167,6 +167,12 @@ export interface Config {
      * bewährte Kaskade zurückzustellen, ohne Agenten zu bearbeiten.
      */
     duplexEnabled: boolean;
+    /**
+     * Sprachnachführung (0.15.0, Default an): Erkennt Flux über mehrere Turns hinweg
+     * eine andere Sprache als die eingestellte, wird der Hinweis mitten im Strom
+     * nachgezogen. Not-Aus für den Fall, dass die Umschaltung im Feld flattert.
+     */
+    sttLanguageLock: boolean;
   };
   /** WebRTC-Web-Widget (0.6.9): Browser-Softphone über Asterisk chan_pjsip/WS. */
   widget: {
@@ -423,6 +429,7 @@ export const config: Config = {
     fillerDelayMs: int("NATIVE_FILLER_DELAY_MS", 2000),
     logTurnUpdates: bool("NATIVE_LOG_TURN_UPDATES", false),
     duplexEnabled: bool("NATIVE_DUPLEX_ENABLED", true),
+    sttLanguageLock: bool("NATIVE_STT_LANGUAGE_LOCK", true),
   },
   widget: {
     enabled: bool("WEBRTC_ENABLED", false),

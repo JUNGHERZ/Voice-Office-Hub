@@ -13,6 +13,17 @@ export interface FluxTurnInfo {
   transcript?: string;
   turn_index?: number;
   end_of_turn_confidence?: number;
+  /** Von Flux ERKANNTE Sprachen dieses Turns — die Grundlage der Sprachnachführung. */
+  languages?: string[];
+  /** Aktuell wirksame Hinweise; nach einem Configure sofort der neue Wert. */
+  languages_hinted?: string[];
+}
+
+/** Antwort auf eine `Configure`-Nachricht; spiegelt die wirksame Konfiguration zurück. */
+export interface FluxConfigureSuccess {
+  type: "ConfigureSuccess";
+  language_hints?: string[];
+  keyterms?: string[];
 }
 
 export interface FluxConnected {
@@ -20,7 +31,11 @@ export interface FluxConnected {
   request_id?: string;
 }
 
-export type FluxServerMessage = FluxTurnInfo | FluxConnected | { type: string };
+export type FluxServerMessage =
+  | FluxTurnInfo
+  | FluxConnected
+  | FluxConfigureSuccess
+  | { type: string };
 
 // ── Aura (Streaming-TTS) ─────────────────────────────────────────────────────
 
@@ -144,6 +159,8 @@ export interface LlmStreamResult {
 export interface SttStreamLike {
   start(): Promise<void>;
   sendAudio(chunk: Buffer): void;
+  /** Sprach-Hinweise zur Laufzeit ändern (0.15.0); optional, damit Fakes zuweisbar bleiben. */
+  configure?(languageHints: readonly string[]): void;
   close(): void;
   on(event: string, listener: (...args: never[]) => void): unknown;
 }

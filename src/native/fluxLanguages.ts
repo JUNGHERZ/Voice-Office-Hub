@@ -36,6 +36,11 @@ const FLUX_MULTI_LANGUAGES = new Set([
  * richtige Rückfall für Sprachen, die das Modell nicht kennt, und ausdrücklich
  * besser als ein Hinweis auf eine andere Sprache.
  */
+/** Kennt `flux-general-multi` diesen Sprachcode? (Basissprache, ohne Regionalteil.) */
+export function isFluxLanguage(code: string): boolean {
+  return FLUX_MULTI_LANGUAGES.has(code.trim().toLowerCase().split(/[-_]/)[0] ?? "");
+}
+
 export function languageHintsFor(contentLanguage: string | undefined): string[] {
   const lang = (contentLanguage ?? "").trim().toLowerCase().split(/[-_]/)[0];
   if (!lang || lang === "multi") return [];

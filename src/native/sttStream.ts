@@ -39,6 +39,8 @@ export interface TurnUpdate {
   /** Flux-Konfidenz, dass der Turn zu Ende ist (0–1). */
   confidence: number;
   turnIndex?: number;
+  /** Von Flux erkannte Sprachen dieses Turns (0.15.0). */
+  languages?: string[];
 }
 
 export interface SttStreamEvents {
@@ -54,6 +56,8 @@ export interface SttStreamEvents {
   turnEnded: (transcript: string) => void;
   eagerTurnEnded: (transcript: string) => void;
   turnResumed: () => void;
+  /** Ein `Configure` wurde übernommen; Nutzlast sind die nun wirksamen Hinweise. */
+  configured: (languageHints: string[]) => void;
   error: (description: string) => void;
   close: (code: number) => void;
 }
@@ -143,6 +147,20 @@ export class FluxSttStream extends EventEmitter {
         this.log.debug("Flux verbunden");
         return;
       }
+      if (msg.type === "ConfigureSuccess") {
+        const hints = (msg as { language_hints?: string[] }).language_hints ?? [];
+        this.log.info("Flux-Sprachhinweis übernommen", { languageHints: hints });
+        this.emit("configured", hints);
+        return;
+      }
+      if (msg.type === "Error") {
+        // Flux schliesst die Verbindung nach einem Protokollfehler (verifiziert:
+        // fehlendes `type` → UNPARSABLE_CLIENT_MESSAGE, danach close 1005). Das
+        // gehört sichtbar ins Log, sonst sucht man den Abbruch an der falschen Stelle.
+        const e = msg as { code?: string; description?: string };
+        this.log.error("Flux-Protokollfehler", { code: e.code, description: e.description });
+        return;
+      }
       if (msg.type !== "TurnInfo") return;
       const info = msg as FluxTurnInfo;
       switch (info.event) {
@@ -154,6 +172,7 @@ export class FluxSttStream extends EventEmitter {
             transcript: info.transcript ?? "",
             confidence: info.end_of_turn_confidence ?? 0,
             ...(info.turn_index !== undefined ? { turnIndex: info.turn_index } : {}),
+            ...(info.languages?.length ? { languages: info.languages } : {}),
           });
           break;
         case "EndOfTurn":
@@ -178,6 +197,20 @@ export class FluxSttStream extends EventEmitter {
       if (this.ws === ws) this.ws = undefined;
       if (this.opened && !this.closed) this.emit("close", code);
     });
+  }
+
+  /**
+   * Sprach-Hinweise mitten im Strom ändern (0.15.0). Verifiziert gegen die echte API:
+   * Der Server quittiert mit `ConfigureSuccess`, und das nächste `TurnInfo` trägt
+   * bereits die neuen Hinweise — kein Neuaufbau, kein taubes Fenster.
+   *
+   * Die Nutzlast wird hier gebaut und nicht durchgereicht: Eine Nachricht ohne `type`
+   * beantwortet Flux mit `UNPARSABLE_CLIENT_MESSAGE` und TRENNT die Verbindung.
+   * Ein Anruf darf nicht an einer Feinjustierung sterben.
+   */
+  configure(languageHints: readonly string[]): void {
+    if (this.closed || this.ws?.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: "Configure", language_hints: [...languageHints] }));
   }
 
   sendAudio(chunk: Buffer): void {
