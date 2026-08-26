@@ -153,6 +153,13 @@ export interface Config {
     contextChars: number;
     /** Default-Verzögerung (ms) für den Timer-Filler, wenn agent.fillers.delayMs fehlt. */
     fillerDelayMs: number;
+    /**
+     * Flux-`Update`-Ereignisse mitprotokollieren (0.12.2, Default aus). Reiner
+     * Messschalter für die Auslegung einer Gesprächssteuerung: rund vier Zeilen je
+     * Sekunde und Anruf. Bewusst auf `info`, weil die Live-Instanz auf `info` läuft —
+     * den Pegel des ganzen Containers zu heben, flutet das Log mit mongod-Zeilen.
+     */
+    logTurnUpdates: boolean;
   };
   /** WebRTC-Web-Widget (0.6.9): Browser-Softphone über Asterisk chan_pjsip/WS. */
   widget: {
@@ -407,6 +414,7 @@ export const config: Config = {
       : {}),
     contextChars: int("NATIVE_CONTEXT_CHARS", 16000),
     fillerDelayMs: int("NATIVE_FILLER_DELAY_MS", 2000),
+    logTurnUpdates: bool("NATIVE_LOG_TURN_UPDATES", false),
   },
   widget: {
     enabled: bool("WEBRTC_ENABLED", false),

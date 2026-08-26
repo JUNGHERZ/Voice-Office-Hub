@@ -4,6 +4,19 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.12.2] – 2026-08-26
+
+### Added
+
+**Flux' `Update`-Ereignisse werden nicht mehr verworfen.** Deepgram Flux sendet standardmäßig alle rund 0,25 Sekunden ein `Update` mit dem **kumulativen** Transkript des laufenden Turns und `end_of_turn_confidence` (0–1). Der Client hat sie bis hierher kommentarlos weggeworfen („für uns ohne Belang"). Damit lag der einzige Kanal, über den sich erfahren lässt, was der Anrufer sagt, *während* er spricht, die ganze Zeit ungenutzt auf der Leitung — dieselbe Sorte Fund wie die Zeichenspur von ElevenLabs in 0.12.0.
+
+`FluxSttStream` meldet sie jetzt als `update`-Ereignis. Der native Pfad **wertet sie nicht aus**; er ist und bleibt streng abwechselnd.
+
+Neu ist ein Messschalter `NATIVE_LOG_TURN_UPDATES` (Default aus), der die Ereignisse mit Konfidenz, Zeichenzahl und den letzten 48 Zeichen protokolliert — bewusst auf `info`-Pegel, weil eine Live-Instanz für eine Messung sonst auf `debug` gehoben werden müsste und das Log dann mit mongod-Zeilen volläuft.
+
+**Wozu:** Auslegungsgrundlage für einen dritten Sprachpfad (`duplex`), in dem eine schnelle Gesprächsführung mehrmals pro Sekunde entscheidet — hören, abwarten, antworten, einwerfen — während eine Denkeinheit asynchron dazu läuft. Die Schwellwerte dieser Steuerung hängen daran, wie die Turn-Ende-Konfidenz über ein echtes deutsches Telefonat verläuft, und dazu gibt es bislang keine Daten. Gemessen wird deshalb im bestehenden Pfad, bevor der neue gebaut wird.
+
+
 ## [0.12.1] – 2026-08-26
 
 ### Fixed

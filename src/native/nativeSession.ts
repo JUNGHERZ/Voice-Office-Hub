@@ -337,6 +337,25 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   // ── STT-Verdrahtung ─────────────────────────────────────────────────────────
 
   private wireStt(): void {
+    /**
+     * Messschalter (0.12.2): Was sagt der Anrufer, während er spricht — und wie
+     * entwickelt sich Flux' Turn-Ende-Konfidenz dabei? Der native Pfad WERTET das
+     * nicht aus; die Zeilen sind die Auslegungsgrundlage für eine spätere
+     * Gesprächssteuerung. `tail` statt des ganzen Transkripts, weil `transcript`
+     * kumulativ ist und sonst jede Zeile den kompletten Turn wiederholte.
+     */
+    if (config.native.logTurnUpdates) {
+      this.stt.on("update", (ev: { transcript: string; confidence: number; turnIndex?: number }) => {
+        if (this.closed) return;
+        this.log.info("Flux-Update", {
+          turn: ev.turnIndex,
+          conf: Math.round(ev.confidence * 1000) / 1000,
+          chars: ev.transcript.length,
+          speaking: this.responding,
+          tail: ev.transcript.slice(-48),
+        });
+      });
+    }
     this.stt.on("speechStarted", () => {
       if (this.closed) return;
       // Abspielposition ZUERST festhalten: `userStartedSpeaking` läuft synchron in den

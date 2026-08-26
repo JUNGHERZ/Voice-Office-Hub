@@ -137,3 +137,56 @@ test("FluxSttStream: Server-Close, Reconnect-Fähigkeit und Connect-Fehler", asy
   const dead = new FluxSttStream(makeOpts({ url: "ws://127.0.0.1:18093" }), "call-5");
   await assert.rejects(dead.start(), /Flux-STT-Verbindung/);
 });
+
+// ── Flux Update (0.12.2) ────────────────────────────────────────────────────
+// Der einzige Kanal, über den wir erfahren, was der Anrufer sagt, WÄHREND er
+// spricht. Bis 0.12.1 wurde er verworfen. `transcript` ist kumulativ, nicht das
+// neue Stück — genau das macht ihn als Grundlage einer Gesprächssteuerung
+// brauchbar und ist die Eigenschaft, die hier festgehalten wird.
+test("FluxSttStream: Update wird mit kumulativem Transkript und Konfidenz gemeldet", async () => {
+  const srv = startServer();
+  const stt = new FluxSttStream(makeOpts(), "call-update");
+  const updates: Array<{ transcript: string; confidence: number; turnIndex?: number }> = [];
+  const other: string[] = [];
+  stt.on("update", (ev) => updates.push(ev));
+  stt.on("speechStarted", () => other.push("speechStarted"));
+  stt.on("turnEnded", () => other.push("turnEnded"));
+  await stt.start();
+
+  const send = (m: Record<string, unknown>) =>
+    srv.state.socket!.send(JSON.stringify({ type: "TurnInfo", ...m }));
+  send({ event: "StartOfTurn", transcript: "" });
+  send({ event: "Update", transcript: "ich", end_of_turn_confidence: 0.12, turn_index: 3 });
+  send({ event: "Update", transcript: "ich möchte gern", end_of_turn_confidence: 0.48, turn_index: 3 });
+  send({ event: "EndOfTurn", transcript: "ich möchte gern wissen", end_of_turn_confidence: 0.91 });
+  await waitFor(() => other.length === 2);
+
+  assert.deepEqual(updates, [
+    { transcript: "ich", confidence: 0.12, turnIndex: 3 },
+    { transcript: "ich möchte gern", confidence: 0.48, turnIndex: 3 },
+  ]);
+  assert.ok(
+    updates[1]!.transcript.startsWith(updates[0]!.transcript),
+    "kumulativ: jeder Stand enthält den vorigen",
+  );
+  assert.deepEqual(other, ["speechStarted", "turnEnded"], "Update ist ein eigener Kanal");
+
+  stt.close();
+  await srv.close();
+});
+
+test("FluxSttStream: Update ohne Konfidenzfeld meldet 0 statt undefined", async () => {
+  const srv = startServer();
+  const stt = new FluxSttStream(makeOpts(), "call-update-2");
+  const updates: Array<{ confidence: number; turnIndex?: number }> = [];
+  stt.on("update", (ev) => updates.push(ev));
+  await stt.start();
+
+  srv.state.socket!.send(JSON.stringify({ type: "TurnInfo", event: "Update", transcript: "hm" }));
+  await waitFor(() => updates.length === 1);
+  assert.equal(updates[0]!.confidence, 0);
+  assert.equal("turnIndex" in updates[0]!, false, "fehlender Index wird nicht erfunden");
+
+  stt.close();
+  await srv.close();
+});

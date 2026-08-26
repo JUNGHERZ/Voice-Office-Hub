@@ -26,9 +26,30 @@ export interface SttStreamOptions {
   eagerEotThreshold?: number;
 }
 
+/**
+ * Flux `Update` (0.12.2). Kommt laut Doku etwa alle 0,25 s transkribierten Audios,
+ * unabhängig davon, ob sich der Text geändert hat — der einzige Kanal, über den wir
+ * erfahren, was der Anrufer sagt, WÄHREND er es sagt.
+ *
+ * `transcript` ist KUMULATIV: der ganze bisherige Turn, nicht das neue Stück.
+ */
+export interface TurnUpdate {
+  /** Bisheriges Transkript des laufenden Turns (kumulativ). */
+  transcript: string;
+  /** Flux-Konfidenz, dass der Turn zu Ende ist (0–1). */
+  confidence: number;
+  turnIndex?: number;
+}
+
 export interface SttStreamEvents {
   /** Flux StartOfTurn — Anrufer beginnt zu sprechen (Barge-in-Signal). */
   speechStarted: () => void;
+  /**
+   * Flux Update — Zwischenstand des laufenden Turns (0.12.2). Grundlage für eine
+   * Gesprächssteuerung, die entscheidet, bevor der Turn zu Ende ist. Bis 0.12.1
+   * wurde das Ereignis verworfen.
+   */
+  update: (ev: TurnUpdate) => void;
   /** Flux EndOfTurn — finales Transkript des Turns. */
   turnEnded: (transcript: string) => void;
   eagerTurnEnded: (transcript: string) => void;
@@ -128,6 +149,13 @@ export class FluxSttStream extends EventEmitter {
         case "StartOfTurn":
           this.emit("speechStarted");
           break;
+        case "Update":
+          this.emit("update", {
+            transcript: info.transcript ?? "",
+            confidence: info.end_of_turn_confidence ?? 0,
+            ...(info.turn_index !== undefined ? { turnIndex: info.turn_index } : {}),
+          });
+          break;
         case "EndOfTurn":
           this.emit("turnEnded", info.transcript ?? "");
           break;
@@ -138,7 +166,7 @@ export class FluxSttStream extends EventEmitter {
           this.emit("turnResumed");
           break;
         default:
-          break; // Update u. a. — für uns ohne Belang
+          break; // unbekannte Ereignistypen tolerant ignorieren
       }
     });
     ws.on("error", (err) => {
