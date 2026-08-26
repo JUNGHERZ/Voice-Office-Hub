@@ -160,6 +160,13 @@ export interface Config {
      * den Pegel des ganzen Containers zu heben, flutet das Log mit mongod-Zeilen.
      */
     logTurnUpdates: boolean;
+    /**
+     * Not-Aus für den Duplex-Pfad (0.13.0). Default AN: Die eigentliche Freischaltung
+     * ist `voiceProvider: "duplex"` am einzelnen Agenten — diese Variable ist der
+     * Betriebsschalter, um im Störfall alle Duplex-Agenten auf einen Schlag auf die
+     * bewährte Kaskade zurückzustellen, ohne Agenten zu bearbeiten.
+     */
+    duplexEnabled: boolean;
   };
   /** WebRTC-Web-Widget (0.6.9): Browser-Softphone über Asterisk chan_pjsip/WS. */
   widget: {
@@ -415,6 +422,7 @@ export const config: Config = {
     contextChars: int("NATIVE_CONTEXT_CHARS", 16000),
     fillerDelayMs: int("NATIVE_FILLER_DELAY_MS", 2000),
     logTurnUpdates: bool("NATIVE_LOG_TURN_UPDATES", false),
+    duplexEnabled: bool("NATIVE_DUPLEX_ENABLED", true),
   },
   widget: {
     enabled: bool("WEBRTC_ENABLED", false),

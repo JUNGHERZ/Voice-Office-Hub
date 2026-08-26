@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import { test } from "node:test";
 
 import { config } from "../src/config.js";
+import { createTurnGate, type TurnGate } from "../src/duplex/controller.js";
 import { NativeSession } from "../src/native/nativeSession.js";
 import type { ChatStreamRequest } from "../src/native/llmStream.js";
 import type { LlmStreamResult, ChatMessage } from "../src/native/types.js";
@@ -40,6 +41,10 @@ class FakeStt extends EventEmitter {
   }
   resumed(): void {
     this.emit("turnResumed");
+  }
+  /** Flux-Zwischenstand: liefert der Gesprächsführung ihre Konfidenz. */
+  update(transcript: string, confidence: number): void {
+    this.emit("update", { transcript, confidence });
   }
 }
 
@@ -104,6 +109,8 @@ function makeSession(
     localizer?: { resolve(key: string, index?: number): string };
     /** Noch nicht abgespieltes Agent-Audio (ms) — steuert die Sprechuhr. */
     pendingPlayoutMs?: () => number;
+    /** Gesprächsführung (nur duplex-Agenten bekommen eine). */
+    turnGate?: TurnGate;
   } = {},
 ) {
   const stt = new FakeStt();
@@ -138,6 +145,8 @@ function makeSession(
     },
     opts.localizer,
     opts.pendingPlayoutMs,
+    true,
+    opts.turnGate,
   );
 
   const events: Array<[string, unknown?]> = [];
@@ -1258,5 +1267,94 @@ test("Sprechuhr: Abspielposition wird vor dem Media-Flush gelesen", async () => 
     ["Hallo!", "Erster Satz ist hier. …"],
     "nach dem Flush gelesen wäre der Turn fälschlich als vollständig gehört gewertet",
   );
+  s.session.close();
+});
+
+// ── Gesprächsführung / holdOff (0.13.0) ─────────────────────────────────────
+// Nur `voiceProvider: "duplex"` bekommt eine — der Nachweis, dass die bestehenden
+// Pfade unberührt bleiben, steht als eigener Test darunter.
+
+const echoLlm = (text: string): LlmHandler => async (_req, onDelta) => {
+  onDelta(text);
+  return { content: text, toolCalls: [] };
+};
+
+test("holdOff: unfertiger Satz wird zurückgehalten statt beantwortet", async () => {
+  const s = makeSession([echoLlm("Antwort.")], "Hallo!", { turnGate: createTurnGate() });
+  await s.session.start();
+
+  s.stt.update("Genau, sonst", 0.159); // Konfidenz wie im Messanruf
+  s.stt.turn("Genau, sonst");
+  await settle();
+
+  assert.equal(s.llmCalls.length, 0, "kein LLM-Turn auf einen unfertigen Satz");
+  assert.ok(
+    !s.events.some(([e, a]) => e === "conversationText" && (a as { role: string }).role === "user"),
+    "auch nichts ins Transkript — der Gedanke ist noch nicht fertig",
+  );
+  s.session.close();
+});
+
+test("holdOff: der fortgesetzte Satz wird zu EINEM Nutzerturn zusammengeführt", async () => {
+  const s = makeSession([echoLlm("Antwort.")], "Hallo!", { turnGate: createTurnGate() });
+  await s.session.start();
+
+  s.stt.update("Genau, sonst", 0.159);
+  s.stt.turn("Genau, sonst");
+  await settle();
+
+  // Der Anrufer spricht weiter — Flux zählt den Turn hoch, der Gedanke ist derselbe.
+  s.stt.speech();
+  s.stt.update("wollte ich noch fragen.", 0.7);
+  s.stt.turn("wollte ich noch fragen.");
+  await waitFor(() => s.llmCalls.length === 1);
+
+  const users = s.llmCalls[0]!.messages.filter((m) => m.role === "user").map((m) => m.content);
+  assert.deepEqual(users, ["Genau, sonst wollte ich noch fragen."], "ein Turn, nicht zwei");
+  s.session.close();
+});
+
+test("holdOff: läuft die Wartefrist ab, wird trotzdem geantwortet", async () => {
+  const s = makeSession([echoLlm("Antwort.")], "Hallo!", { turnGate: createTurnGate() });
+  await s.session.start();
+
+  s.stt.update("Genau, sonst", 0.159);
+  s.stt.turn("Genau, sonst");
+  await settle();
+  assert.equal(s.llmCalls.length, 0);
+
+  const hold = s.timers[s.timers.length - 1]!;
+  assert.equal(hold.ms, 700, "Wartegrenze aus der Gesprächsführung");
+  hold.fn(); // Anrufer schweigt weiter
+  await waitFor(() => s.llmCalls.length === 1);
+
+  const users = s.llmCalls[0]!.messages.filter((m) => m.role === "user").map((m) => m.content);
+  assert.deepEqual(users, ["Genau, sonst"], "der Anrufer hängt nicht in der Warteschleife");
+  s.session.close();
+});
+
+test("holdOff: ein vollständiger Satz wird nie zurückgehalten", async () => {
+  const s = makeSession([echoLlm("Antwort.")], "Hallo!", { turnGate: createTurnGate() });
+  await s.session.start();
+
+  // Genau der Messfall, an dem eine reine Konfidenzregel scheitern würde.
+  s.stt.update("Wie kann ich bei Wörtern Update machen?", 0.048);
+  s.stt.turn("Wie kann ich bei Wörtern Update machen?");
+  await waitFor(() => s.llmCalls.length === 1);
+  s.session.close();
+});
+
+// Der Nachweis, auf den es fachlich ankommt: Ohne Gesprächsführung ändert sich nichts.
+test("ohne Gesprächsführung antwortet die Session sofort — auch auf einen Satzfetzen", async () => {
+  const s = makeSession([echoLlm("Antwort.")], "Hallo!"); // kein turnGate → native/deepgram
+  await s.session.start();
+
+  s.stt.update("Genau, sonst", 0.159);
+  s.stt.turn("Genau, sonst");
+  await waitFor(() => s.llmCalls.length === 1, 1000);
+
+  const users = s.llmCalls[0]!.messages.filter((m) => m.role === "user").map((m) => m.content);
+  assert.deepEqual(users, ["Genau, sonst"]);
+  assert.equal(s.timers.filter((t) => t.ms === 700).length, 0, "kein Halte-Timer");
   s.session.close();
 });

@@ -83,7 +83,10 @@ const RESIDENCY_LABELS = {
 // wäre erklärungsbedürftig — die Hinweiszeile darunter sagt stattdessen, warum
 // die Liste kurz ist.
 function providersForPath(providers, voiceProvider) {
-  const path = voiceProvider === "native" ? "native" : "deepgram";
+  // `duplex` ist dieselbe Kaskade wie `native`, nur mit Gesprächsführung davor — es
+  // muss deshalb dieselbe TTS-Auswahl bekommen. Ohne diese Zeile bekäme ein
+  // Duplex-Agent die kurze Voice-Agent-Liste angeboten.
+  const path = voiceProvider === "native" || voiceProvider === "duplex" ? "native" : "deepgram";
   return (providers || []).filter((p) => (p.paths || []).indexOf(path) !== -1);
 }
 
@@ -960,6 +963,7 @@ export default define({
                 >
                   <option value="deepgram">Deepgram Voice Agent</option>
                   <option value="native">Native (STT→LLM→TTS-Kaskade, Flux + Aura)</option>
+                  <option value="duplex">Duplex — experimentell (Native + Gesprächsführung)</option>
                 </glk-select>
 
                 <glk-input

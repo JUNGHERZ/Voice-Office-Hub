@@ -4,6 +4,37 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.13.0] – 2026-08-26
+
+### Added
+
+**Ein dritter Sprachpfad `duplex` — experimentell.** Er nutzt dieselbe Kaskade wie `native` und schaltet ihr eine Gesprächsführung vor: Meldet Flux ein Turn-Ende, obwohl der Satz unfertig klingt, wartet der Agent kurz, statt auf einen Fetzen zu antworten. Spricht der Anrufer weiter, werden beide Teile zu **einem** Nutzerturn zusammengeführt — „Genau, sonst" und die Fortsetzung gehören zu einem Gedanken, nicht zu zweien.
+
+**Die Regel stammt aus einer Messung, nicht aus einer Vermutung.** Der Messanruf vom 26.08. (458 Update-Ereignisse, 9 Anrufer-Turns) hat zwei Annahmen widerlegt:
+
+- `end_of_turn_confidence` ist **keine steigende Kurve, sondern spitzenförmig**. Sie misst „wäre HIER ein plausibler Schlusspunkt", ausgewertet je Token, und fällt mitten im Wort auf nahe null zurück: `0.553 „Yeah." → 0.008 → 0.648 „…geholfen" → 0.008 → 0.761 „…Vielen Dank."`
+- Flux beendet den Turn **überwiegend über den Stille-Timeout**, nicht über die Konfidenzschwelle. Zwei Turns endeten bei 0.048 und 0.159, also weit unter dem Vorgabewert 0.7. Der Agent antwortet also, weil der Anrufer pausiert hat — nicht, weil er fertig war.
+
+Deshalb ist das **Satzendzeichen das primäre Signal** und die Konfidenz nur der Stichentscheid. Umgekehrt trennt es nicht: Bei Schwelle 0,5 würde eine reine Konfidenzregel eine vollständige Frage („Wie kann ich bei Wörtern Update machen?", 0.048) fälschlich zurückhalten. Ein Test hält genau das fest — er schlägt fehl, sobald jemand die Reihenfolge umdreht.
+
+Die Aufzeichnung liegt als Fixture bei (`test/fixtures/fluxTurnTrace.json`), damit ein zweiter Messanruf die Regel widerlegen kann, ohne dass Code umgebaut wird.
+
+### Changed
+
+- `voiceProvider` kennt `duplex`; das Agenten-Panel bietet ihn als „experimentell" an.
+- `NATIVE_DUPLEX_ENABLED` (Default **an**) ist der Betriebs-Not-Aus: Er stellt alle Duplex-Agenten auf die native Kaskade zurück, ohne dass Agenten bearbeitet werden müssen. Freigeschaltet wird der Pfad pro Agent, nicht über diese Variable.
+
+### Fixed
+
+- **Das Agenten-Panel bot Duplex-Agenten die falsche TTS-Liste an.** `providersForPath()` mappte alles außer `native` auf den Voice-Agent-Pfad; ein Duplex-Agent fährt aber die native Kaskade und muss deren volle Anbieterauswahl bekommen.
+
+### Bewusst nicht gebaut
+
+Der Plan sah für diesen Schritt einen **eigenen Orchestrator** vor. Beim Bauen trug die Begründung nicht: `holdOff` verzögert nur den Start und passt damit in die bestehende Turn-Maschine — ein zweiter 880-Zeilen-Orchestrator wäre Duplikat ohne Gegenwert gewesen. Die Naht ist stattdessen ein injizierter Rückruf (`turnGate`), das Muster von `FillerLocalizer` und `pendingPlayoutMs`. Fehlt er, verhält sich die Session unverändert — ein eigener Test hält fest, dass ohne Gesprächsführung sofort geantwortet wird. Ein echter zweiter Orchestrator wird erst nötig, wenn der Agent WÄHREND des Zuhörens sprechen soll; dort kehrt sich die Invariante um.
+
+`maxWaitMs` steht auf 700 ms und ist **geschätzt, nicht gemessen**: Der Agent hat im Messanruf nie gewartet, es gibt also keine Zahl dafür, wie schnell ein Anrufer weiterspricht. Gehört nachgemessen, sobald das Warten läuft.
+
+
 ## [0.12.2] – 2026-08-26
 
 ### Added

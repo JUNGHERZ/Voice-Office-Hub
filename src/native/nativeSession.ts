@@ -26,6 +26,7 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 
 import { config } from "../config.js";
+import type { TurnGate } from "../duplex/controller.js";
 import { modelSupportsTemperature } from "../llm/models.js";
 import { BUILTIN_TOOL_NAMES } from "../tools/names.js";
 import type { ResolvedAgent } from "../types.js";
@@ -158,6 +159,13 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
    */
   private assistantTurnRecorded = false;
 
+  // Gesprächsführung (0.13.0) — nur wirksam, wenn ein turnGate injiziert wurde.
+  /** Konfidenz des letzten Flux-Update MIT Text; beim EndOfTurn liefert Flux keine. */
+  private lastConfidence = 0;
+  /** Zurückgehaltener Turn-Anfang, der beim nächsten Turn-Ende zusammengeführt wird. */
+  private heldText?: string;
+  private cancelHoldTimer?: () => void;
+
   // Timer-Filler bei Tool-Wartezeiten (0.6.26).
   private fillerIndex = 0;
   private toolWaitSpoken = false;
@@ -188,6 +196,13 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
      * es verhindert auch, dass eine Ansage in ein Gespräch kippt.
      */
     private readonly listen: boolean = true,
+    /**
+     * Gesprächsführung (0.13.0, nur `voiceProvider: "duplex"`). Darf ein gemeldetes
+     * Turn-Ende zurückhalten, wenn der Satz unfertig klingt. Fehlt sie — bei `native`
+     * und `deepgram` —, läuft der Turn exakt wie bisher: Es gibt keinen zweiten Pfad
+     * durch diese Klasse, nur einen zusätzlichen Halt davor.
+     */
+    private readonly turnGate?: TurnGate,
   ) {
     super();
     this.deps = { ...defaultDeps, ...depsOverride };
@@ -298,6 +313,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.cancelHoldTimer?.();
+    this.cancelHoldTimer = undefined;
+    this.heldText = undefined;
     this.cancelActiveTurn();
     this.stt.close();
     this.tts.close();
@@ -344,9 +362,12 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
      * Gesprächssteuerung. `tail` statt des ganzen Transkripts, weil `transcript`
      * kumulativ ist und sonst jede Zeile den kompletten Turn wiederholte.
      */
-    if (config.native.logTurnUpdates) {
-      this.stt.on("update", (ev: { transcript: string; confidence: number; turnIndex?: number }) => {
-        if (this.closed) return;
+    this.stt.on("update", (ev: { transcript: string; confidence: number; turnIndex?: number }) => {
+      if (this.closed) return;
+      // Die Konfidenz des LETZTEN Update mit Text ist der Wert, auf dem die
+      // Gesprächsführung entscheidet — beim EndOfTurn selbst liefert Flux keinen.
+      if (ev.transcript) this.lastConfidence = ev.confidence;
+      if (config.native.logTurnUpdates) {
         this.log.info("Flux-Update", {
           turn: ev.turnIndex,
           conf: Math.round(ev.confidence * 1000) / 1000,
@@ -354,10 +375,14 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
           speaking: this.responding,
           tail: ev.transcript.slice(-48),
         });
-      });
-    }
+      }
+    });
     this.stt.on("speechStarted", () => {
       if (this.closed) return;
+      // Der Anrufer spricht weiter → ein laufender Halt hat sich erledigt. Der Text
+      // BLEIBT stehen: Er gehört zum selben Gedanken und wird gleich zusammengeführt.
+      this.cancelHoldTimer?.();
+      this.cancelHoldTimer = undefined;
       // Abspielposition ZUERST festhalten: `userStartedSpeaking` läuft synchron in den
       // callHandler, der die Media-Queue sofort leert — danach meldet pendingMs() null,
       // und die Sprechuhr hielte jeden Turn für vollständig gehört.
@@ -384,9 +409,8 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       }
       if (spec) this.abortSpeculation(spec); // Final-Transkript weicht ab → sauber neu
       if (!text) return; // "ähm"/Leerlauf: kein LLM-Turn
-      this.history.addUser(text);
-      this.emit("conversationText", { role: "user", content: text });
-      void this.runAssistantTurn(this.generation);
+      const ready = this.turnGate ? this.gateUserTurn(text) : text;
+      if (ready) this.beginUserTurn(ready);
     });
     this.stt.on("eagerTurnEnded", (transcript: string) => {
       if (this.closed || !this.eagerEnabled) return;
@@ -455,6 +479,58 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     completionTokens: 0,
     requests: 0,
   };
+
+  // ── Gesprächsführung (0.13.0, nur `voiceProvider: "duplex"`) ────────────────
+
+  /** Nutzerturn übernehmen und den Assistententurn starten. */
+  private beginUserTurn(text: string): void {
+    this.history.addUser(text);
+    this.emit("conversationText", { role: "user", content: text });
+    void this.runAssistantTurn(this.generation);
+  }
+
+  /**
+   * Zurückhalten oder weiterreichen. Gibt den Text zurück, mit dem der Turn starten
+   * soll — oder undefined, wenn gewartet wird.
+   *
+   * Ein bereits zurückgehaltener Anfang wird mit dem neuen Turn ZUSAMMENGEFÜHRT.
+   * Flux beendet den Turn und zählt hoch, der Anrufer hat aber EINEN Gedanken
+   * geäußert: „Genau, sonst" und die Fortsetzung danach gehören als ein Nutzerturn
+   * in die Historie, nicht als zwei.
+   */
+  private gateUserTurn(text: string): string | undefined {
+    const held = this.heldText;
+    this.cancelHoldTimer?.();
+    this.cancelHoldTimer = undefined;
+    this.heldText = undefined;
+    const merged = held ? `${held} ${text}` : text;
+    const verdict = this.turnGate!({
+      transcript: merged,
+      confidence: this.lastConfidence,
+      heldBefore: held !== undefined,
+    });
+    this.log.debug("Gesprächsführung", {
+      action: verdict.action,
+      reason: verdict.reason,
+      conf: Math.round(this.lastConfidence * 1000) / 1000,
+      chars: merged.length,
+      merged: held !== undefined,
+    });
+    if (verdict.action === "answer") return merged;
+    this.heldText = merged;
+    this.cancelHoldTimer = this.deps.setTimer(() => this.releaseHold(), verdict.maxWaitMs);
+    return undefined;
+  }
+
+  /** Wartefrist abgelaufen — der Anrufer hat nicht weitergesprochen, also doch antworten. */
+  private releaseHold(): void {
+    const text = this.heldText;
+    this.heldText = undefined;
+    this.cancelHoldTimer = undefined;
+    if (!text || this.closed) return;
+    this.log.debug("Gesprächsführung: Wartefrist abgelaufen", { chars: text.length });
+    this.beginUserTurn(text);
+  }
 
   // ── TTS-Verdrahtung ─────────────────────────────────────────────────────────
 

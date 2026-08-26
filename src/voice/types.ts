@@ -10,11 +10,18 @@
  */
 
 /** Alle geplanten Provider (Roadmap); implementiert ist davon nur ein Teil. */
-export const VOICE_PROVIDERS = ["deepgram", "elevenlabs", "openai-realtime", "grok", "native"] as const;
+export const VOICE_PROVIDERS = [
+  "deepgram",
+  "elevenlabs",
+  "openai-realtime",
+  "grok",
+  "native",
+  "duplex",
+] as const;
 export type VoiceProvider = (typeof VOICE_PROVIDERS)[number];
 
 /** Nur diese Werte sind im Agent-Schema zugelassen (DB weist Nichtlauffähiges beim Speichern ab). */
-export const IMPLEMENTED_VOICE_PROVIDERS: readonly VoiceProvider[] = ["deepgram", "native"];
+export const IMPLEMENTED_VOICE_PROVIDERS: readonly VoiceProvider[] = ["deepgram", "native", "duplex"];
 
 /**
  * Tool-/Function-Definition für den Think-Schritt (JSON-Schema-Parameter).

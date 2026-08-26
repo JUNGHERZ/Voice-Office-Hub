@@ -100,3 +100,14 @@ export function decideTurnEnd(
   if (sig.confidence >= opts.confidentStop) return { action: "answer", reason: "confident-stop" };
   return { action: "hold", reason: "unfinished", maxWaitMs: opts.maxWaitMs };
 }
+
+/**
+ * Die Naht zur Session: eine Funktion, kein Objekt. Wer keine Gesprächsführung hat
+ * (`native`, `deepgram`), bekommt keine — und verhält sich damit unverändert.
+ */
+export type TurnGate = (sig: TurnEndSignal) => TurnVerdict;
+
+export function createTurnGate(opts: Partial<HoldOffOptions> = {}): TurnGate {
+  const merged: HoldOffOptions = { ...DEFAULT_HOLD_OFF, ...opts };
+  return (sig) => decideTurnEnd(sig, merged);
+}
