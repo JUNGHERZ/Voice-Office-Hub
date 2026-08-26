@@ -1,0 +1,61 @@
+{
+  "_herkunft": "Messanruf 2026-08-26 15:18 UTC auf Live-Dev (v0.12.2, NATIVE_LOG_TURN_UPDATES=true). 458 Flux-Update-Ereignisse über 111 s, 9 Anrufer-Turns. Wortlaut aus dem DB-Transkript (Request 6a8f03be97347d2f1973e477), Konfidenz aus dem letzten Update mit Text vor dem Turn-Ende.",
+  "_warum": "Die Konfidenz ist spitzenförmig, nicht steigend: Sie misst 'wäre hier ein plausibler Schlusspunkt', ausgewertet je Token. Turn 6 endet bei 0.048 auf einer VOLLSTÄNDIGEN Frage, Turn 8 bei 0.761. Eine Regel allein über die Konfidenz trennt deshalb nicht — das Satzendzeichen tut es.",
+  "_stichprobe": "Ein Anruf, ein Sprecher, Deutsch, erkennbar verrauschte Erkennung. Neun Punkte sind kein starker Beleg; ein zweiter Messanruf soll die Regel widerlegen können, ohne dass Code umgebaut wird.",
+  "turns": [
+    {
+      "turnIndex": 0,
+      "confidence": 0.665,
+      "transcript": "Hallo. Du musst ja mal sehen, wie Du den wie wie Du vorgehst am technischen Support.",
+      "expected": "answer"
+    },
+    {
+      "turnIndex": 1,
+      "confidence": 0.607,
+      "transcript": "Nein, eigentlich. So, Du sollst Du sollst mir sagen, wie Du First- und Second Level machst.",
+      "expected": "answer"
+    },
+    {
+      "turnIndex": 2,
+      "confidence": 0.159,
+      "transcript": "Genau, sonst",
+      "expected": "hold"
+    },
+    {
+      "turnIndex": 3,
+      "confidence": 0.41,
+      "transcript": "I didn't think it was... I",
+      "expected": "hold"
+    },
+    {
+      "turnIndex": 4,
+      "confidence": 0.533,
+      "transcript": "Ich müsste noch wissen, wie man, also machst Du auch föderale Support, also technisch tief tief?",
+      "expected": "answer"
+    },
+    {
+      "turnIndex": 5,
+      "confidence": 0.575,
+      "transcript": "Das, mir funktioniert man in Windows Updates.",
+      "expected": "answer"
+    },
+    {
+      "turnIndex": 6,
+      "confidence": 0.048,
+      "transcript": "Ach so, das weiß ich nicht, das weiß das weiß ich ja. Wie kann ich bei bei Wörtern Update machen?",
+      "expected": "answer"
+    },
+    {
+      "turnIndex": 7,
+      "confidence": 0.637,
+      "transcript": "Nee, ich meinte Word Update.",
+      "expected": "answer"
+    },
+    {
+      "turnIndex": 8,
+      "confidence": 0.761,
+      "transcript": "Ja, das glaub ich, hat mir schon geholfen. Vielen Dank.",
+      "expected": "answer"
+    }
+  ]
+}
