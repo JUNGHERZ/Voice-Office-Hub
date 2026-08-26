@@ -32,6 +32,11 @@ export interface FunctionDefinition {
 export interface VoiceConversationText {
   role: "user" | "assistant";
   content: string;
+  /**
+   * true = ersetzt den letzten Agenten-Eintrag, statt einen neuen anzuhängen
+   * (Sprechuhr: der Turn stand schon vollständig im Protokoll, gehört wurde weniger).
+   */
+  replacesPrevious?: boolean;
 }
 
 /** Ein einzelner Function-Call-Wunsch des Providers (Argumente als roher JSON-String). */

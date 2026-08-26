@@ -1161,3 +1161,102 @@ test("Sprechuhr: fertiger Turn wird nicht doppelt in die Historie geschrieben", 
   assert.deepEqual(assistantHistory(s.llmCalls[1]), ["Hallo!", "Ein vollständiger Satz."]);
   s.session.close();
 });
+
+// Der Normalfall am echten Telefon — und der Grund, warum 0.12.0 im ersten Anlauf
+// wirkungslos war: Der LLM-Stream ist nach ~1 s durch und schreibt seinen Text, die
+// Sprachausgabe braucht dafür 8–10 s. Ein Barge-in fällt fast immer in dieses Fenster.
+test("Sprechuhr: Barge-in korrigiert den bereits geschriebenen Turn, statt ihn zu doppeln", async () => {
+  const full = "Erster Satz ist hier. Zweiter Satz kommt jetzt auch noch.";
+  let unplayed = 0;
+  const s = makeSession(
+    [
+      async (_req, onDelta) => {
+        onDelta(full);
+        return { content: full, toolCalls: [] };
+      },
+      async (_req, onDelta) => {
+        onDelta("Alles klar.");
+        return { content: "Alles klar.", toolCalls: [] };
+      },
+    ],
+    "Hallo!",
+    { pendingPlayoutMs: () => unplayed },
+  );
+  await s.session.start();
+  s.tts.emitFlushed();
+
+  s.stt.turn("Erste Frage");
+  await waitFor(() => s.llmCalls.length === 1);
+  await settle(); // LLM fertig → voller Text steht in Historie und Transkript
+
+  s.tts.emitSegment("Erster Satz ist hier.");
+  emitMs(s.tts, 200);
+  s.tts.emitSegment("Zweiter Satz kommt jetzt auch noch.");
+  emitMs(s.tts, 100);
+
+  unplayed = 100; // 100 ms stehen noch in der Queue → gehört wurde nur Satz 1
+  s.stt.speech();
+  await settle();
+
+  const corrections = s.events.filter(
+    ([e, arg]) => e === "conversationText" && (arg as { replacesPrevious?: boolean }).replacesPrevious,
+  );
+  assert.equal(corrections.length, 1, "genau eine Korrektur");
+  assert.equal((corrections[0]![1] as { content: string }).content, "Erster Satz ist hier. …");
+
+  s.stt.turn("Zweite Frage");
+  await waitFor(() => s.llmCalls.length === 2);
+  const hist = assistantHistory(s.llmCalls[1]);
+  assert.deepEqual(hist, ["Hallo!", "Erster Satz ist hier. …"], "ersetzt, nicht angehängt");
+  assert.ok(!hist.includes(full), "der volle Text darf nicht stehen bleiben");
+  s.session.close();
+});
+
+// Regression: `userStartedSpeaking` läuft SYNCHRON in den callHandler, der die
+// Media-Queue sofort leert. Wird die Abspielposition erst danach gelesen, meldet sie
+// null und die Sprechuhr hält jeden Turn für vollständig gehört — genau so war die
+// Funktion am 26.08.2026 auf Live-Dev wirkungslos.
+test("Sprechuhr: Abspielposition wird vor dem Media-Flush gelesen", async () => {
+  const full = "Erster Satz ist hier. Zweiter Satz kommt jetzt auch noch.";
+  let unplayed = 100;
+  const s = makeSession(
+    [
+      async (_req, onDelta) => {
+        onDelta(full);
+        return { content: full, toolCalls: [] };
+      },
+      async (_req, onDelta) => {
+        onDelta("Alles klar.");
+        return { content: "Alles klar.", toolCalls: [] };
+      },
+    ],
+    "Hallo!",
+    { pendingPlayoutMs: () => unplayed },
+  );
+  // Der callHandler flusht die Queue in genau diesem Handler.
+  s.session.on("userStartedSpeaking", () => {
+    unplayed = 0;
+  });
+  await s.session.start();
+  s.tts.emitFlushed();
+
+  s.stt.turn("Erste Frage");
+  await waitFor(() => s.llmCalls.length === 1);
+  await settle();
+  s.tts.emitSegment("Erster Satz ist hier.");
+  emitMs(s.tts, 200);
+  s.tts.emitSegment("Zweiter Satz kommt jetzt auch noch.");
+  emitMs(s.tts, 100);
+
+  s.stt.speech();
+  await settle();
+
+  s.stt.turn("Zweite Frage");
+  await waitFor(() => s.llmCalls.length === 2);
+  assert.deepEqual(
+    assistantHistory(s.llmCalls[1]),
+    ["Hallo!", "Erster Satz ist hier. …"],
+    "nach dem Flush gelesen wäre der Turn fälschlich als vollständig gehört gewertet",
+  );
+  s.session.close();
+});

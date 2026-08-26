@@ -60,6 +60,24 @@ export async function appendTranscript(id: string, turn: TranscriptTurn): Promis
   await RequestModel.updateOne({ _id: id }, { $push: { transcript: turn } });
 }
 
+/**
+ * Letzten Agenten-Turn im Transkript kürzen (Sprechuhr). Das Protokoll soll zeigen,
+ * was der Anrufer GEHÖRT hat — beim Anhängen war das noch nicht bekannt, weil die
+ * Sprachausgabe da gerade erst anfing.
+ */
+export async function truncateLastAgentTranscript(id: string, text: string): Promise<void> {
+  const doc = await RequestModel.findById(id, { transcript: 1 }).lean<{
+    transcript?: TranscriptTurn[];
+  }>();
+  const list = doc?.transcript ?? [];
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (list[i]?.speaker === "agent") {
+      await RequestModel.updateOne({ _id: id }, { $set: { [`transcript.${i}.text`]: text } });
+      return;
+    }
+  }
+}
+
 export async function appendFunctionCall(id: string, call: FunctionCallRecord): Promise<void> {
   await RequestModel.updateOne({ _id: id }, { $push: { functionCalls: call } });
 }

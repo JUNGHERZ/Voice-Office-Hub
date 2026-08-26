@@ -6,6 +6,56 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.12.1] – 2026-08-26
+
+### Fixed
+
+**Die Sprechuhr war in 0.12.0 am echten Telefon wirkungslos — aus zwei
+unabhängigen Gründen, die sich gegenseitig gedeckt haben.** Aufgefallen beim
+ersten Testanruf auf Live-Dev: zwei Barge-ins mitten in der Rede (4,4 s in eine
+8,5-s-Antwort, 7,5 s in eine 10,8-s-Antwort), im Protokoll stand trotzdem beide
+Male der volle Text.
+
+**1. Der Wächter fragte das Falsche.** `recordSpokenSoFar` stieg aus, sobald der
+Assistententext schon in der Historie stand. Gedacht war das gegen Doppel-
+einträge — nur ist „Text geschrieben" in einer streamenden Kaskade nicht
+„Text gesprochen": Der LLM-Stream ist nach rund einer Sekunde durch und schreibt,
+die Sprachausgabe braucht für dieselbe Antwort acht bis zehn. **Ein Barge-in
+fällt fast immer in genau dieses Fenster** — der Normalfall lief also in den
+Ausstieg, der für die Ausnahme gedacht war.
+
+Entschieden wird jetzt an der Uhr (`slice.complete`), nicht am Schreibzustand.
+Existiert bereits ein Eintrag, wird er **korrigiert** statt übersprungen:
+`ConversationHistory.replaceLastAssistant()` für den Modellkontext,
+`repo.truncateLastAgentTranscript()` für das Protokoll (das
+`conversationText`-Ereignis trägt dafür `replacesPrevious`). Reine
+Assistententurns nur — steht am Ende eine Tool-Runde, bleibt sie unangetastet.
+
+**2. Die Abspielposition wurde zu spät gelesen.** `speechStarted` emittierte
+`userStartedSpeaking` VOR `cancelActiveTurn()`. EventEmitter ist synchron, der
+callHandler leert in diesem Handler die Media-Queue — `pendingMs()` meldete
+danach null, und die Uhr hielt jeden Turn für vollständig gehört. Die Position
+wird jetzt zu Beginn des Handlers festgehalten und durchgereicht; an der
+Reihenfolge des Flushs ändert sich nichts.
+
+Beide Fehler sind durch Regressionstests abgedeckt, die ohne den jeweiligen Fix
+nachweislich fehlschlagen. Die Unit-Tests konnten sie vorher nicht sehen, weil
+das Testgeschirr `pendingPlayoutMs` direkt einspeist — den synchronen Flush des
+callHandlers bildet erst der neue Test nach.
+
+### Changed
+
+- Greeting und `injectMessage` werden beim Barge-in jetzt ebenfalls gekürzt. Das
+  stand in 0.12.0 noch unter „Bekannte Grenzen" — der Korrektur-Pfad löst es mit.
+
+### Gemessen
+
+Erster Anruf mit 0.12.0 auf Live-Dev: `Sprechrate gemessen` meldete **20,8
+Zeichen/s** für Azure — deutlich über dem Startwert von 14. Für Azure ist die
+Zahl nur Diagnose (dort liefert die HTTP-Basisklasse exakte Satzgrenzen), für
+Aura ist sie die Genauigkeit der Uhr. Die Selbstkalibrierung trägt.
+
+
 ## [0.12.0] – 2026-08-26
 
 ### Added

@@ -28,6 +28,25 @@ export class ConversationHistory {
     this.trim();
   }
 
+  /**
+   * Letzten Assistententurn ersetzen (0.12.0, Sprechuhr). Nötig, weil der Text
+   * geschrieben wird, sobald der LLM-Stream durch ist — die Sprachausgabe braucht
+   * danach aber noch Sekunden. Ein Barge-in fällt fast immer in genau dieses
+   * Fenster: Historie steht, gehört wurde nur ein Teil.
+   *
+   * Nur ein REINER Assistententurn wird ersetzt. Steht am Ende ein Tool-Aufruf oder
+   * ein Tool-Ergebnis, gehört die Kürzung nicht dorthin.
+   *
+   * @returns false, wenn nichts Passendes am Ende stand.
+   */
+  replaceLastAssistant(text: string): boolean {
+    const last = this.turns[this.turns.length - 1];
+    if (!last || last.role !== "assistant" || last.tool_calls) return false;
+    last.content = text;
+    this.trim();
+    return true;
+  }
+
   addAssistantToolCalls(content: string, calls: LlmToolCall[]): void {
     this.turns.push({ role: "assistant", content: content || null, tool_calls: calls });
     this.trim();

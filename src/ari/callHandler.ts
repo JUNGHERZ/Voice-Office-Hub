@@ -84,6 +84,7 @@ export type CallRepo = Pick<
   typeof repo,
   | "createRequest"
   | "appendTranscript"
+  | "truncateLastAgentTranscript"
   | "appendFunctionCall"
   | "setTransfer"
   | "setRecording"
@@ -584,6 +585,7 @@ function nullRepo(channelId: string): CallRepo {
   return {
     createRequest: async () => `unreported:${channelId}`,
     appendTranscript: async () => {},
+    truncateLastAgentTranscript: async () => {},
     appendFunctionCall: async () => {},
     setTransfer: async () => {},
     setRecording: async () => {},
@@ -658,6 +660,9 @@ async function runAgentCall(
     channelGone = true;
     abortGreeting();
   };
+  // Transkript-Schreibvorgänge laufen offen (fire-and-forget); die Sprechuhr-Korrektur
+  // muss sich hinter den Eintrag ketten, den sie korrigiert.
+  let transcriptWrites: Promise<unknown> = Promise.resolve();
   let lastAudioAt = 0; // Zeitpunkt des zuletzt empfangenen Agent-Audios (für Drain-Erkennung)
   // Geschätztes Ende der Agent-Sprache aus der Textlänge. Nötig, weil nur der AudioSocket einen
   // Playout-Puffer (pendingMs) führt — die RTP-Bridge feuert alles sofort raus (media.ts:sendAudio),
@@ -1027,7 +1032,18 @@ async function runAgentCall(
     });
     session.on("conversationText", (ev) => {
       const speaker = ev.role === "assistant" ? "agent" : "caller";
-      void store.appendTranscript(requestId, { t: elapsed(), speaker, text: ev.content });
+      if (ev.replacesPrevious) {
+        // Sprechuhr-Korrektur: Der Turn stand schon vollständig im Protokoll, gehört
+        // wurde weniger. Hinter das offene Anhängen ketten — sonst überholt die
+        // Korrektur den Schreibvorgang, den sie korrigieren soll.
+        transcriptWrites = transcriptWrites
+          .catch(() => {})
+          .then(() => store.truncateLastAgentTranscript(requestId, ev.content));
+        return;
+      }
+      transcriptWrites = transcriptWrites
+        .catch(() => {})
+        .then(() => store.appendTranscript(requestId, { t: elapsed(), speaker, text: ev.content }));
       // Sprach-/Register-Erkennung füttern (beide Rollen; Caller treibt Trigger, Agent = Register-Kontext).
       localizer.observeTurn(speaker, ev.content);
       if (speaker === "caller") {
