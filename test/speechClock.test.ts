@@ -159,3 +159,32 @@ test("reset räumt Text und Audio, nicht die gelernte Rate", () => {
   assert.equal(clock.emittedMs(), 0);
   assert.deepEqual(clock.spokenAt(1000), { text: "", complete: true });
 });
+
+test("glue: fugenlose Segmente ergeben wieder den Originaltext", () => {
+  // ElevenLabs-Fall: Nachrichtengrenzen liegen mitten im Wort.
+  const clock = new SpeechClock();
+  clock.queued("Der Kontostand betraegt zwoelftausend Euro.");
+  clock.segment("Der Kontostand betra", "");
+  clock.audio(1000);
+  clock.segment("egt zwoelftausend Euro. ", "");
+  clock.audio(1200);
+
+  assert.equal(clock.spokenAt(2200).text, "Der Kontostand betraegt zwoelftausend Euro.");
+  assert.equal(clock.spokenAt(2200).complete, true);
+});
+
+test("glue: feine Segmente schneiden genauer als ein ganzer Satz", () => {
+  const clock = new SpeechClock();
+  clock.queued("Der Kontostand betraegt zwoelftausend Euro.");
+  clock.segment("Der Kontostand betra", "");
+  clock.audio(1000);
+  clock.segment("egt zwoelftausend Euro. ", "");
+  clock.audio(1200);
+
+  // Mitten in der zweiten Nachricht: das erste Stück steht ganz, das zweite anteilig.
+  const slice = clock.spokenAt(1600);
+  assert.equal(slice.complete, false);
+  assert.ok(slice.text.startsWith("Der Kontostand betraegt"), `war: "${slice.text}"`);
+  assert.ok(slice.text.length < "Der Kontostand betraegt zwoelftausend Euro.".length);
+  assert.ok("Der Kontostand betraegt zwoelftausend Euro.".startsWith(slice.text));
+});

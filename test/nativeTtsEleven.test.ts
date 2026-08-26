@@ -173,3 +173,66 @@ test("ElevenLabsTtsStream: clear() trennt, sendText verbindet neu", async () => 
   tts.close();
   await srv.close();
 });
+
+// ── Segmentgrenzen für die Sprechuhr (0.12.0) ───────────────────────────────
+// ElevenLabs schneidet seine Nachrichten NICHT an Satzgrenzen. Am 26.08.2026 gegen
+// die echte API gemessen: Nachricht 1 endete mitten im Wort. Genau diese Antwort
+// wird hier nachgespielt — ohne die Zeichenspur wäre die Zuordnung Audio→Text
+// überhaupt nicht bestimmbar.
+test("ElevenLabsTtsStream: alignment liefert die Segmentgrenze fugenlos", async () => {
+  const srv = startServer();
+  const tts = new ElevenLabsTtsStream(makeOpts(), "call-align");
+  const trace: string[] = [];
+  tts.on("segment", (text, glue) => trace.push(`seg[${JSON.stringify(glue)}] ${text}`));
+  tts.on("audio", (b) => trace.push(`audio ${b.length}`));
+  await tts.start();
+
+  tts.sendText("Der Kontostand betraegt zwoelftausend Euro.");
+  await waitFor(() => srv.state.texts.length === 2);
+
+  const reply = (chars: string, bytes: number) =>
+    srv.state.socket?.send(
+      JSON.stringify({
+        audio: Buffer.alloc(bytes).toString("base64"),
+        // Muss ignoriert werden: beschreibt den normalisierten Text, nicht den Wortlaut.
+        normalizedAlignment: { chars: ` ${chars}`.split("") },
+        alignment: { chars: chars.split("") },
+        isFinal: null,
+      }),
+    );
+  reply("Der Kontostand betra", 200);
+  reply("egt zwoelftausend Euro. ", 300);
+  await waitFor(() => trace.length === 4);
+
+  assert.deepEqual(trace, [
+    'seg[""] Der Kontostand betra',
+    "audio 200",
+    'seg[""] egt zwoelftausend Euro. ',
+    "audio 300",
+  ]);
+
+  tts.close();
+  await srv.close();
+});
+
+// Ohne Zeichenspur (ältere Modelle / abgeschaltet) bleibt es beim reinen Audio —
+// die Sprechuhr fällt dann auf die Ratenschätzung zurück statt falsch zuzuordnen.
+test("ElevenLabsTtsStream: ohne alignment kommt keine Segmentgrenze", async () => {
+  const srv = startServer();
+  const tts = new ElevenLabsTtsStream(makeOpts(), "call-noalign");
+  let segments = 0;
+  const audio: number[] = [];
+  tts.on("segment", () => (segments += 1));
+  tts.on("audio", (b) => audio.push(b.length));
+  await tts.start();
+
+  tts.sendText("Hallo.");
+  await waitFor(() => srv.state.texts.length === 2);
+  srv.state.socket?.send(JSON.stringify({ audio: Buffer.alloc(120).toString("base64") }));
+  await waitFor(() => audio.length === 1);
+
+  assert.equal(segments, 0);
+  assert.deepEqual(audio, [120]);
+  tts.close();
+  await srv.close();
+});

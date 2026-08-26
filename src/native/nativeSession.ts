@@ -166,6 +166,8 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
    * weil sie die Tool-Wartezeit enthält und nicht mit normalen Turns vergleichbar ist.
    */
   private fillerSpokenThisTurn = false;
+  /** Sprechraten-Diagnose einmal je Anruf — pro Turn wäre sie reines Log-Rauschen. */
+  private rateLogged = false;
   /** Cache-Diagnose einmal je Anruf — pro Turn waere sie reines Log-Rauschen. */
   private cacheDiagLogged = false;
 
@@ -460,13 +462,21 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
      * = ein Satz). Gleiche Torbedingung wie beim Audio, damit Grenzen und Frames
      * eines abgebrochenen Turns gemeinsam wegfallen.
      */
-    this.tts.on("segment", (text: string) => {
-      if (this.ttsGen === this.generation) this.clock.segment(text);
+    this.tts.on("segment", (text: string, glue?: string) => {
+      if (this.ttsGen === this.generation) this.clock.segment(text, glue);
     });
     this.tts.on("flushed", () => {
       if (!this.closed && this.llmDone && this.ttsGen === this.generation) {
         // Turn ohne Barge-in zu Ende gebracht → die Sprechrate dieser Stimme messen.
-        this.clock.calibrate();
+        // Einmal je Anruf melden: Ohne Segmentgrenzen (Aura) IST diese Zahl die
+        // Genauigkeit der Sprechuhr — sie gehört sichtbar ins Log, nicht ins Raten.
+        if (this.clock.calibrate() && !this.rateLogged) {
+          this.rateLogged = true;
+          this.log.info("Sprechrate gemessen", {
+            charsPerSecond: Math.round(this.clock.rate() * 10) / 10,
+            provider: this.agent.speak.provider,
+          });
+        }
         this.emit("agentAudioDone");
       }
     });

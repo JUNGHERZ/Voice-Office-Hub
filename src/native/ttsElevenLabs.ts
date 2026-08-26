@@ -157,13 +157,35 @@ export class ElevenLabsTtsStream extends EventEmitter {
 
   private wire(ws: WebSocket): void {
     ws.on("message", (data: Buffer) => {
-      let msg: { audio?: string; isFinal?: boolean | null; error?: string; message?: string };
+      let msg: {
+        audio?: string;
+        isFinal?: boolean | null;
+        error?: string;
+        message?: string;
+        /**
+         * Zeichen-Zeitspur der Nachricht (0.12.0). Bewusst `alignment` und NICHT
+         * `normalizedAlignment`: Letzteres beschreibt den normalisierten Text
+         * (ausgeschriebene Zahlen, führendes Leerzeichen) — in die Historie gehört
+         * der Wortlaut, den das Modell erzeugt hat.
+         */
+        alignment?: { chars?: string[] };
+      };
       try {
         msg = JSON.parse(data.toString()) as typeof msg;
       } catch {
         return;
       }
       if (typeof msg.audio === "string" && msg.audio.length) {
+        /**
+         * Segmentgrenze für die Sprechuhr. ElevenLabs schneidet seine Nachrichten
+         * NICHT an Satzgrenzen — gemessen am 26.08.2026 endete die erste Nachricht
+         * mitten im Wort („Der Kontostand betra" | „egt zwoelftausend Euro."). Ohne
+         * diese Spur wäre gar nicht bestimmbar, welches Audio zu welchem Text gehört;
+         * mit ihr ist ElevenLabs der genaueste Anbieter (Auflösung: eine Nachricht,
+         * nicht ein Satz). Fugenlos zusammensetzen — daher glue "".
+         */
+        const chars = msg.alignment?.chars;
+        if (chars?.length) this.emit("segment", chars.join(""), "");
         this.emit("audio", Buffer.from(msg.audio, "base64"));
       }
       if (msg.isFinal === true) this.emit("flushed", undefined);

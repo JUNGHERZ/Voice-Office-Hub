@@ -196,6 +196,33 @@ Scheitert ein Handshake, liest der Adapter den Antwort-Body aus: Statt `Unexpect
 
 Der reale `stream-input`-Endpoint sendet `isFinal` erst beim Verbindungsende, nicht als Antwort auf `flush` — geprüft mit `auto_mode=true` und `=false`, in beiden Fällen gleich. Das `flushed`-Event des Adapters feuert deshalb erst beim Schließen. Produktiv hat das heute keine Folge (einziger Verbraucher wäre `agentAudioDone`, und das Auflegen wartet über `MediaSession.pendingMs()`), aber wer ein verlässliches Turn-Ende braucht, muss auf `multi-stream-input` mit `close_context` wechseln — den Endpoint nutzt der Voice-Agent-Pfad bereits.
 
+### Wie genau die Sprechuhr je Anbieter arbeitet
+
+Fällt der Anrufer ins Wort, hält die Sprechuhr (`src/native/speechClock.ts`) fest, wie weit die Sprachausgabe wirklich gekommen war — der Rest wird abgeschnitten und durch eine Auslassung ersetzt. Sie sitzt in der `NativeSession`, das Verhalten ist also für alle Anbieter gleich. Verschieden ist nur, wie genau sie gefüttert werden kann:
+
+| Anbieter | Zuleitung | Auflösung |
+|---|---|---|
+| **ElevenLabs** | `alignment.chars` je Wire-Nachricht → `segment(text, "")` | eine Nachricht (~0,5–1 s), darin proportional |
+| **Azure · Mistral · Speechify** | `segment(text)` je Auftrag aus `ttsHttp.ts` | ein Satz, darin proportional |
+| **Deepgram Aura** | keine Meldung → Schätzung über die Sprechrate | Wort ± 1 |
+| **Deepgram Flux TTS** | `text_spoken` aus `SpeechInterrupted` | exakt (serverseitig) |
+
+Zwei Punkte, die beim Nachbauen zählen:
+
+**ElevenLabs schneidet seine Nachrichten nicht an Satzgrenzen.** Am 26.08.2026 gegen die echte API gemessen, endete die erste Nachricht mitten im Wort:
+
+```
+#1 alignment="Der Kontostand betra"        audio=14414B
+#2 alignment="egt zwoelftausend Euro. "    audio=21630B
+#3 alignment="Soll ich vorlesen? "         audio=19226B
+```
+
+Ohne diese Spur wäre überhaupt nicht bestimmbar, welches Audio zu welchem Text gehört. Verwendet wird `alignment`, **nicht** `normalizedAlignment` — Letzteres beschreibt den normalisierten Text (ausgeschriebene Zahlen, führendes Leerzeichen), in die Historie gehört aber der Wortlaut des Modells.
+
+**Aura hat keinen Grenzmarker.** Der Binärstrom trägt keine Satzgrenzen, und ausser `Flushed` (einmal je Turn) meldet das Protokoll nichts. Deshalb zählt die Uhr dort über die Sprechrate — anfangs 14 Zeichen/s, skaliert mit `speak.speed`, nach dem ersten Turn ohne Barge-in an der eigenen Stimme gemessen. In der Praxis kalibriert bereits das Greeting. Die gelernte Rate steht einmal je Anruf im Log (`Sprechrate gemessen`).
+
+Ein `Flush` nach **jedem** Satz würde die Grenze exakt machen (`Flushed` trägt eine `sequence_id`). Das ist bewusst nicht gebaut: Es wäre die einzige Änderung am Sprechfluss im ganzen Entwurf, und der Gewinn gegenüber der kalibrierten Schätzung liegt bei etwa einem Wort — nach dem Abrunden auf die Wortgrenze oft bei null. Vor einer Umsetzung gehört das an echten Anrufen gemessen.
+
 ### Abrechnungsbasis
 
 Gezählt wird, was tatsächlich an den Anbieter **gesendet** wurde — ein per Barge-in verworfener Satz zählt nicht. Die Werte landen pro Anruf in `metrics.ttsProvider/ttsModel/ttsCharacters/ttsCredits`.

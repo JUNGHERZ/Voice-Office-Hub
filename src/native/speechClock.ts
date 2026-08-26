@@ -46,6 +46,8 @@ export interface SpokenSlice {
 interface Segment {
   text: string;
   ms: number;
+  /** Trennzeichen VOR diesem Segment beim Zusammensetzen (erstes Segment: entfällt). */
+  glue: string;
 }
 
 /**
@@ -93,10 +95,18 @@ export class SpeechClock {
     if (text) this.queuedParts.push(text);
   }
 
-  /** Adapter: ab jetzt gehört das Audio zu diesem Text. Schaltet den genauen Modus ein. */
-  segment(text: string): void {
+  /**
+   * Adapter: ab jetzt gehört das Audio zu diesem Text. Schaltet den genauen Modus ein.
+   *
+   * `glue` sagt, wie das Stück an das vorige anschliesst. Die HTTP-Basisklasse meldet
+   * ganze Sätze, die mit einem Leerzeichen aneinanderhängen (Vorgabe). ElevenLabs
+   * meldet die Zeichen JEDER Wire-Nachricht — die schneiden mitten im Wort
+   * („Der Kontostand betra" | „egt zwoelftausend Euro.") und werden fugenlos
+   * zusammengesetzt.
+   */
+  segment(text: string, glue = " "): void {
     this.segmented = true;
-    this.segments.push({ text, ms: 0 });
+    this.segments.push({ text, ms: 0, glue });
   }
 
   /** Audio wurde an die Medienschicht weitergereicht. */
@@ -116,18 +126,21 @@ export class SpeechClock {
    * Turn ohne Barge-in zu Ende gesprochen → die tatsächliche Sprechrate dieser
    * Stimme messen. Das ist der Grund, warum auch der flache Modus (Aura) nach
    * dem ersten ungestörten Turn brauchbar wird: Das Greeting kalibriert ihn.
+   *
+   * @returns true, wenn die Messung übernommen wurde (für die Diagnose).
    */
-  calibrate(): void {
-    if (this.totalMs < CALIBRATION_MIN_MS) return;
+  calibrate(): boolean {
+    if (this.totalMs < CALIBRATION_MIN_MS) return false;
     const chars = this.queuedParts.join(" ").length;
-    if (!chars) return;
+    if (!chars) return false;
     const measured = chars / (this.totalMs / 1000);
-    if (measured < MIN_CHARS_PER_SECOND || measured > MAX_CHARS_PER_SECOND) return;
+    if (measured < MIN_CHARS_PER_SECOND || measured > MAX_CHARS_PER_SECOND) return false;
     // Gleitender Mittelwert; die erste Messung verdrängt den Schätzwert ganz.
     this.measurements += 1;
     const w = 1 / this.measurements;
     this.charsPerSecond =
       this.measurements === 1 ? measured : this.charsPerSecond * (1 - w) + measured * w;
+    return true;
   }
 
   /** Für Tests und Diagnose: die aktuell angenommene Sprechrate. */
@@ -154,24 +167,27 @@ export class SpeechClock {
     for (const seg of this.segments) {
       if (seg.ms <= 0) continue;
       if (played >= acc + seg.ms) {
-        parts.push(seg.text);
+        parts.push(parts.length === 0 ? seg.text : seg.glue + seg.text);
         acc += seg.ms;
         continue;
       }
       const head = cutAtWord(seg.text, Math.floor(((played - acc) / seg.ms) * seg.text.length));
-      if (head) parts.push(head);
-      return { text: parts.join(" "), complete: false };
+      if (head) parts.push(seg === this.segments[0] ? head : seg.glue + head);
+      return { text: parts.join("").trim(), complete: false };
     }
     // Alle erklungenen Segmente sind durch — offen bleibt, ob noch Text wartete,
     // dessen Audio nie kam (Barge-in während der Synthese des nächsten Satzes).
-    return { text: parts.join(" "), complete: this.segments.length >= this.queuedParts.length };
+    // Zeichen zählen, nicht Segmente: Ein Anbieter darf beliebig fein melden.
+    const spoken = parts.join("").length;
+    const announced = this.queuedParts.join(" ").length;
+    return { text: parts.join("").trim(), complete: spoken >= announced };
   }
 
   private sliceFlat(played: number): SpokenSlice {
     const flat = this.queuedParts.join(" ");
     if (!flat) return { text: "", complete: true };
     const chars = Math.floor((played / 1000) * this.charsPerSecond);
-    if (chars >= flat.length) return { text: flat, complete: true };
-    return { text: cutAtWord(flat, chars), complete: false };
+    if (chars >= flat.length) return { text: flat.trim(), complete: true };
+    return { text: cutAtWord(flat, chars).trim(), complete: false };
   }
 }

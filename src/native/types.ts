@@ -176,7 +176,7 @@ export interface TtsStreamEvents {
    * HTTP-Basisklasse ist ein Auftrag exakt ein Satz. Ohne dieses Signal schätzt
    * die Sprechuhr über die Sprechrate (Aura: Binärstrom ohne Satzgrenzen).
    */
-  segment: (text: string) => void;
+  segment: (text: string, glue?: string) => void;
   /**
    * Barge-in vom Anbieter bestätigt, inklusive dem, was der Anrufer WIRKLICH
    * gehört hat. Nur Anbieter mit serverseitigem Truncate liefern das

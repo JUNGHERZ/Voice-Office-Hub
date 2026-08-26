@@ -29,9 +29,16 @@ unabhängig. Die Anbieter liefern lediglich unterschiedlich genaue Zuleitungen:
 
 | Zuleitung | Anbieter | Genauigkeit |
 |---|---|---|
+| `alignment` je Wire-Nachricht | ElevenLabs | Nachricht (~0,5–1 s) |
 | `segment`-Ereignis je Auftrag | Azure · Mistral · Speechify (`ttsHttp.ts`) | Satz, darin proportional |
 | keine Meldung → Sprechrate | Deepgram Aura | Wort ± 1 |
 | meldet selbst (`text_spoken`) | Deepgram Flux TTS | exakt |
+
+**ElevenLabs schneidet nicht an Satzgrenzen** — am 26.08.2026 gegen die echte API
+gemessen endete die erste Nachricht mitten im Wort (`"Der Kontostand betra"` |
+`"egt zwoelftausend Euro. "`). Die Zeichenspur lag die ganze Zeit auf der Leitung,
+unser Parser hat sie nur nie gelesen. Verwendet wird `alignment`, nicht
+`normalizedAlignment` (dort stünden ausgeschriebene Zahlen statt des Wortlauts).
 
 Die Rate für den geschätzten Fall ist kein fester Wert: Nach dem ersten Turn ohne
 Barge-in misst die Uhr sie an der eigenen Stimme — in der Praxis schon am
@@ -53,6 +60,18 @@ Live-Widget zeigen ab jetzt das **Gehörte** statt der Modellausgabe.
 - `HttpTtsStream` meldet die Segmentgrenze im **Head-of-Line-Emitter**, nicht beim
   Einreihen: Die Sprechuhr braucht sie in Ausgabereihenfolge, sonst verrutscht die
   Zuordnung bei `NATIVE_HTTP_TTS_CONCURRENCY=2`.
+- `segment(text, glue?)` trägt ein Trennzeichen: Ganze Sätze hängen mit Leerzeichen
+  aneinander (Vorgabe), ElevenLabs-Nachrichten fugenlos.
+- Neue Logzeile `Sprechrate gemessen`, einmal je Anruf. Ohne Segmentgrenzen (Aura)
+  IST diese Zahl die Genauigkeit der Sprechuhr — sie gehört sichtbar ins Log.
+
+### Bewusst nicht gebaut
+
+Ein `Flush` nach **jedem** Satz würde die Grenze auch bei Aura exakt machen
+(`Flushed` trägt eine `sequence_id`). Es bliebe die einzige Änderung am
+Sprechfluss im ganzen Entwurf, und der Gewinn gegenüber der kalibrierten
+Schätzung liegt bei etwa einem Wort — nach dem Abrunden auf die Wortgrenze oft
+bei null. Gehört an echten Anrufen gemessen, bevor jemand es einschaltet.
 
 ### Bekannte Grenzen
 
