@@ -12,6 +12,7 @@ import {
   parseDeepgramRegion,
   type DeepgramRegion,
 } from "./deepgram/endpoints.js";
+import { parseModelChain } from "./llm/models.js";
 
 function opt(name: string, fallback = ""): string {
   return process.env[name] ?? fallback;
@@ -50,7 +51,20 @@ export interface Config {
     provider: LlmProvider;
     requestyApiKey: string;
     requestyBaseUrl: string;
+    /**
+     * Rohwert aus `LLM_MODEL` — seit 0.18.0 darf er kommagetrennt mehrere Modelle
+     * tragen (primär, sekundär, …). Bleibt der Rohwert, damit ein Agent ohne eigenes
+     * `think.model` die ganze Kette erbt und nicht nur deren erste Stufe.
+     */
     model: string;
+    /** `model` aufgelöst: erste Stufe primär, danach die Ausweichstufen. */
+    modelChain: string[];
+    /**
+     * Zeitbudget bis zum ersten Token je Kettenstufe (ms), 0 = aus. Ohne diesen
+     * Wächter deckt die Kette nur schnelle Fehler ab; ein Anbieter, der die
+     * Verbindung annimmt und dann hängt, wirft nie einen Fehler.
+     */
+    firstTokenTimeoutMs: number;
     /**
      * Prompt-Caching-Breakpoint auf den System-Prompt (nur Claude-Modelle — bei
      * allen anderen bleibt der Request unveraendert). Lohnt erst ab dem
@@ -223,11 +237,15 @@ export interface Config {
   summary: {
     enabled: boolean;
     prompt: string;
+    /** Rohwert aus `SUMMARY_MODEL`, seit 0.18.0 kommagetrennte Kette erlaubt. */
     model: string;
+    modelChain: string[];
   };
   /** Laufzeit-Lokalisierung fest hinterlegter Ansagen (One-Shot, eigenes günstiges Modell). */
   localize: {
+    /** Rohwert aus `LOCALIZE_MODEL`, seit 0.18.0 kommagetrennte Kette erlaubt. */
     model: string;
+    modelChain: string[];
   };
   /** Stille-Reengagement (0.6.27): Nachfassen, wenn der Anrufer schweigt. */
   idle: {
@@ -365,6 +383,8 @@ export const config: Config = {
     requestyApiKey: opt("REQUESTY_API_KEY"),
     requestyBaseUrl: opt("REQUESTY_BASE_URL", "https://router.requesty.ai/v1"),
     model: opt("LLM_MODEL", "openai/gpt-4o"),
+    modelChain: parseModelChain(opt("LLM_MODEL", "openai/gpt-4o")),
+    firstTokenTimeoutMs: int("LLM_FIRST_TOKEN_TIMEOUT_MS", 2000),
     promptCache: bool("LLM_PROMPT_CACHE", true),
   },
   mongo: {
@@ -474,11 +494,13 @@ export const config: Config = {
     ),
     // Eigenes Summary-Modell über Requesty (unabhängig vom Konversations-Modell).
     model: opt("SUMMARY_MODEL", EU_ONESHOT_MODEL),
+    modelChain: parseModelChain(opt("SUMMARY_MODEL", EU_ONESHOT_MODEL)),
   },
   localize: {
     // Erkennung + Übersetzung der Ansagen und Erzeugung der Begrüßung (günstig,
     // temperature 0; unabhängig vom Konversations-LLM).
     model: opt("LOCALIZE_MODEL", EU_ONESHOT_MODEL),
+    modelChain: parseModelChain(opt("LOCALIZE_MODEL", EU_ONESHOT_MODEL)),
   },
   idle: {
     timeoutMs: int("IDLE_PROMPT_TIMEOUT_MS", 8000),

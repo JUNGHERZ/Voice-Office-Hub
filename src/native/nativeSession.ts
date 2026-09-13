@@ -27,7 +27,7 @@ import { randomUUID } from "node:crypto";
 
 import { config } from "../config.js";
 import type { TurnGate } from "../duplex/controller.js";
-import { modelSupportsTemperature } from "../llm/models.js";
+import { modelSupportsTemperature, parseModelChain } from "../llm/models.js";
 import { BUILTIN_TOOL_NAMES } from "../tools/names.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
@@ -50,7 +50,7 @@ import { SpeechClock } from "./speechClock.js";
 import { createBreakNormalizer, sanitizeForSpeech } from "./speechText.js";
 import { FluxSttStream, type SttStreamOptions, type TurnUpdate } from "./sttStream.js";
 import { buildNativeTts } from "./ttsFactory.js";
-import type { SttStreamLike, TtsStreamLike } from "./types.js";
+import type { LlmStreamResult, SttStreamLike, TtsStreamLike } from "./types.js";
 
 // Die Provider-Matrix liegt in ttsFactory.ts; hier re-exportiert, damit bestehende
 // Importe und die Testnaht (NativeSessionDeps.createTts) unverändert bleiben.
@@ -337,7 +337,10 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   getUsage(): VoiceSessionUsage | undefined {
     const u = this.tts.usage?.();
     const llm = this.llmUsage;
-    if (!u?.characters && !llm.requests) return undefined;
+    // `llm.errors` gehört ins Tor: Scheitern ALLE Stufen der Kette, gibt es keinen
+    // erfolgreichen Aufruf — und ohne diese Bedingung fiele der Verbrauch samt
+    // Ausfallbild unter den Tisch, also genau dort, wo er gebraucht wird.
+    if (!u?.characters && !llm.requests && !llm.errors) return undefined;
     return {
       ...(u?.characters
         ? {
@@ -356,6 +359,9 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
             llmRequests: llm.requests,
           }
         : {}),
+      // Nur setzen, wenn etwas schiefging — ein stiller Anruf soll keine Nullen tragen.
+      ...(llm.errors ? { llmErrors: llm.errors } : {}),
+      ...(llm.fallbacks ? { llmFallbacks: llm.fallbacks } : {}),
     };
   }
 
@@ -513,6 +519,10 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     cachedPromptTokens: 0,
     completionTokens: 0,
     requests: 0,
+    /** Gescheiterte LLM-Versuche (0.18.0) — inklusive der, die eine Ausweichstufe aufgefangen hat. */
+    errors: 0,
+    /** Runden, die eine Ausweichstufe der Modellkette beantwortet hat (0.18.0). */
+    fallbacks: 0,
   };
 
   /**
@@ -907,47 +917,64 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     const abort = new AbortController();
     this.activeAbort = abort;
     if (spec) spec.abort = abort;
-    const model = this.agent.think.model || config.llm.model;
+    // Modellkette (0.18.0): erste Stufe primär, danach die Ausweichstufen.
+    const chain = parseModelChain(this.agent.think.model || config.llm.model);
     let firstRound = true;
 
     try {
       // Tool-Loop: LLM-Runden, bis eine Antwort ohne tool_calls kommt.
       for (;;) {
-        let chunker = createSentenceChunker(config.native.minSentenceChars);
         // VOR dem Zerleger: Zeilenumbrüche zu Satzgrenzen. Eine Aufzählung hat sonst keine,
         // der Zerleger hielte sie bis zum Stream-Ende zurück, und der Sprechbeginn verschöbe
         // sich um die gesamte Antwortdauer. Die eigentliche Säuberung folgt in speak().
         const normalizeBreaks = this.agent.speak.sanitize
           ? createBreakNormalizer()
           : (delta: string) => delta;
-        const result = await this.deps.streamLlm(
-          {
-            baseUrl: config.llm.requestyBaseUrl,
-            apiKey: config.llm.requestyApiKey,
-            model,
-            // Spekulative Runde 1: User-Turn nur im Request, NICHT in der Historie —
-            // die wird erst beim bestätigten EndOfTurn nachgezogen.
-            messages:
-              spec && firstRound
-                ? [...this.history.messages(), { role: "user" as const, content: spec.transcript }]
-                : this.history.messages(),
-            ...(this.tools.length ? { tools: this.tools } : {}),
-            ...(modelSupportsTemperature(model)
-              ? { temperature: this.agent.think.temperature }
-              : {}),
-            promptCache: config.llm.promptCache,
-            signal: abort.signal,
-          },
-          (delta) => {
-            if (gen !== this.generation) return;
-            if (!this.firstTokenAt) this.firstTokenAt = Date.now();
-            for (const sentence of chunker.push(normalizeBreaks(delta))) {
-              // TTS-Gate der Spekulation: puffern, bis das Turn-Ende bestätigt ist.
-              if (spec && !spec.open) spec.buffer.push(sentence);
-              else this.speak(sentence, gen);
-            }
-          },
-        );
+        // Zerleger und Modell gehören zum GEGLÜCKTEN Versuch: eine gescheiterte Stufe
+        // darf der nächsten keinen halben Satz vererben.
+        let chunker = createSentenceChunker(config.native.minSentenceChars);
+        const runStage = async (
+          stageModel: string,
+          emitted: { value: boolean },
+        ): Promise<LlmStreamResult> => {
+          chunker = createSentenceChunker(config.native.minSentenceChars);
+          return this.deps.streamLlm(
+            {
+              baseUrl: config.llm.requestyBaseUrl,
+              apiKey: config.llm.requestyApiKey,
+              model: stageModel,
+              // Spekulative Runde 1: User-Turn nur im Request, NICHT in der Historie —
+              // die wird erst beim bestätigten EndOfTurn nachgezogen.
+              messages:
+                spec && firstRound
+                  ? [...this.history.messages(), { role: "user" as const, content: spec.transcript }]
+                  : this.history.messages(),
+              ...(this.tools.length ? { tools: this.tools } : {}),
+              // Modell-Eigenheiten gelten je Stufe, nicht für die Kette als Ganzes.
+              ...(modelSupportsTemperature(stageModel)
+                ? { temperature: this.agent.think.temperature }
+                : {}),
+              promptCache: config.llm.promptCache,
+              firstTokenTimeoutMs: config.llm.firstTokenTimeoutMs,
+              signal: abort.signal,
+            },
+            (delta) => {
+              if (gen !== this.generation) return;
+              // Ab hier ist die Stufe verbindlich: was gepuffert oder gesprochen wurde,
+              // lässt sich durch ein Ausweichmodell nicht mehr sauber ersetzen.
+              emitted.value = true;
+              if (!this.firstTokenAt) this.firstTokenAt = Date.now();
+              for (const sentence of chunker.push(normalizeBreaks(delta))) {
+                // TTS-Gate der Spekulation: puffern, bis das Turn-Ende bestätigt ist.
+                if (spec && !spec.open) spec.buffer.push(sentence);
+                else this.speak(sentence, gen);
+              }
+            },
+          );
+        };
+        const staged = await this.streamOverChain(chain, runStage, abort);
+        const result = staged.result;
+        const model = staged.model;
         this.llmUsage.model = model;
         this.llmUsage.requests += 1;
         if (result.usage) {
@@ -1047,11 +1074,56 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       if ((err as Error).name === "AbortError") return; // Barge-in: bewusst verworfen
       this.responding = false;
       if (gen !== this.generation || this.closed) return;
+      this.llmUsage.errors += 1;
       this.log.warn("LLM-Turn fehlgeschlagen — zurück zu Listening", { err: String(err) });
       this.emit("error", `LLM: ${String(err)}`);
     } finally {
       this.clearFiller(); // Absicherung: kein Filler-Timer überlebt das Turn-Ende
       if (this.activeAbort === abort) this.activeAbort = undefined;
     }
+  }
+
+  /**
+   * Eine LLM-Runde über die Modellkette (0.18.0). Stufe n+1 wird nur versucht,
+   * solange **noch kein Text an die Sprachausgabe gegangen ist** — danach hat der
+   * Anrufer bereits einen Halbsatz gehört, und ein Modellwechsel würde ihn mitten
+   * im Satz überschreiben. Ein Barge-in-Abbruch beendet die Kette sofort.
+   */
+  private async streamOverChain(
+    chain: string[],
+    runStage: (model: string, emitted: { value: boolean }) => Promise<LlmStreamResult>,
+    abort: AbortController,
+  ): Promise<{ result: LlmStreamResult; model: string }> {
+    if (!chain.length) throw new Error("LLM: keine Modellangabe");
+    let last: unknown;
+    for (let stage = 0; stage < chain.length; stage++) {
+      const model = chain[stage] as string;
+      const emitted = { value: false };
+      try {
+        const result = await runStage(model, emitted);
+        if (stage > 0) {
+          this.llmUsage.fallbacks += 1;
+          this.log.warn("Ausweichmodell hat geantwortet", {
+            model,
+            stage: stage + 1,
+            primaer: chain[0],
+          });
+        }
+        return { result, model };
+      } catch (err) {
+        last = err;
+        if (abort.signal.aborted || (err as Error)?.name === "AbortError") throw err;
+        // Schon gesprochen oder letzte Stufe: kein Ausweichen mehr möglich.
+        if (emitted.value || stage === chain.length - 1) throw err;
+        this.llmUsage.errors += 1;
+        this.log.warn("Modellstufe fehlgeschlagen — nächste Stufe der Kette", {
+          model,
+          stage: stage + 1,
+          next: chain[stage + 1],
+          err: String(err),
+        });
+      }
+    }
+    throw last;
   }
 }

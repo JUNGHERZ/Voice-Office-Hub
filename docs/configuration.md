@@ -10,7 +10,8 @@ Die gesamte Komponente wird über **ENV-Variablen** gesteuert (siehe [.env.examp
 | `LLM_PROVIDER` | `requesty` | `requesty` (BYO-Router) oder `deepgram` (managed) für den live `think`-Schritt. |
 | `REQUESTY_API_KEY` | — | Auth für den Requesty-Router (Think + Summary). |
 | `REQUESTY_BASE_URL` | `https://router.requesty.ai/v1` | OpenAI-kompatibler Endpunkt. |
-| `LLM_MODEL` | `openai/gpt-4o` | Konversations-Modell (Requesty-ID, z. B. `vertex/gemini-3.1-flash-lite@eu`); pro Agent überschreibbar. |
+| `LLM_MODEL` | `openai/gpt-4o` | Konversations-Modell (Requesty-ID, z. B. `vertex/gemini-3.1-flash-lite@eu`); pro Agent überschreibbar. **Seit 0.18.0 kommagetrennt als Modellkette** — erste Stufe primär, danach die Ausweichstufen: `sference/deepseek-v4.1-flash,sference/deepseek-v4-flash-0731,bedrock/claude-haiku-4-5@eu-central-1`. Siehe [Modellkette](#modellkette-ausweichstufen-bei-anbieterausfall). |
+| `LLM_FIRST_TOKEN_TIMEOUT_MS` *(0.18.0)* | `2000` | Zeitbudget bis zum **ersten Token** je Kettenstufe; `0` schaltet den Wächter ab. Deckt Verbindung, Header und das erste Delta ab — danach greift er nicht mehr, ein langsam weiterlaufender Stream wird nicht abgeschnitten. |
 | `LLM_PROMPT_CACHE` *(0.8.9)* | `true` | Setzt einen Prompt-Caching-Breakpoint auf den System-Prompt. Greift **nur bei Claude-Modellen** — alle anderen Anbieter bekommen den Request unverändert, weil sie die Anthropic-Blockform nicht kennen. Wirkt zudem erst ab dem Mindest-Präfix des Modells (Haiku 4.5: 4096 Tokens ≈ 11.300 Zeichen deutscher Prompt); darunter ignoriert die API den Block kostenneutral und die Engine loggt das einmal je Anruf. |
 | `MONGO_URI` | `mongodb://127.0.0.1:27017/voiceagent` | Lokal **oder** externes (repliziertes) Set. |
 | `USE_LOCAL_MONGO` | `true` | `false` → kein lokales `mongod` im Container. |
@@ -53,7 +54,7 @@ Die gesamte Komponente wird über **ENV-Variablen** gesteuert (siehe [.env.examp
 | `NATIVE_LOG_TURN_UPDATES` *(0.12.2)* | `false` | Reiner **Messschalter**: protokolliert Flux' `Update`-Ereignisse (etwa alle 0,25 s je Anruf) mit Turn-Ende-Konfidenz, Zeichenzahl und den letzten 48 Zeichen des kumulativen Transkripts. Bewusst auf `info`-Pegel, damit eine Live-Instanz für die Messung nicht auf `debug` gehoben werden muss. Der native Pfad wertet die Ereignisse nicht aus — sie sind die Auslegungsgrundlage für eine Gesprächssteuerung, die entscheidet, bevor der Turn zu Ende ist. Für den Normalbetrieb ausgeschaltet lassen. |
 | `NATIVE_EAGER_EOT` / `NATIVE_EAGER_EOT_THRESHOLD` *(0.6.17)* | `false` / `0.5` | Spekulativer LLM-Start auf das vorläufige Flux-Turn-Ende (EagerEndOfTurn): spart typ. 200–500 ms Antwortzeit; Audio/Historie/Tool-Calls warten hinter einem Gate bis zum bestätigten EndOfTurn — Fehlspekulationen (TurnResumed/abweichendes Transkript) sind unhörbar und kosten nur LLM-Input-Tokens. Die Schwelle (0.3–0.9) wird bei aktivem Flag immer mitgesendet — ohne sie deaktiviert Flux den Eager-Modus komplett; niedriger = früher spekulieren, höher = konservativer. |
 | `NATIVE_FILLER_DELAY_MS` *(0.6.26)* | `2000` | Default-Verzögerung (ms) für den **Timer-Filler** bei Tool-Wartezeiten (nur native), falls `agent.fillers.delayMs` fehlt. Aktivierung/Phrasen pro Agent (`agents.fillers`). |
-| `LOCALIZE_MODEL` *(0.6.26, Default geändert 0.10.0)* | `bedrock/claude-haiku-4-5@eu-central-1` | Modell für die **Ansagen-Lokalisierung** (Requesty-One-Shot: Sprach-/Registererkennung + Übersetzung des Ansagen-Katalogs) **und für den Begrüßungs-Prompt**, unabhängig vom Konversations-LLM. Der Default ist bewusst regionsgebunden: Dieser Aufruf sieht den kompletten Ansagen-Katalog und die Begrüßung mitsamt Firmennamen. Bis 0.9.x stand hier `openai/gpt-4.1-mini` — wer die Variable nie gesetzt hat, wechselt mit dem Update das Modell. |
+| `LOCALIZE_MODEL` *(0.6.26, Default geändert 0.10.0)* | `bedrock/claude-haiku-4-5@eu-central-1` | Modell für die **Ansagen-Lokalisierung** (Requesty-One-Shot: Sprach-/Registererkennung + Übersetzung des Ansagen-Katalogs) **und für den Begrüßungs-Prompt**, unabhängig vom Konversations-LLM. Der Default ist bewusst regionsgebunden: Dieser Aufruf sieht den kompletten Ansagen-Katalog und die Begrüßung mitsamt Firmennamen. Bis 0.9.x stand hier `openai/gpt-4.1-mini` — wer die Variable nie gesetzt hat, wechselt mit dem Update das Modell. Kommagetrennte [Modellkette](#modellkette-ausweichstufen-bei-anbieterausfall) erlaubt (0.18.0). |
 | `TRANSFER_FAILED_ANNOUNCEMENT` *(0.6.26)* | „Ich konnte leider niemanden erreichen. …" | Standardtext der Ansage bei fehlgeschlagener Weiterleitung (pro Agent via `agents.transferFailedAnnouncement` überschreibbar; wird bei mehrsprachigen Agenten lokalisiert). |
 | `IDLE_PROMPT_TIMEOUT_MS` *(0.6.27)* | `8000` | Default-Stille (ms) bis zur ersten **Nachfass-Ansage**, falls `agent.idlePrompts.timeoutMs` fehlt. Aktivierung/Phrasen pro Agent (`agents.idlePrompts`). |
 | `IDLE_HANGUP_ANNOUNCEMENT` *(0.6.27)* | „Ich melde mich dann ab. …" | Standard-Abschied, bevor wegen Stille aufgelegt wird (nur bei `idlePrompts.hangupAfter`; pro Agent überschreibbar, wird lokalisiert). |
@@ -74,7 +75,7 @@ Die gesamte Komponente wird über **ENV-Variablen** gesteuert (siehe [.env.examp
 | `RECORDING_TTL_DAYS` *(0.10.0)* | `0` | Aufbewahrungs- **und Abholfrist** für Aufnahmen in Tagen; `0` = aus (unbefristet, Verhalten bis 0.9.x). Siehe [Aufbewahrung von Aufnahmen](#aufbewahrung-von-aufnahmen). |
 | `RECORDING_PATH` | `/data/recordings` | (Reserviert) Staging-Pfad; ARI schreibt Aufnahmen aktuell nach `/var/spool/asterisk/recording`. |
 | `SUMMARY_ENABLED` | `false` | Post-Call-Summary aktiv. |
-| `SUMMARY_MODEL` *(Default geändert 0.10.0)* | `bedrock/claude-haiku-4-5@eu-central-1` | Eigenes Summary-Modell (Requesty), unabhängig vom Konversations-LLM. Regionsgebundener Default aus demselben Grund wie bei `LOCALIZE_MODEL`: Die Zusammenfassung sieht das **ganze Transkript**. |
+| `SUMMARY_MODEL` *(Default geändert 0.10.0)* | `bedrock/claude-haiku-4-5@eu-central-1` | Eigenes Summary-Modell (Requesty), unabhängig vom Konversations-LLM. Regionsgebundener Default aus demselben Grund wie bei `LOCALIZE_MODEL`: Die Zusammenfassung sieht das **ganze Transkript**. Kommagetrennte [Modellkette](#modellkette-ausweichstufen-bei-anbieterausfall) erlaubt (0.18.0) — hier ohne jeden Latenznachteil, der Aufruf läuft nach dem Gespräch. |
 | `SUMMARY_PROMPT` | … | Default-Summary-Prompt (pro Agent via `agents.summary.prompt` überschreibbar). |
 | `ECHO_TEST` / `ECHO_MODE` | `false` / `packet` | Diagnose: Anrufer-Audio zurückspielen (ohne Deepgram). |
 | `ADMIN_PASSWORD` | — | Admin-UI/API-Login. **Leer → Admin-Server startet nicht.** |
@@ -167,7 +168,7 @@ Die eigene Kaskade **Flux-STT → Requesty-LLM → Streaming-TTS** nutzt dieselb
 | Feld | Wirkung im native-Modus |
 | --- | --- |
 | `listen.model` | Muss ein `flux-*`-Modell sein (modellintegriertes Turn-Taking); steht `nova-3`, fällt die Engine mit Warnung auf `flux-general-multi` zurück. `eot_threshold`/`eot_timeout_ms`/`keyterms` gehen 1:1 an Flux, der Sprach-Hinweis wird abgeleitet (s. o.); `smart_format` ist wirkungslos. |
-| `think.model` / `temperature` / `context_length` | Requesty-Modell (SSE-Streaming mit Tool-Calling), Temperatur (GPT-5/o1/o3-Guard), Zeichenbudget der Historie (`"max"`/leer = `NATIVE_CONTEXT_CHARS`). `think.source` wird ignoriert — native ist immer BYO-Requesty. |
+| `think.model` / `temperature` / `context_length` | Requesty-Modell (SSE-Streaming mit Tool-Calling), Temperatur (GPT-5/o1/o3-Guard), Zeichenbudget der Historie (`"max"`/leer = `NATIVE_CONTEXT_CHARS`). `think.source` wird ignoriert — native ist immer BYO-Requesty. `model` darf eine kommagetrennte [Modellkette](#modellkette-ausweichstufen-bei-anbieterausfall) sein (0.18.0). |
 | `speak.provider` / `model` / `voice` *(erweitert 0.8.0)* | TTS-Matrix (`src/native/ttsFactory.ts`): `deepgram` → Aura-2-Streaming (`Clear` für Barge-in); `eleven_labs` → ElevenLabs-`stream-input` (`pcm_8000`, Voice-ID in `voice`, Modell-Default `eleven_flash_v2_5`; Barge-in trennt die Verbindung hart, der nächste Satz verbindet lazy neu); `mistral` → Voxtral über HTTP/SSE (`POST /v1/audio/speech`, ein Request je Satz, Stimm-ID in `voice`, Modell-Default `voxtral-mini-tts-latest`); `azure` → Azure Neural TTS über REST (`POST /cognitiveservices/v1`, SSML-Body, ein Request je Satz, Stimmname in `model`, nativ 8/16 kHz). Unvollständige Konfiguration → Warnung + Aura-Fallback; **ein Anruf scheitert nie an der TTS-Auswahl**. |
 | Sample-Rate bei Voxtral | Voxtral gibt **fest 24 kHz** aus und wird serverseitig auf `AUDIO_SAMPLE_RATE` heruntergerechnet (`src/audio/resample.ts`: Polyphase-FIR, Cutoff 3600 Hz). Nackte Dezimation wäre als metallisches Sirren im Sprachband hörbar. Nicht unterstütztes Ratenpaar → Aura-Fallback. |
 | `speak.stability` / `similarityBoost` / `speed` *(0.6.13, `speed` für Azure 0.8.10)* | ElevenLabs-`voice_settings` (nur native Kaskade; im Deepgram-Agent-Modus gelten die Voice-Defaults aus dem ElevenLabs-Dashboard): `stability`/`similarityBoost` 0–1, `speed` 0.7–1.2 (außerhalb wird geklemmt). Unset = Voice-Default. **`speed` gilt auch für Azure** — dort als `<prosody rate>` im SSML, Multiplikator 0,5–2,0 (außerhalb geklemmt, mit Warn-Log); unset lässt das `prosody`-Tag ganz weg. Gemessen an Seraphina, gleicher Satz: Standard 8,35 s, 1.1 → 7,64 s, 1.2 → 6,94 s, 1.3 → 6,21 s. Welche Provider den Regler anbieten, steht als `knobs` im Katalog `src/tts/catalog.ts`. UI: Modal „Erweiterte Stimm-Einstellungen" im Agent-Formular. |
@@ -444,6 +445,25 @@ Im Agent (`think.source`) bzw. global (`LLM_PROVIDER`):
 > **Hinweis:** GPT-5-/o1-/o3-Modelle akzeptieren nur die Default-`temperature`; der Settings-Builder lässt `temperature` für diese Modelle daher weg (sonst „Failed to think"). Deepgrams managed-Google kann projektseitig gesperrt sein — dann Gemini über **Requesty** nutzen (eigene Google-Anbindung).
 
 Die **Post-Call-Summary** nutzt immer die Requesty-Request-API ([summarize.ts](../src/llm/summarize.ts)) mit **eigenem Modell** (`SUMMARY_MODEL`) und eigenem Prompt (`SUMMARY_PROMPT`), beides pro Agent überschreibbar.
+
+### Modellkette: Ausweichstufen bei Anbieterausfall
+
+`LLM_MODEL`, `SUMMARY_MODEL`, `LOCALIZE_MODEL` und `agent.think.model` dürfen seit 0.18.0 **kommagetrennt mehrere Modelle** tragen. Die Reihenfolge ist die Prioritätsreihenfolge: erste Stufe primär, danach die Ausweichstufen. Fällt eine Stufe aus (HTTP-Fehler, Zeitüberschreitung, Netzabbruch), übernimmt die nächste und das Gespräch läuft weiter. Eine Angabe ohne Komma verhält sich exakt wie vorher.
+
+```
+LLM_MODEL=sference/deepseek-v4.1-flash,sference/deepseek-v4-flash-0731,bedrock/claude-haiku-4-5@eu-central-1
+```
+
+Sinnvoll sind **verschiedene Anbieter** — zwei Stufen beim selben nützen bei dessen Ausfall nichts. Dubletten und Leereinträge werden verworfen.
+
+**Vier Dinge, die man vorher wissen sollte:**
+
+- **Ohne Zeitbudget deckt die Kette nur die Hälfte ab.** Ein Anbieter, der die Verbindung annimmt und dann hängt, wirft nie einen Fehler — und ohne Fehler weicht niemand aus. Dafür gibt es `LLM_FIRST_TOKEN_TIMEOUT_MS` (Default 2000). Der Wächter greift nur bis zum ersten Token; ein danach langsam weiterlaufender Stream wird nicht abgeschnitten.
+- **Nach gesprochenem Text wird nicht mehr gewechselt.** Hat die Sprachausgabe schon einen Halbsatz bekommen, würde eine zweite Stufe den Anrufer mitten im Satz überschreiben. Der Turn scheitert dann wie bisher und die Engine geht zurück ins Zuhören.
+- **Der Deepgram-Pfad kann keine Kette.** Dort ruft Deepgram den Endpunkt selbst und nimmt genau ein Modell entgegen; es gilt nur die erste Stufe, und die Engine warnt beim Verbindungsaufbau. Wer auch diesen Pfad absichern will, hinterlegt eine Requesty-Routing-Policy und trägt sie als `policy/<name>` ein — die wirkt router-seitig.
+- **Alle Stufen laufen über denselben Router.** Fällt Requesty selbst aus, hilft die Kette nicht; dagegen bräuchte es einen zweiten Router.
+
+**Sichtbarkeit.** Ein Ausweichen bleibt nicht im Log verborgen: `metrics.llmModel` trägt das Modell, das *tatsächlich* geantwortet hat, `metrics.llmFallbacks` zählt die Runden, die eine Ausweichstufe beantwortet hat, und `metrics.llmErrors` alle gescheiterten Versuche — auch dann, wenn **alle** Stufen scheitern und es gar keinen erfolgreichen Aufruf gab. Steht in einem Anruf `llmFallbacks` auf einer Zahl, hatte das Primärmodell in diesem Gespräch ein Problem. Zusätzlich schreibt die Engine je Wechsel eine Warnung mit Stufe, Modell und Grund.
 
 ## Tools (Function Calling)
 

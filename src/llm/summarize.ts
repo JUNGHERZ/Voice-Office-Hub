@@ -10,6 +10,8 @@ import * as repo from "../db/repository.js";
 import type { TranscriptTurn } from "../db/repository.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
+import { runOverChain } from "./chain.js";
+import { parseModelChain } from "./models.js";
 
 const log = logger.child({ mod: "summarize" });
 
@@ -23,35 +25,44 @@ export async function summarizeTranscript(
   prompt: string,
   model?: string,
 ): Promise<SummaryResult> {
-  const usedModel = model || config.llm.model;
+  // Modellkette (0.18.0): `SUMMARY_MODEL` bzw. `agent.summary.model` darf kommagetrennt
+  // Ausweichstufen tragen. Ein One-Shot nach dem Gespräch hat keinen Latenzdruck —
+  // hier kostet ein zweiter Versuch nichts als ein paar hundert Millisekunden.
+  const chain = parseModelChain(model || config.llm.model);
   const transcriptText = transcript
     .map((t) => `[${t.t.toFixed(1)}s] ${t.speaker}: ${t.text}`)
     .join("\n");
 
-  const res = await fetch(`${config.llm.requestyBaseUrl.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.llm.requestyApiKey}`,
+  const { value: text, model: usedModel } = await runOverChain(
+    chain,
+    async (stageModel) => {
+      const res = await fetch(`${config.llm.requestyBaseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.llm.requestyApiKey}`,
+        },
+        body: JSON.stringify({
+          model: stageModel,
+          messages: [
+            { role: "system", content: prompt },
+            { role: "user", content: transcriptText },
+          ],
+          temperature: 0.3,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        log.error("Summary-Request fehlgeschlagen", { status: res.status, model: stageModel, body });
+        throw new Error(`Requesty ${res.status}`);
+      }
+
+      const json = (await res.json()) as ChatCompletionResponse;
+      return json.choices?.[0]?.message?.content?.trim() ?? "";
     },
-    body: JSON.stringify({
-      model: usedModel,
-      messages: [
-        { role: "system", content: prompt },
-        { role: "user", content: transcriptText },
-      ],
-      temperature: 0.3,
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    log.error("Summary-Request fehlgeschlagen", { status: res.status, body });
-    throw new Error(`Requesty ${res.status}`);
-  }
-
-  const json = (await res.json()) as ChatCompletionResponse;
-  const text = json.choices?.[0]?.message?.content?.trim() ?? "";
+    { task: "summary", log },
+  );
   return { text, model: usedModel };
 }
 

@@ -156,6 +156,10 @@ export interface CallMetrics {
   llmCachedPromptTokens?: number;
   llmCompletionTokens?: number;
   llmRequests?: number;
+  /** Gescheiterte LLM-Versuche (0.18.0), inklusive der von einer Ausweichstufe aufgefangenen. */
+  llmErrors?: number;
+  /** Runden, die eine Ausweichstufe der Modellkette beantwortet hat (0.18.0). */
+  llmFallbacks?: number;
   /**
    * An den Sprach-Provider gestreamte Audiodauer in Sekunden. Nahe an `durationSec`, aber
    * nicht identisch: Während eines durchgestellten Gesprächs fließt nichts mehr zur Session.

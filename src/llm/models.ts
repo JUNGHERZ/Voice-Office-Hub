@@ -4,6 +4,35 @@
  */
 
 /**
+ * Modellkette aus einer kommagetrennten Angabe: erste Stufe primär, danach die
+ * Ausweichstufen in Reihenfolge (0.18.0). Eine Angabe ohne Komma ergibt eine Kette
+ * der Länge 1 — bestehende Konfigurationen verhalten sich damit unverändert.
+ *
+ * Leere Einträge und Dubletten fallen raus: `"a, ,a,b"` → `["a","b"]`. Eine Dublette
+ * wäre keine Ausweichstufe, sondern nur ein zweiter Versuch beim selben Anbieter —
+ * genau das, was ein Anbieterausfall gerade nicht braucht.
+ */
+export function parseModelChain(value: string | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of (value ?? "").split(",")) {
+    const m = raw.trim();
+    if (!m || seen.has(m)) continue;
+    seen.add(m);
+    out.push(m);
+  }
+  return out;
+}
+
+/**
+ * Primärmodell einer Angabe. Für Pfade, die keine Kette können (Deepgram denkt
+ * selbst und nimmt genau ein Modell entgegen) und für Anzeigezwecke.
+ */
+export function primaryModel(value: string | undefined): string {
+  return parseModelChain(value)[0] ?? "";
+}
+
+/**
  * GPT-5-Familie (und OpenAI-Reasoning-Modelle o1/o3) akzeptieren nur die Default-Temperatur;
  * ein abweichender Wert führt zu Upstream-400 → "Failed to think" bzw. Request-Fehler.
  */

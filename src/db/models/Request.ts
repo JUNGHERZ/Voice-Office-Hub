@@ -82,6 +82,10 @@ const MetricsSchema = new Schema(
     llmCachedPromptTokens: { type: Number },
     llmCompletionTokens: { type: Number },
     llmRequests: { type: Number },
+    // Ausfallbild der Modellkette (0.18.0): ohne diese zwei wäre ein Anbieterausfall
+    // im Anrufprotokoll unsichtbar — der Anruf endet regulär, nur ein Log wüsste davon.
+    llmErrors: { type: Number },
+    llmFallbacks: { type: Number },
     sttSeconds: { type: Number },
     // Stille-Reengagement (0.6.27): Nachfass-Ansagen und ob der Anruf daran endete.
     idlePrompts: { type: Number },

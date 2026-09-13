@@ -92,6 +92,18 @@ export interface VoiceSessionUsage {
   llmCompletionTokens?: number;
   /** Anzahl LLM-Aufrufe: Turns UND Tool-Runden. */
   llmRequests?: number;
+  /**
+   * Gescheiterte LLM-Versuche (0.18.0) — auch die, die eine Ausweichstufe aufgefangen
+   * hat. Ohne dieses Feld ist ein Anbieterausfall im Anrufprotokoll unsichtbar: Der
+   * Anruf endet regulär, und nur eine Logzeile hätte davon gewusst.
+   */
+  llmErrors?: number;
+  /**
+   * Runden, die eine AUSWEICHSTUFE der Modellkette beantwortet hat (0.18.0). Steht hier
+   * eine Zahl, hat das Primärmodell in diesem Anruf versagt — `llmModel` nennt dann das
+   * Modell der zuletzt erfolgreichen Stufe.
+   */
+  llmFallbacks?: number;
 }
 
 /** Latenz-Angaben des Providers zum Sprechbeginn (sofern geliefert), in Sekunden. */

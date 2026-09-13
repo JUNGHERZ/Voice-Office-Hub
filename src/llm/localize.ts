@@ -15,6 +15,8 @@
  */
 import { config } from "../config.js";
 import { logger } from "../util/logger.js";
+import { runOverChain } from "./chain.js";
+import { parseModelChain } from "./models.js";
 
 const log = logger.child({ mod: "localize" });
 
@@ -139,33 +141,43 @@ export async function chatJson(
   user: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const res = await fetch(`${config.llm.requestyBaseUrl.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.llm.requestyApiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature: 0,
-      max_tokens: 1000,
-      // Best-effort — nicht jedes geroutete Modell honoriert es; das robuste Parsen fängt den Rest.
-      response_format: { type: "json_object" },
-    }),
-    signal,
-  });
+  // `model` darf seit 0.18.0 eine kommagetrennte Kette sein (primär, sekundär, …).
+  // Ein Abbruch über `signal` beendet die Kette sofort — er kommt vom Teardown,
+  // nicht vom Anbieter.
+  const { value } = await runOverChain(
+    parseModelChain(model),
+    async (stageModel) => {
+      const res = await fetch(`${config.llm.requestyBaseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.llm.requestyApiKey}`,
+        },
+        body: JSON.stringify({
+          model: stageModel,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          temperature: 0,
+          max_tokens: 1000,
+          // Best-effort — nicht jedes geroutete Modell honoriert es; das robuste Parsen fängt den Rest.
+          response_format: { type: "json_object" },
+        }),
+        signal,
+      });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    log.warn("Localize-Request fehlgeschlagen", { status: res.status, body });
-    throw new Error(`Requesty ${res.status}`);
-  }
-  const json = (await res.json()) as ChatCompletionResponse;
-  return json.choices?.[0]?.message?.content ?? "";
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        log.warn("Localize-Request fehlgeschlagen", { status: res.status, model: stageModel, body });
+        throw new Error(`Requesty ${res.status}`);
+      }
+      const json = (await res.json()) as ChatCompletionResponse;
+      return json.choices?.[0]?.message?.content ?? "";
+    },
+    { task: "localize", log },
+  );
+  return value;
 }
 
 interface ChatCompletionResponse {

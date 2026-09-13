@@ -735,6 +735,10 @@ async function runAgentCall(
       metrics.llmCompletionTokens = usage.llmCompletionTokens;
       metrics.llmRequests = usage.llmRequests;
     }
+    // Unabhängig von llmRequests: Scheitern ALLE Stufen, gab es keinen erfolgreichen
+    // Aufruf — genau dann muss der Ausfall trotzdem im Protokoll stehen.
+    if (usage?.llmErrors) metrics.llmErrors = usage.llmErrors;
+    if (usage?.llmFallbacks) metrics.llmFallbacks = usage.llmFallbacks;
     // 16 Bit mono → 2 Bytes je Sample. Provider-neutral, deshalb immer gesetzt.
     if (callerAudioBytes > 0) {
       metrics.sttSeconds = Math.round(callerAudioBytes / (config.audio.sampleRate * 2));

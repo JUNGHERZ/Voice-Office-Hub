@@ -38,7 +38,32 @@ export interface ChatStreamRequest {
   temperature?: number;
   /** Prompt-Caching-Breakpoint setzen (nur Claude-Modelle, siehe withPromptCache). */
   promptCache?: boolean;
+  /**
+   * Zeitbudget bis zum ERSTEN Token (ms), 0/undefined = aus (0.18.0). Deckt Verbindung,
+   * Header und das erste Delta ab; danach greift es nicht mehr, ein langsam
+   * weiterlaufender Stream wird nicht abgeschnitten.
+   *
+   * Ohne diesen Wächter wäre die Modellkette halb wirkungslos: Ein Anbieter, der die
+   * Verbindung annimmt und dann hängt, wirft nie einen Fehler, und ohne Fehler weicht
+   * niemand aus. Der Anrufer hört dann unbegrenzt Stille.
+   */
+  firstTokenTimeoutMs?: number;
   signal: AbortSignal;
+}
+
+/**
+ * Das Zeitbudget bis zum ersten Token ist abgelaufen. Bewusst KEIN AbortError — der
+ * bedeutet Barge-in und wird vom Orchestrator verworfen; dieser hier ist ein Ausfall
+ * und soll die nächste Stufe der Modellkette auslösen.
+ */
+export class LlmFirstTokenTimeout extends Error {
+  constructor(
+    readonly model: string,
+    readonly ms: number,
+  ) {
+    super(`LLM lieferte binnen ${ms} ms kein Token (${model})`);
+    this.name = "LlmFirstTokenTimeout";
+  }
 }
 
 /**
@@ -134,93 +159,124 @@ export async function streamChatCompletion(
   req: ChatStreamRequest,
   onTextDelta: (text: string) => void,
 ): Promise<LlmStreamResult> {
-  const res = await fetch(`${req.baseUrl.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${req.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: req.model,
-      stream: true,
-      messages: withPromptCache(req.messages, req.model, req.promptCache ?? false),
-      ...(req.tools?.length ? { tools: req.tools } : {}),
-      ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-    }),
-    signal: req.signal,
-  });
+  // Wächter bis zum ersten Token. Eigener Controller, damit sich sein Ablauf vom
+  // Barge-in-Abbruch des Aufrufers unterscheiden lässt (anderer Fehlertyp, andere Folge).
+  const budgetMs = req.firstTokenTimeoutMs ?? 0;
+  const watchdog = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (budgetMs > 0) timer = setTimeout(() => watchdog.abort(), budgetMs);
+  const disarm = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+  const signal =
+    budgetMs > 0 ? AbortSignal.any([req.signal, watchdog.signal]) : req.signal;
+  /** Abbruch einordnen: Aufrufer (Barge-in) hat Vorrang vor dem Wächter. */
+  const asFailure = (err: unknown): unknown => {
+    if (req.signal.aborted) return new DOMException("LLM-Stream abgebrochen", "AbortError");
+    if (watchdog.signal.aborted) return new LlmFirstTokenTimeout(req.model, budgetMs);
+    return err;
+  };
 
-  if (!res.ok || !res.body) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`LLM-Stream fehlgeschlagen (HTTP ${res.status}): ${body.slice(0, 300)}`);
-  }
-
-  let content = "";
-  let finishReason: string | undefined;
-  // Tool-Call-Fragmente: erster Chunk pro index trägt id/name, Folge-Chunks arguments-Stücke.
-  const partial = new Map<number, { id: string; name: string; args: string }>();
-  let usage: LlmStreamUsage | undefined;
-  let done = false;
-
-  const parse = createSseParser((payload) => {
-    if (payload === "[DONE]") {
-      done = true;
-      return;
-    }
-    let chunk: ChatStreamChunk;
-    try {
-      chunk = JSON.parse(payload) as ChatStreamChunk;
-    } catch {
-      return; // defekte Zeile überspringen (nächstes Event repariert nichts rückwirkend)
-    }
-    // Vor der choices-Pruefung: das Nutzungs-Event traegt zwar choices, aber ein
-    // leeres delta — und bei anderen Anbietern gar keine choices.
-    if (chunk.usage) {
-      const d = chunk.usage.prompt_tokens_details;
-      usage = {
-        promptTokens: chunk.usage.prompt_tokens ?? 0,
-        completionTokens: chunk.usage.completion_tokens ?? 0,
-        cachedTokens: d?.cached_tokens ?? 0,
-        cacheWriteTokens: d?.caching_tokens ?? 0,
-      };
-    }
-    const choice = chunk.choices?.[0];
-    if (!choice) return;
-    if (choice.finish_reason) finishReason = choice.finish_reason;
-    const delta = choice.delta;
-    if (!delta) return;
-    if (typeof delta.content === "string" && delta.content.length) {
-      content += delta.content;
-      onTextDelta(delta.content);
-    }
-    for (const tc of delta.tool_calls ?? []) {
-      const entry = partial.get(tc.index) ?? { id: "", name: "", args: "" };
-      if (tc.id) entry.id = tc.id;
-      if (tc.function?.name) entry.name = tc.function.name;
-      if (tc.function?.arguments) entry.args += tc.function.arguments;
-      partial.set(tc.index, entry);
-    }
-  });
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
   try {
-    while (!done) {
-      const { value, done: streamEnd } = await reader.read();
-      if (streamEnd) break;
-      parse(decoder.decode(value, { stream: true }));
+    const res = await fetch(`${req.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${req.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: req.model,
+        stream: true,
+        messages: withPromptCache(req.messages, req.model, req.promptCache ?? false),
+        ...(req.tools?.length ? { tools: req.tools } : {}),
+        ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+      }),
+      signal,
+    }).catch((err) => {
+      throw asFailure(err);
+    });
+
+    if (!res.ok || !res.body) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`LLM-Stream fehlgeschlagen (HTTP ${res.status}): ${body.slice(0, 300)}`);
     }
-  } catch (err) {
-    // undici meldet einen Abbruch mitten im Stream als "TypeError: terminated" —
-    // für den Orchestrator (Barge-in unterscheidet Abbruch von echtem Fehler)
-    // auf einen sauberen AbortError normalisieren.
-    if (req.signal.aborted) throw new DOMException("LLM-Stream abgebrochen", "AbortError");
-    throw err;
+
+    let content = "";
+    let finishReason: string | undefined;
+    // Tool-Call-Fragmente: erster Chunk pro index trägt id/name, Folge-Chunks arguments-Stücke.
+    const partial = new Map<number, { id: string; name: string; args: string }>();
+    let usage: LlmStreamUsage | undefined;
+    let done = false;
+
+    const parse = createSseParser((payload) => {
+      if (payload === "[DONE]") {
+        done = true;
+        return;
+      }
+      let chunk: ChatStreamChunk;
+      try {
+        chunk = JSON.parse(payload) as ChatStreamChunk;
+      } catch {
+        return; // defekte Zeile überspringen (nächstes Event repariert nichts rückwirkend)
+      }
+      // Vor der choices-Pruefung: das Nutzungs-Event traegt zwar choices, aber ein
+      // leeres delta — und bei anderen Anbietern gar keine choices.
+      if (chunk.usage) {
+        const d = chunk.usage.prompt_tokens_details;
+        usage = {
+          promptTokens: chunk.usage.prompt_tokens ?? 0,
+          completionTokens: chunk.usage.completion_tokens ?? 0,
+          cachedTokens: d?.cached_tokens ?? 0,
+          cacheWriteTokens: d?.caching_tokens ?? 0,
+        };
+      }
+      const choice = chunk.choices?.[0];
+      if (!choice) return;
+      if (choice.finish_reason) finishReason = choice.finish_reason;
+      const delta = choice.delta;
+      if (!delta) return;
+      if (typeof delta.content === "string" && delta.content.length) {
+        // Erstes Token ist da — der Wächter hat seine Aufgabe erfüllt. Ein danach
+        // langsam weiterlaufender Stream soll nicht abgeschnitten werden.
+        disarm();
+        content += delta.content;
+        onTextDelta(delta.content);
+      }
+      for (const tc of delta.tool_calls ?? []) {
+        disarm(); // Tool-Call ist ebenso ein erstes Token — nur eines ohne Text.
+        const entry = partial.get(tc.index) ?? { id: "", name: "", args: "" };
+        if (tc.id) entry.id = tc.id;
+        if (tc.function?.name) entry.name = tc.function.name;
+        if (tc.function?.arguments) entry.args += tc.function.arguments;
+        partial.set(tc.index, entry);
+      }
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (!done) {
+        const { value, done: streamEnd } = await reader.read();
+        if (streamEnd) break;
+        parse(decoder.decode(value, { stream: true }));
+      }
+    } catch (err) {
+      // undici meldet einen Abbruch mitten im Stream als "TypeError: terminated" —
+      // für den Orchestrator (Barge-in unterscheidet Abbruch von echtem Fehler)
+      // auf einen sauberen AbortError normalisieren; ein abgelaufener Wächter wird
+      // dagegen zum Ausfall, damit die Modellkette ausweichen kann.
+      throw asFailure(err);
+    }
+
+    const toolCalls: LlmToolCall[] = [...partial.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([, t]) => ({ id: t.id, type: "function", function: { name: t.name, arguments: t.args } }));
+
+    return { content, toolCalls, ...(finishReason ? { finishReason } : {}), ...(usage ? { usage } : {}) };
+  } finally {
+    disarm();
   }
-
-  const toolCalls: LlmToolCall[] = [...partial.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([, t]) => ({ id: t.id, type: "function", function: { name: t.name, arguments: t.args } }));
-
-  return { content, toolCalls, ...(finishReason ? { finishReason } : {}), ...(usage ? { usage } : {}) };
 }

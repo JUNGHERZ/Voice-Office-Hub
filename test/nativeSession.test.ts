@@ -1478,3 +1478,100 @@ test("Zweitmeinung: weicht die Erkennung vom Hinweis ab, geht sie mit", async ()
   assert.equal((ev?.[1] as { sttLanguage?: string }).sttLanguage, "en");
   s.session.close();
 });
+
+// ── Modellkette (0.18.0) ────────────────────────────────────────────────────
+
+test("Modellkette: fällt das Primärmodell aus, antwortet die Ausweichstufe", async () => {
+  const s = makeSession(
+    [
+      async () => {
+        throw new Error("Anbieter weg (502)");
+      },
+      async (_req, onDelta) => {
+        onDelta("Ich bin die zweite Stufe.");
+        return { content: "Ich bin die zweite Stufe.", toolCalls: [] };
+      },
+    ],
+    "Hallo!",
+    { agent: { think: { source: "requesty", model: "prim/aer,ersatz/modell", temperature: 0.5 } } },
+  );
+  await s.session.start();
+
+  s.stt.turn("Wie ist das Wetter?");
+  await waitFor(() => s.llmCalls.length === 2);
+  await settle();
+
+  assert.deepEqual(
+    s.llmCalls.map((c) => c.model),
+    ["prim/aer", "ersatz/modell"],
+    "Reihenfolge der .env ist die Prioritätsreihenfolge",
+  );
+  assert.ok(s.tts.texts.includes("Ich bin die zweite Stufe."), "Anrufer hört die Ausweichantwort");
+  const usage = s.session.getUsage()!;
+  assert.equal(usage.llmModel, "ersatz/modell", "Metrik nennt das TATSÄCHLICH tragende Modell");
+  assert.equal(usage.llmFallbacks, 1, "Ausweichen ist im Anrufprotokoll sichtbar");
+  assert.equal(usage.llmErrors, 1);
+  s.session.close();
+});
+
+test("Modellkette: nach gesprochenem Text wird NICHT mehr gewechselt", async () => {
+  // Der Anrufer hat den Halbsatz schon gehört — eine zweite Stufe würde ihn überschreiben.
+  const s = makeSession(
+    [
+      async (_req, onDelta) => {
+        onDelta("Der Anfang ist schon draußen.");
+        throw new Error("Abbruch mitten im Stream");
+      },
+    ],
+    "Hallo!",
+    { agent: { think: { source: "requesty", model: "prim/aer,ersatz/modell", temperature: 0.5 } } },
+  );
+  await s.session.start();
+
+  s.stt.turn("Wie ist das Wetter?");
+  await settle();
+
+  assert.equal(s.llmCalls.length, 1, "keine zweite Stufe nach bereits gesprochenem Text");
+  assert.ok(s.events.some(([e]) => e === "error"), "der Turn scheitert sichtbar");
+  assert.equal(s.session.getUsage()!.llmFallbacks, undefined);
+  s.session.close();
+});
+
+test("Modellkette: scheitern alle Stufen, scheitert der Turn — sichtbar in der Metrik", async () => {
+  const s = makeSession(
+    [
+      async () => {
+        throw new Error("Stufe 1 weg");
+      },
+      async () => {
+        throw new Error("Stufe 2 weg");
+      },
+    ],
+    "Hallo!",
+    { agent: { think: { source: "requesty", model: "a/eins,b/zwei", temperature: 0.5 } } },
+  );
+  await s.session.start();
+
+  s.stt.turn("Hallo?");
+  await waitFor(() => s.llmCalls.length === 2);
+  await settle();
+
+  assert.ok(s.events.some(([e]) => e === "error"));
+  // Kein erfolgreicher Aufruf → llmRequests bleibt leer, der Ausfall steht trotzdem im Protokoll.
+  const usage = s.session.getUsage()!;
+  assert.equal(usage.llmRequests, undefined);
+  assert.equal(usage.llmErrors, 2, "beide Stufen zählen als Ausfall");
+  s.session.close();
+});
+
+test("Modellkette: eine Angabe ohne Komma verhält sich wie vor 0.18.0", async () => {
+  const s = makeSession([echoLlm("Alles wie gehabt.")], "Hallo!", {
+    agent: { think: { source: "requesty", model: "nur/eins", temperature: 0.5 } },
+  });
+  await s.session.start();
+  s.stt.turn("Hallo?");
+  await settle();
+  assert.deepEqual(s.llmCalls.map((c) => c.model), ["nur/eins"]);
+  assert.equal(s.session.getUsage()!.llmFallbacks, undefined, "kein Ausweichen, keine Metrik");
+  s.session.close();
+});

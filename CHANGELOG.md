@@ -4,6 +4,33 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.18.0] – 2026-09-13
+
+### Added
+
+**Modellketten: `LLM_MODEL`, `SUMMARY_MODEL`, `LOCALIZE_MODEL` und `agent.think.model` dürfen kommagetrennt mehrere Modelle tragen** — erste Stufe primär, danach die Ausweichstufen in dieser Reihenfolge. Fällt eine Stufe aus (HTTP-Fehler, Zeitüberschreitung, Netzabbruch), übernimmt die nächste und das Gespräch läuft weiter. Eine Angabe ohne Komma verhält sich exakt wie vorher.
+
+```
+LLM_MODEL=sference/deepseek-v4.1-flash,sference/deepseek-v4-flash-0731,bedrock/claude-haiku-4-5@eu-central-1
+```
+
+**`LLM_FIRST_TOKEN_TIMEOUT_MS` (Default 2000) — ohne ihn wäre die Kette halb wirkungslos.** Der gefährlichste Ausfall ist nicht der Fehler, sondern der Anbieter, der die Verbindung annimmt und dann hängt: Er wirft nie etwas, und ohne Fehler weicht niemand aus — der Anrufer hört unbegrenzt Stille. Der Wächter deckt Verbindung, Header und das erste Delta ab und wird beim ersten Token entschärft; ein danach langsam weiterlaufender Stream wird nicht abgeschnitten. `0` schaltet ihn ab.
+
+**Zwei neue Metriken machen einen Anbieterausfall im Anrufprotokoll sichtbar** (`metrics.llmErrors`, `metrics.llmFallbacks`). Bisher endete ein Anruf mit ausgefallenem LLM als regulärer `call.ended`, und nur eine Logzeile hätte davon gewusst. `metrics.llmModel` trug schon immer das *tatsächlich* benutzte Modell — bei einem Wechsel steht dort jetzt die tragende Stufe.
+
+### Changed
+
+- `getUsage()` liefert den Verbrauch jetzt auch dann, wenn **kein** LLM-Aufruf glückte. Vorher fiel der Datensatz genau in dem Fall unter den Tisch, in dem er gebraucht wird: wenn alle Stufen scheitern.
+- Der Settings-Builder des Deepgram-Pfads reduziert eine Kette auf ihre erste Stufe und **warnt dabei**. Deepgram ruft den Endpunkt selbst und nimmt genau ein Modell entgegen; eine stillschweigende Reduktion würde eine Absicherung vortäuschen, die dort nicht existiert. Wer auch diesen Pfad absichern will, hinterlegt eine Requesty-Routing-Policy (`policy/<name>`).
+- Die Modell-Eigenheiten (`temperature`-Guard, Prompt-Caching-Breakpoint, Cache-Mindestlänge) werten jetzt das **Modell der jeweiligen Stufe** aus, nicht mehr den Rohwert der Variablen. Ohne diese Trennung hätte eine Kette mit Claude als dritter Stufe für ein DeepSeek-Primärmodell fälschlich die Anthropic-Blockform aktiviert — ein 400 mitten im Anruf.
+
+### Grenzen (bewusst)
+
+- **Nach gesprochenem Text wird nicht mehr gewechselt.** Hat die Sprachausgabe bereits einen Halbsatz bekommen, würde eine zweite Stufe den Anrufer mitten im Satz überschreiben; der Turn scheitert dann wie bisher.
+- **Ein Abbruch ist kein Ausfall.** Barge-in und Teardown beenden die Kette sofort, statt beim nächsten Anbieter eine Antwort zu bestellen, die niemand mehr hören will.
+- **Alle Stufen laufen über denselben Router.** Fällt Requesty selbst aus, hilft die Kette nicht.
+
+
 ## [0.17.0] – 2026-08-26
 
 ### Fixed

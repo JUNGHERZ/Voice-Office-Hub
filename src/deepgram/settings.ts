@@ -8,7 +8,7 @@
  * audio.* und flags kommen systemweit aus der Config (Telefonie: linear16/8000).
  */
 import { config } from "../config.js";
-import { modelSupportsTemperature } from "../llm/models.js";
+import { modelSupportsTemperature, parseModelChain } from "../llm/models.js";
 import { findTtsProvider } from "../tts/catalog.js";
 import type { ResolvedAgent } from "../types.js";
 import { logger } from "../util/logger.js";
@@ -68,8 +68,22 @@ function buildThink(agent: ResolvedAgent, functions: FunctionDefinition[]): Sett
     ...(agent.think.context_length !== undefined ? { context_length: agent.think.context_length } : {}),
   };
 
+  // Der Deepgram-Pfad kann KEINE Modellkette: Deepgram ruft den Endpunkt selbst und
+  // nimmt genau ein Modell entgegen. Eine kommagetrennte Angabe wird deshalb auf ihre
+  // erste Stufe reduziert — und das laut, damit niemand eine Absicherung annimmt, die
+  // hier nicht existiert. Wer auch diesen Pfad absichern will, hinterlegt eine
+  // Requesty-Routing-Policy (`policy/<name>`); die wirkt router-seitig.
+  const chain = parseModelChain(agent.think.model || config.llm.model);
+  const model = chain[0] ?? "";
+  if (chain.length > 1) {
+    log.warn("Deepgram-Pfad kennt keine Modellkette — nur die erste Stufe gilt", {
+      agent: agent.name,
+      model,
+      ignoriert: chain.slice(1),
+    });
+  }
+
   if (agent.think.source === "requesty") {
-    const model = agent.think.model || config.llm.model;
     base.provider = {
       type: "open_ai",
       model,
@@ -82,9 +96,9 @@ function buildThink(agent: ResolvedAgent, functions: FunctionDefinition[]): Sett
   } else {
     // Deepgram-managed Modell (z.B. anthropic / open_ai), ohne eigenen endpoint.
     const provider: Record<string, unknown> = {
-      type: inferManagedProviderType(agent.think.model),
-      model: agent.think.model,
-      ...(modelSupportsTemperature(agent.think.model) ? { temperature: agent.think.temperature } : {}),
+      type: inferManagedProviderType(model),
+      model,
+      ...(modelSupportsTemperature(model) ? { temperature: agent.think.temperature } : {}),
     };
     if (agent.think.reasoning_mode) provider.reasoning_mode = agent.think.reasoning_mode;
     base.provider = provider;
