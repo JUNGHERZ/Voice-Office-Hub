@@ -33,6 +33,8 @@ async function load(host) {
   }
 }
 
+// Filter-Chips: `interactive` macht aus dem Badge einen echten Button (Tastatur, Fokusring),
+// `selected` markiert den aktiven Filter und landet als aria-pressed beim Screenreader.
 function setMode(host, mode) {
   host.mode = mode;
   host.skip = 0;
@@ -61,21 +63,21 @@ export default define({
       return html`
         <div class="head">
           <glk-title style="font-size:22px">Anrufe</glk-title>
-          <div class="filters">
+          <div class="filters" role="group" aria-label="Nach Modus filtern">
             <glk-badge
-              variant="${mode === "" ? "primary" : ""}"
-              onclick="${(host) => setMode(host, "")}"
-              style="cursor:pointer"
+              interactive
+              selected="${mode === ""}"
+              onglk-click="${(host) => setMode(host, "")}"
             >Alle</glk-badge>
             <glk-badge
-              variant="${mode === "agent" ? "primary" : ""}"
-              onclick="${(host) => setMode(host, "agent")}"
-              style="cursor:pointer"
+              interactive
+              selected="${mode === "agent"}"
+              onglk-click="${(host) => setMode(host, "agent")}"
             >Agent</glk-badge>
             <glk-badge
-              variant="${mode === "passthrough" ? "primary" : ""}"
-              onclick="${(host) => setMode(host, "passthrough")}"
-              style="cursor:pointer"
+              interactive
+              selected="${mode === "passthrough"}"
+              onglk-click="${(host) => setMode(host, "passthrough")}"
             >Passthrough</glk-badge>
           </div>
         </div>
@@ -106,11 +108,21 @@ export default define({
               </glk-list>
 
               <div class="pager">
-                <glk-button size="sm" variant="tertiary" onclick="${(host) => page(host, -1)}">
+                <glk-button
+                  size="sm"
+                  variant="tertiary"
+                  disabled="${skip === 0}"
+                  onclick="${(host) => page(host, -1)}"
+                >
                   ← Zurück
                 </glk-button>
                 <span class="count">${from}–${to} von ${total}</span>
-                <glk-button size="sm" variant="tertiary" onclick="${(host) => page(host, 1)}">
+                <glk-button
+                  size="sm"
+                  variant="tertiary"
+                  disabled="${skip + PAGE >= total}"
+                  onclick="${(host) => page(host, 1)}"
+                >
                   Weiter →
                 </glk-button>
               </div>

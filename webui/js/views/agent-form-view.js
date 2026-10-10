@@ -695,8 +695,8 @@ function renderTranslations(translations, lang, f) {
   const src = (translations.contentLanguage || f.contentLanguage || "de").toUpperCase();
   return html`
     <glk-select
-      id="translationLangSelect"
       label="Sprache"
+      value="${current.lang}"
       onglk-change="${(host, e) => {
         host.translationLang = e.detail.value;
       }}"
@@ -708,7 +708,7 @@ function renderTranslations(translations, lang, f) {
         <div class="tr-entry">
           <div class="tr-head">
             <strong>${e.label}</strong>
-            ${e.stale ? html`<span class="tr-stale">⚠ veraltet</span>` : ""}
+            ${e.stale ? html`<glk-badge variant="warning">veraltet</glk-badge>` : ""}
           </div>
           <div class="tr-line"><span class="tr-lang">${src}</span> ${e.source}</div>
           <div class="tr-line">
@@ -938,8 +938,8 @@ export default define({
                 ></glk-input>
 
                 <glk-select
-                  id="modeSelect"
                   label="Modus"
+                  value="${f.mode}"
                   onglk-change="${(host, e) => setField(host, "mode", e.detail.value)}"
                 >
                   <option value="agent">agent</option>
@@ -957,8 +957,8 @@ export default define({
                 `}
 
                 <glk-select
-                  id="voiceProviderSelect"
                   label="Voice-Provider"
+                  value="${f.voiceProvider}"
                   onglk-change="${(host, e) => selectVoiceProvider(host, e.detail.value)}"
                 >
                   <option value="deepgram">Deepgram Voice Agent</option>
@@ -974,8 +974,8 @@ export default define({
                 ></glk-input>
 
                 <glk-select
-                  id="listenModelSelect"
                   label="STT-Modell (listen.model)"
+                  value="${f.listenModel}"
                   onglk-change="${(host, e) => setField(host, "listenModel", e.detail.value)}"
                 >
                   <option value="nova-3">nova-3</option>
@@ -1029,8 +1029,8 @@ export default define({
                 </div>
 
                 <glk-select
-                  id="contentLanguageSelect"
                   label="Sprache der Ansagen"
+                  value="${f.contentLanguage}"
                   onglk-change="${(host, e) => setField(host, "contentLanguage", e.detail.value)}"
                 >
                   <option value="">Automatisch erkennen</option>
@@ -1052,8 +1052,8 @@ export default define({
                 ></glk-textarea>
 
                 <glk-select
-                  id="speakProviderSelect"
                   label="TTS-Provider (speak.provider)"
+                  value="${f.speakProvider}"
                   onglk-change="${(host, e) => selectProvider(host, host.ttsProviders, e.detail.value)}"
                 >
                   ${pathProviders.map((p) => html`<option value="${p.id}">${p.label}</option>`)}
@@ -1087,8 +1087,8 @@ export default define({
                 ${ttsProvider &&
                 html`
                   <glk-select
-                    id="speakModelSelect"
                     label="Modell (speak.model)"
+                    value="${activeModel}"
                     onglk-change="${(host, e) => setByProvider(host, "modelBy", e.detail.value)}"
                   >
                     ${ttsProvider.modelFreeText ? html`<option value="">— eigenes Modell —</option>` : ""}
@@ -1112,8 +1112,8 @@ export default define({
                 ${modelVoices.length
                   ? html`
                       <glk-select
-                        id="speakVoiceSelect"
                         label="Stimme (speak.voice)"
+                        value="${activeVoice}"
                         onglk-change="${(host, e) => setByProvider(host, "voiceBy", e.detail.value)}"
                       >
                         <option value="">— eigene Stimm-ID unten —</option>
@@ -1164,8 +1164,8 @@ export default define({
                 ${f.ambienceEnabled &&
                 html`
                   <glk-select
-                    id="ambiencePresetSelect"
                     label="Preset"
+                    value="${f.ambiencePreset}"
                     onglk-change="${(host, e) => setField(host, "ambiencePreset", e.detail.value)}"
                   >
                     ${(ambiencePresets || FALLBACK_AMBIENCE).map(
@@ -1503,6 +1503,7 @@ export default define({
               </glk-modal>
 
               <glk-modal
+                class="editor"
                 title="ElevenLabs — erweiterte Stimm-Einstellungen"
                 open="${voiceModalOpen}"
                 onglk-close="${(host) => {
@@ -1553,6 +1554,7 @@ export default define({
               </glk-modal>
 
               <glk-modal
+                class="editor"
                 title="Übersetzte Ansagen"
                 open="${translationsOpen}"
                 onglk-close="${(host) => {
@@ -1578,6 +1580,7 @@ export default define({
               </glk-modal>
 
               <glk-modal
+                class="editor"
                 title="${toolEditIndex >= 0 ? "HTTP-Tool bearbeiten" : "Neues HTTP-Tool"}"
                 open="${toolModalOpen}"
                 onglk-close="${(host) => {
@@ -1605,8 +1608,8 @@ export default define({
                     ></glk-input>
 
                     <glk-select
-                      id="toolMethodSelect"
                       label="Methode"
+                      value="${toolDraft.method}"
                       onglk-change="${(host, e) => setDraft(host, "method", e.detail.value)}"
                     >
                       <option value="POST">POST (JSON-Envelope)</option>
@@ -1696,6 +1699,7 @@ export default define({
               </glk-modal>
 
               <glk-modal
+                class="editor"
                 title="${mcpEditIndex >= 0 ? "MCP-Server bearbeiten" : "Neuer MCP-Server"}"
                 open="${mcpModalOpen}"
                 onglk-close="${(host) => {
@@ -1799,49 +1803,25 @@ export default define({
         .group-label { font-size: 13px; opacity: 0.75; }
         .group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
         .empty-hint { font-size: 13px; opacity: 0.55; }
-        .tool-form { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; padding-right: 4px; }
+        /* Formular-Modals breiter als GlassKits Dialog-Default (340px): Header-Zeilen und das
+           JSON-Feld brauchen den Platz. Auf dem Telefon begrenzt ohnehin der Viewport. */
+        glk-modal.editor { --gl-modal-max-width: 560px; }
+        /* GlassKit zentriert den Modal-Body (gedacht für Dialogtext); Formulare stehen wie
+           das Hauptformular linksbündig. */
+        .tool-form { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; padding-right: 4px; text-align: start; }
         .hdr-row { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 8px; align-items: center; }
         .tr-entry { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid rgba(128,128,128,.22); }
         .tr-head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
-        .tr-stale { font-size: 12px; opacity: .85; white-space: nowrap; }
         .tr-line { display: flex; gap: 8px; align-items: baseline; line-height: 1.45; }
         .tr-lang { flex: 0 0 auto; font-size: 11px; letter-spacing: .06em; opacity: .6; min-width: 2.2em; }
         .tr-missing { opacity: .6; }
       `;
     },
-    // Nach jedem Render die Selects imperativ auf den echten State setzen.
-    // Grund: glk-select klont seine <option>s per rAF und übernimmt nur das
-    // value-ATTRIBUT (nicht die von Hybrids gesetzte selected-Property), daher
-    // greift weder option[selected] noch das value-Property zuverlässig.
-    observe: (host) => {
-      if (!host.form) return;
-      const selects = [
-        ["modeSelect", host.form.mode],
-        ["voiceProviderSelect", host.form.voiceProvider],
-        ["listenModelSelect", host.form.listenModel],
-        ["speakProviderSelect", host.form.speakProvider],
-        ["speakModelSelect", host.form.modelBy[host.form.speakProvider]],
-        ["ambiencePresetSelect", host.form.ambiencePreset],
-        ["toolMethodSelect", host.toolDraft && host.toolDraft.method],
-        ["translationLangSelect", host.translationLang],
-      ];
-      for (const [id, value] of selects) {
-        const sel = host.shadowRoot && host.shadowRoot.getElementById(id);
-        // Attribut → glk-select.onAttributeChanged('value') wendet es an;
-        // wird auch von der initialen rAF-Option-Übernahme gelesen.
-        if (sel && value) sel.setAttribute("value", value);
-      }
-      // Sonderfall: Bei „Sprache der Ansagen" ist der LEERE Wert eine gültige Auswahl
-      // („Automatisch erkennen"). Ohne dieses Setzen bliebe beim Agentenwechsel der Code
-      // des vorherigen Agenten stehen und würde ungewollt mitgespeichert.
-      const langSel = host.shadowRoot && host.shadowRoot.getElementById("contentLanguageSelect");
-      if (langSel) langSel.setAttribute("value", host.form.contentLanguage || "");
-      // Dito bei der Stimmauswahl: leer heißt hier „eigene Stimm-ID im Feld darunter".
-      // (glk-select ab 1.12.0 zieht die Optionsliste selbst nach und stellt den Wert
-      // danach wieder her — hier genügt das value-Attribut wie bei jedem Select.)
-      const voiceSel = host.shadowRoot && host.shadowRoot.getElementById("speakVoiceSelect");
-      if (voiceSel) voiceSel.setAttribute("value", host.form.voiceBy[host.form.speakProvider] || "");
-    },
+    // Die Selects binden ihren Wert direkt im Template (value="${…}"). Das trägt erst
+    // seit glasskit-elements 1.22.0: Vorher ging ein als Property gesetzter Wert verloren,
+    // solange glk-select seine <option>s noch nicht übernommen hatte, und es brauchte hier
+    // einen observe-Block, der nach jedem Render die value-Attribute nachzog. Ein leerer
+    // Wert ist dabei eine echte Auswahl („Automatisch erkennen", „eigene Stimm-ID").
     connect: (host) => {
       load(host);
     },

@@ -4,6 +4,27 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.18.1] – 2026-10-10
+
+**GlassKit auf 1.22.2 und GlassKit Elements auf 1.22.3 angehoben** (von 1.11.0 / 1.12.0). Dazwischen liegen elf Minor-Versionen; für die Admin-UI tragen vor allem der native Dialog, der sichtbare Disabled-Zustand und die Wertübernahme von `<glk-select>`. Vieles Weitere (Rechts-nach-links, Druckansicht, Dichte-Preset, Kalender, Bottom-Sheet, Empty-States) bleibt hier vorerst ungenutzt.
+
+### Fixed
+
+- **Offene Modals lagen unter der Tab-Bar, und ihr Glas blurrte den Hintergrund nicht.** Der Formulartext hinter dem Dialog schien durch und überlagerte dessen eigenen Text — am deutlichsten im Tool-Editor. Das Overlay lag in der Inhaltsspalte, die wegen ihres `view-transition-name` einen eigenen Stapelkontext bildet; gegen die Tab-Bar (`z-index: 50`) kam es von dort nicht an. Seit Elements 1.20.0 ist `<glk-modal>` ein nativer `<dialog>` (`showModal()`) im Top-Layer: außerhalb jedes Stapelkontexts, damit über der Tab-Bar und mit wirksamem Blur. Dazu kommen Fokusführung in den Dialog und zurück, Escape und eine inerte Seite dahinter. Geprüft per Headless-Chrome: An der Position der Tab-Bar liegt bei offenem Dialog jetzt das Overlay, vorher lag dort der Reiter.
+- **Deaktivierte Buttons sahen aus wie aktive.** GlassKit 1.21.2 dimmt sie; damit trägt auch der Pager der Anrufliste seinen Zustand: „Zurück" auf der ersten und „Weiter" auf der letzten Seite sind deaktiviert statt wirkungslos klickbar.
+- **Die Filter-Chips der Anrufliste waren nur per Maus bedienbar.** Es waren Badges mit angeschraubtem `onclick` und `cursor: pointer`, den aktiven Filter markierte `variant="primary"`. Jetzt `interactive` und `selected` (Elements 1.13.0): echte Buttons mit Fokusring und Tastaturbedienung, der aktive Filter wird als `aria-pressed` angesagt.
+- **Das Feld „Widget-Key (server-verwaltet)" ließ sich bearbeiten.** `readonly` erreichte das innere Eingabefeld erst mit Elements 1.22.0; gespeichert wurde eine Änderung zwar nie, sie sah aber so aus.
+
+### Changed
+
+- **Selects binden ihren Wert direkt im Template.** Der `observe`-Block im Agent-Formular, der nach jedem Render die `value`-Attribute aller Selects über eine ID-Liste nachzog, ist entfallen: Seit Elements 1.22.0 bleibt ein als Property gesetzter Wert erhalten, auch solange `<glk-select>` seine Optionen noch nicht übernommen hat. Ein neuer Select braucht damit keinen Eintrag in einer separaten Liste mehr, und die Sonderfälle für leere Werte („Automatisch erkennen", „eigene Stimm-ID") fallen weg.
+- **Die Editor-Modals sind breiter** (Stimm-Einstellungen, übersetzte Ansagen, HTTP-Tool, MCP-Server): 560 px statt GlassKits Dialog-Default von 340 px, über das neue Token `--gl-modal-max-width`. Bei 340 px waren die Header-Zeilen des Tool-Editors auf „authorizat" und „Bearer ${ENV:C" abgeschnitten. Die Formulare darin stehen linksbündig wie das Hauptformular; der Lösch-Dialog bleibt schmal.
+- **Veraltete Übersetzungen tragen ein Warning-Badge** (neu in GlassKit 1.18.0) statt „⚠ veraltet" als Text.
+- Nebenwirkungen des Upgrades ohne eigenen Code: Toggles stehen etwas enger (der Platz für Unterlängen entfällt), Listenzeilen ohne Icon sind 56 statt 60 px hoch, und der Pfeil der Selects ist im hellen Theme sichtbar.
+- Service-Worker-Cache auf `vh-shell-v25`, damit installierte Apps die neuen Vendor-Dateien laden.
+
+Geprüft mit einem Vorher/Nachher-Vergleich in Headless-Chrome (Telefon hell und dunkel, Desktop): Dashboard, Listen, Agent-Formular und Anruf-Detail rendern pixelgleich zum reinen Paket-Upgrade, die Abweichungen liegen nur in den Editor-Modals, am Pager und an den Chips. Ein Interaktionstest deckt die Select-Werte ab (Laden, Provider-Wechsel samt erzwungenem Rückfall auf Deepgram, gemerkte Stimme, Tool-Methode über Übernehmen und erneutes Öffnen, Sprachwahl im Übersetzungs-Modal), dazu die Chips per Maus und Tastatur und die Grenzen des Pagers.
+
 ## [0.18.0] – 2026-09-13
 
 ### Added
