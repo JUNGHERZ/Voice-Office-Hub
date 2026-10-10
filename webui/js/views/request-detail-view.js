@@ -123,7 +123,13 @@ export default define({
         <div class="badges">
           <glk-badge variant="${statusVariant(r.status)}">${statusLabel(r.status)}</glk-badge>
           <glk-badge variant="${r.mode === "passthrough" ? "primary" : "success"}">${modeLabel(r.mode)}</glk-badge>
-          ${r.language && html`<glk-badge>${r.language}</glk-badge>`}
+          ${r.language &&
+          html`<glk-badge
+            title="${m.languageSource === "scorer"
+              ? "Geschätzt aus dem Anrufertext (Stopwort-Erkennung)"
+              : "Im Gespräch erkannt"}"
+            >${m.languageSource === "scorer" ? "≈ " : ""}${r.language}</glk-badge
+          >`}
           ${callSec !== undefined ? html`<glk-badge>${fmtDuration(callSec)}</glk-badge>` : ""}
           ${r.forwardedTo && html`<glk-badge variant="primary">→ ${r.forwardedTo}</glk-badge>`}
           ${typeof m.timeToFirstAudioMs === "number"

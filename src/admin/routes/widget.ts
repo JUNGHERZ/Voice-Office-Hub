@@ -21,7 +21,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { config } from "../../config.js";
 import { Agent } from "../../db/models/Agent.js";
 import { RequestModel } from "../../db/models/Request.js";
-import { issueWidgetSession } from "../../db/widgetSessions.js";
+import { issueWidgetSession, visitorLanguage } from "../../db/widgetSessions.js";
 import { logger } from "../../util/logger.js";
 import { hasValidApiKey } from "../auth.js";
 import { SlidingWindowLimiter } from "../rateLimit.js";
@@ -52,7 +52,8 @@ interface WidgetCallDoc {
 export interface WidgetRouteDeps {
   findByWidgetKey: (key: string) => Promise<WidgetAgentDoc | null>;
   /** Stellt das Anruf-Token aus (0.11.0) und gibt es zurück. */
-  issueSession: (agentId: string, exten: string | undefined) => Promise<string>;
+  /** `lang`: Sprache des Besuchers (0.18.3), Vorbelegung für die Begrüßung. */
+  issueSession: (agentId: string, exten: string | undefined, lang?: string) => Promise<string>;
   countActiveWebCalls: () => Promise<number>;
   findCallByToken: (token: string) => Promise<WidgetCallDoc | null>;
   /**
@@ -77,7 +78,8 @@ export interface WidgetRouteDeps {
 export const defaultWidgetDeps: WidgetRouteDeps = {
   findByWidgetKey: (key) =>
     Agent.findOne({ "widget.key": key, "widget.enabled": true, enabled: true }).lean<WidgetAgentDoc>(),
-  issueSession: (agentId, exten) => issueWidgetSession(agentId, exten, config.widget.sessionTtlSec),
+  issueSession: (agentId, exten, lang) =>
+    issueWidgetSession(agentId, { exten, lang }, config.widget.sessionTtlSec),
   // Nutzt den Partial-Index auf in_progress; Web-Anrufe sind an der Caller-ID erkennbar.
   countActiveWebCalls: () =>
     RequestModel.countDocuments({ status: "in_progress", callerNumber: /^web-/ }),
@@ -208,7 +210,11 @@ export async function widgetRoutes(
         summary: "Widget-Session (öffentlich, key-gebunden): Verbindungsdaten für einen Web-Anruf",
         body: {
           type: "object",
-          properties: { key: { type: "string", minLength: 8, maxLength: 64 } },
+          properties: {
+            key: { type: "string", minLength: 8, maxLength: 64 },
+            // BCP-47 wie `navigator.language` („en-US"); verwertet wird das Primär-Subtag.
+            lang: { type: "string", maxLength: 35 },
+          },
           required: ["key"],
         },
       },
@@ -216,7 +222,7 @@ export async function widgetRoutes(
     async (req, reply) => {
       if (!config.widget.enabled) return reply.code(404).send({ error: "not found" });
 
-      const { key } = req.body as { key: string };
+      const { key, lang } = req.body as { key: string; lang?: string };
       // Ein authentifizierter Aufrufer ist ein Vermittler, kein Besucher: Holt ein Backend
       // die Sitzung (damit der Widget-Schlüssel den Browser nie erreicht), zählt der
       // IP-Deckel nicht mehr Besucher, sondern Worker — aus „10 pro Minute und Besucher"
@@ -275,7 +281,12 @@ export async function widgetRoutes(
       // `X-Widget-Token`; die Engine lässt das INVITE nur durch, wenn es hier ausgestellt
       // wurde, noch gilt und zu diesem Agenten gehört. Ohne den Session-Endpoint kommt
       // damit kein Web-Anruf mehr zustande, auch nicht mit gültigem SIP-Passwort.
-      const callToken = await deps.issueSession(String(agent._id), agent.widget.exten);
+      const callToken = await deps.issueSession(
+        String(agent._id),
+        agent.widget.exten,
+        // Vorbelegung für die Begrüßung (0.18.3): Web-Anrufe haben kein Anrufer-Profil.
+        visitorLanguage(lang, req.headers["accept-language"]),
+      );
 
       return {
         wsUrl,

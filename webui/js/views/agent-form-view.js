@@ -667,29 +667,72 @@ function translationSummary(agentId, translations) {
   if (!agentId) return "verfügbar, sobald der Agent gespeichert ist";
   if (!translations) return "noch nicht geladen";
   const langs = translations.languages || [];
-  if (!langs.length) return "noch keine — entsteht nach dem ersten fremdsprachigen Anruf";
+  if (!langs.length) return "noch keine — entsteht beim ersten fremdsprachigen Anruf oder per „Sprache anlegen“";
   return langs
     .map((l) => {
       const stale = (l.entries || []).filter((e) => e.stale).length;
-      return stale ? `${l.lang.toUpperCase()} ⚠ ${stale} veraltet` : `${l.lang.toUpperCase()} ✓`;
+      return stale ? `${l.lang.toUpperCase()} ⚠ ${stale} offen` : `${l.lang.toUpperCase()} ✓`;
     })
     .join(" · ");
+}
+
+/** Sprachen, die sich vorab anlegen lassen: die des Erkenners ohne Ausgangs- und vorhandene Sprachen. */
+function addableLanguages(translations, f) {
+  const src = (translations && translations.contentLanguage) || f.contentLanguage || "de";
+  const have = new Set(((translations && translations.languages) || []).map((l) => l.lang));
+  return CONTENT_LANGUAGES.filter((l) => l.code !== src && !have.has(l.code));
+}
+
+/**
+ * „Sprache anlegen": übersetzt den Katalog vorab, damit schon der ERSTE Anruf in dieser Sprache
+ * passend begrüßt wird — ohne Vorlage entsteht die Übersetzung erst nach so einem Anruf.
+ */
+function renderAddLanguage(translations, f, newLang, busy) {
+  const options = addableLanguages(translations, f);
+  if (!options.length) return "";
+  const chosen = options.some((l) => l.code === newLang) ? newLang : options[0].code;
+  return html`
+    <div class="tr-add">
+      <glk-select
+        label="Sprache anlegen"
+        value="${chosen}"
+        onglk-change="${(host, e) => {
+          host.translationNewLang = e.detail.value;
+        }}"
+      >
+        ${options.map((l) => html`<option value="${l.code}">${l.label} (${l.code})</option>`)}
+      </glk-select>
+      <glk-button
+        size="sm"
+        variant="secondary"
+        disabled="${busy}"
+        onclick="${(host) => addTranslationLanguage(host, chosen)}"
+      >${busy ? "Übersetze…" : "Anlegen"}</glk-button>
+    </div>
+  `;
 }
 
 /**
  * Inhalt des Modals: Original und Übersetzung untereinander (Ansagen sind Sätze, keine
  * Tabellenzellen). Ein FEHLENDER Eintrag wird als leeres Feld gezeigt statt weggelassen —
  * ein Übersetzungs-Fehlschlag soll auffallen, statt lautlos zu verschwinden.
+ *
+ * Die Übersetzung ist direkt korrigierbar und wird beim Verlassen des Feldes gespeichert.
+ * Gebunden ist bewusst der Serverwert: Nach dem Speichern lädt das Modal neu, und der Wert
+ * steht dann ohnehin so da, wie er getippt wurde.
  */
-function renderTranslations(translations, lang, f) {
+function renderTranslations(translations, lang, f, newLang, busy) {
   if (!translations) return html`<div class="empty-hint">Wird geladen…</div>`;
   const langs = translations.languages || [];
   if (!langs.length) {
-    return html`<div class="empty-hint">
-      Für diesen Agenten gibt es noch keine Übersetzungen. Sie entstehen automatisch, sobald
-      jemand in einer anderen Sprache angerufen hat — ab dem nächsten Anruf derselben Nummer
-      begrüßt der Agent dann direkt in dieser Sprache.
-    </div>`;
+    return html`
+      <div class="empty-hint">
+        Für diesen Agenten gibt es noch keine Übersetzungen. Sie entstehen automatisch, sobald
+        jemand in einer anderen Sprache angerufen hat — oder hier vorab, damit schon der erste
+        Anruf in dieser Sprache passend begrüßt wird.
+      </div>
+      ${renderAddLanguage(translations, f, newLang, busy)}
+    `;
   }
   const current = langs.find((l) => l.lang === lang) || langs[0];
   const src = (translations.contentLanguage || f.contentLanguage || "de").toUpperCase();
@@ -703,28 +746,53 @@ function renderTranslations(translations, lang, f) {
     >
       ${langs.map((l) => html`<option value="${l.lang}">${l.lang.toUpperCase()}</option>`)}
     </glk-select>
+    ${renderAddLanguage(translations, f, newLang, busy)}
     ${(current.entries || []).map(
       (e) => html`
         <div class="tr-entry">
           <div class="tr-head">
             <strong>${e.label}</strong>
-            ${e.stale ? html`<glk-badge variant="warning">veraltet</glk-badge>` : ""}
+            ${e.stale
+              ? html`<glk-badge variant="warning">${e.translation ? "veraltet" : "fehlt"}</glk-badge>`
+              : ""}
           </div>
           <div class="tr-line"><span class="tr-lang">${src}</span> ${e.source}</div>
-          <div class="tr-line">
+          <div class="tr-line tr-line--edit">
             <span class="tr-lang">${current.lang.toUpperCase()}</span>
-            ${e.translation || html`<em class="tr-missing">— fehlt —</em>`}
+            <glk-textarea
+              class="tr-edit"
+              rows="2"
+              value="${e.translation}"
+              placeholder="— fehlt —"
+              onfocusout="${(host, ev) =>
+                saveTranslationEntry(host, current.lang, e.key, e.translation, ev.currentTarget.value)}"
+            ></glk-textarea>
           </div>
           ${e.stale
             ? html`<div class="empty-hint">
-                Das Original wurde geändert. Bis zur Neuerzeugung spricht der Agent hier die
-                Standardsprache.
+                ${e.translation
+                  ? "Das Original wurde geändert. Bis zur Neuerzeugung spricht der Agent hier die Standardsprache."
+                  : "Noch nicht übersetzt — bis dahin spricht der Agent hier die Standardsprache."}
               </div>`
             : ""}
         </div>
       `,
     )}
   `;
+}
+
+const errorText = (err) => String((err && err.message) || err);
+
+/**
+ * Übersetzungs-Aktionen laufen nacheinander. Eine Korrektur wird beim Verlassen des Feldes
+ * gespeichert — klickt man dabei direkt „Neu erzeugen", läse die Neuerzeugung sonst den
+ * Bestand VOR der Korrektur und schriebe ihn danach zurück.
+ */
+const translationQueue = new WeakMap();
+function enqueueTranslationOp(host, op) {
+  const run = (translationQueue.get(host) || Promise.resolve()).then(op);
+  translationQueue.set(host, run.catch(() => {}));
+  return run;
 }
 
 async function loadTranslations(host) {
@@ -736,26 +804,74 @@ async function loadTranslations(host) {
     // Gewählte Sprache halten, solange es sie noch gibt.
     if (!langs.includes(host.translationLang)) host.translationLang = langs[0] || "";
   } catch (err) {
-    host.error = String((err && err.message) || err);
+    host.translationsError = `Übersetzungen nicht geladen: ${errorText(err)}`;
   }
 }
 
 async function openTranslations(host) {
+  host.translationsError = "";
+  host.translationsNotice = "";
   host.translationsOpen = true;
   await loadTranslations(host);
 }
 
-async function regenerateTranslation(host) {
+function saveTranslationEntry(host, lang, key, before, after) {
+  if ((after || "").trim() === (before || "").trim()) return;
+  void enqueueTranslationOp(host, async () => {
+    host.translationsError = "";
+    try {
+      await api.saveTranslation(host.agentId, lang, { [key]: after || "" });
+      await loadTranslations(host);
+      host.translationsNotice = (after || "").trim()
+        ? "Korrektur gespeichert."
+        : "Eintrag geleert — „Neu erzeugen“ füllt ihn wieder.";
+    } catch (err) {
+      host.translationsError = `Speichern fehlgeschlagen: ${errorText(err)}`;
+    }
+  });
+}
+
+function regenerateTranslation(host) {
   if (host.translationsBusy || !host.translationLang) return;
   host.translationsBusy = true;
-  try {
-    await api.regenerateTranslation(host.agentId, host.translationLang);
-    await loadTranslations(host);
-  } catch (err) {
-    host.error = String((err && err.message) || err);
-  } finally {
-    host.translationsBusy = false;
-  }
+  void enqueueTranslationOp(host, async () => {
+    host.translationsError = "";
+    try {
+      await api.regenerateTranslation(host.agentId, host.translationLang);
+      await loadTranslations(host);
+      host.translationsNotice = "Fehlende und veraltete Einträge neu erzeugt; Korrekturen bleiben.";
+    } catch (err) {
+      host.translationsError = `Neu erzeugen fehlgeschlagen: ${errorText(err)}`;
+    } finally {
+      host.translationsBusy = false;
+    }
+  });
+}
+
+function addTranslationLanguage(host, lang) {
+  if (host.translationsBusy || !lang) return;
+  host.translationsBusy = true;
+  void enqueueTranslationOp(host, async () => {
+    host.translationsError = "";
+    try {
+      await api.regenerateTranslation(host.agentId, lang);
+      await loadTranslations(host);
+      const created = ((host.translations && host.translations.languages) || []).some((l) => l.lang === lang);
+      if (created) {
+        host.translationLang = lang;
+        host.translationNewLang = "";
+        host.translationsNotice = `${lang.toUpperCase()} angelegt — prüfen und bei Bedarf direkt korrigieren.`;
+      } else {
+        // Der Server meldet „ok" auch dann, wenn das Modell nichts Brauchbares lieferte —
+        // dann gibt es die Sprache schlicht noch nicht.
+        host.translationsError = `Die Übersetzung nach ${lang.toUpperCase()} kam nicht zustande. Bitte erneut versuchen.`;
+      }
+    } catch (err) {
+      host.translationsError = `Anlegen fehlgeschlagen: ${errorText(err)}`;
+    } finally {
+      host.translationsBusy = false;
+    }
+  });
 }
 
 /**
@@ -870,8 +986,12 @@ export default define({
   translations: undefined,
   translationLang: "",
   translationsBusy: false,
+  // Sprache für „Sprache anlegen" und die Rückmeldungen im Modal (0.18.3).
+  translationNewLang: "",
+  translationsNotice: "",
+  translationsError: "",
   render: {
-    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, ambiencePresets, ttsProviders, toolModalOpen, toolEditIndex, toolDraft, toolError, mcpModalOpen, mcpEditIndex, mcpDraft, mcpError, voiceModalOpen, translationsOpen, translations, translationLang, translationsBusy }) => {
+    value: ({ agentId, loading, busy, error, confirmOpen, form, builtins, ambiencePresets, ttsProviders, toolModalOpen, toolEditIndex, toolDraft, toolError, mcpModalOpen, mcpEditIndex, mcpDraft, mcpError, voiceModalOpen, translationsOpen, translations, translationLang, translationsBusy, translationNewLang, translationsNotice, translationsError }) => {
       const f = form || emptyForm();
       const title = agentId ? f.name || "Agent" : "Neuer Agent";
       // TTS-Panel wird aus dem Server-Katalog gerendert — ein siebter Provider ist
@@ -1562,7 +1682,9 @@ export default define({
                 }}"
               >
                 <div class="tool-form">
-                  ${renderTranslations(translations, translationLang, f)}
+                  ${translationsError && html`<glk-status message="${translationsError}"></glk-status>`}
+                  ${translationsNotice && html`<div class="tr-notice">${translationsNotice}</div>`}
+                  ${renderTranslations(translations, translationLang, f, translationNewLang, translationsBusy)}
                 </div>
                 <div slot="actions">
                   <button
@@ -1813,6 +1935,12 @@ export default define({
         .tr-entry { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid rgba(128,128,128,.22); }
         .tr-head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
         .tr-line { display: flex; gap: 8px; align-items: baseline; line-height: 1.45; }
+        .tr-line--edit { align-items: flex-start; }
+        .tr-line--edit .tr-lang { padding-top: 16px; }
+        /* Ansagen sind ein, zwei Sätze — GlassKits Textarea-Mindesthöhe (120px) wäre hier zu viel. */
+        .tr-edit { flex: 1 1 auto; min-width: 0; --gl-textarea-min-height: 64px; }
+        .tr-add { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+        .tr-notice { font-size: 13px; color: var(--gl-color-success); }
         .tr-lang { flex: 0 0 auto; font-size: 11px; letter-spacing: .06em; opacity: .6; min-width: 2.2em; }
         .tr-missing { opacity: .6; }
       `;

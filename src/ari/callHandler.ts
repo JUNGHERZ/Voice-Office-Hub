@@ -16,7 +16,7 @@ import { callRepo } from "../db/callRepo.js";
 import * as repo from "../db/repository.js";
 import { uploadRecording } from "../db/gridfs.js";
 import { CallLocalizer, type CallLocalizerLike } from "../llm/callLocalizer.js";
-import { lookupLanguage, rememberLanguage } from "../llm/callerProfile.js";
+import { lookupLanguage, rememberLanguage, type CallerPrior } from "../llm/callerProfile.js";
 import { generateGreeting } from "../llm/greetingPrompt.js";
 import { runPostCallSummary } from "../llm/summarize.js";
 import { ensureTranslations, loadUsable } from "../llm/translationStore.js";
@@ -197,6 +197,8 @@ export async function handleStasisStart(
   // Ohne konfigurierten Hook bleibt es bei diesen Vorgaben — der Anruf wird protokolliert
   // und normal geführt, exakt wie bisher.
   let overlay: OverlayDecision = { report: true, announce: false };
+  // Sprache des Web-Besuchers aus der eingelösten Sitzung (0.18.3).
+  let visitorLang: string | undefined;
 
   if (agent) {
     // Widget-Sitzung einlösen (0.11.0), noch vor dem Overlay-Hook und vor jedem Schreiben.
@@ -220,6 +222,7 @@ export async function handleStasisStart(
         }
         return;
       }
+      visitorLang = admission.lang;
     }
 
     // Overlay-Hook auf dem Klingelpfad: läuft NUR auf einem DB-Treffer und VOR dem Answer.
@@ -270,7 +273,7 @@ export async function handleStasisStart(
     client,
     channel,
     agent,
-    { targetNumber, callerNumber, widgetToken, log, ...overlay },
+    { targetNumber, callerNumber, widgetToken, visitorLang, log, ...overlay },
     deps,
   );
 }
@@ -462,7 +465,8 @@ interface ResolvedGreeting {
  *
  *  1. **Anrufer-Gedächtnis** (0.7.0): Kennen wir die Nummer, steht die Sprache schon VOR dem
  *     ersten Wort fest — die Laufzeit-Erkennung käme fürs Greeting immer zu spät. Die
- *     vorübersetzten Ansagen wärmen zugleich den Localizer vor.
+ *     vorübersetzten Ansagen wärmen zugleich den Localizer vor. Ohne Profil — bei Web-Anrufen
+ *     immer — tritt die **Browsersprache** des Besuchers an seine Stelle (0.18.3).
  *  2. **Begrüßungs-Prompt** (0.10.0): Ist `greetingPrompt` gesetzt, wird der Satz in der
  *     Sprache aus (1) ERZEUGT statt nachgeschlagen. Nur die Begrüßung — `transferFailed`,
  *     Filler- und Stille-Ansagen kommen weiterhin aus dem Übersetzungs-Cache.
@@ -489,10 +493,11 @@ async function resolveGreeting(
   const generated = !!agent.greetingPrompt;
 
   try {
-    const prior = await withTimeout(
-      deps.lookupLanguage(agent, meta.callerNumber),
-      PRIOR_LOOKUP_TIMEOUT_MS,
-    );
+    // Gemessen schlägt vermutet: Das Profil hält eine im Gespräch bestätigte Sprache fest,
+    // die Browsersprache ist nur eine Einstellung.
+    const prior =
+      (await withTimeout(deps.lookupLanguage(agent, meta.callerNumber), PRIOR_LOOKUP_TIMEOUT_MS)) ??
+      visitorPrior(agent, meta.visitorLang);
     if (prior && prior.lang !== agent.contentLanguage) {
       const phrases =
         (await withTimeout(deps.loadTranslations(agent, prior.lang), PRIOR_LOOKUP_TIMEOUT_MS)) ?? {};
@@ -508,10 +513,10 @@ async function resolveGreeting(
         metrics.greetingLanguage = prior.lang;
         metrics.priorSource = prior.source;
         if (phrases.greeting) sessionAgent = { ...agent, greeting: phrases.greeting };
-        log.info("Begrüßung aus Anrufer-Profil", {
-          lang: prior.lang,
-          ansagen: Object.keys(phrases).length,
-        });
+        log.info(
+          prior.source === "browser" ? "Begrüßung aus Browsersprache" : "Begrüßung aus Anrufer-Profil",
+          { lang: prior.lang, ansagen: Object.keys(phrases).length },
+        );
       }
     }
   } catch (err) {
@@ -544,6 +549,16 @@ async function resolveGreeting(
   return { agent: sessionAgent, text: sessionAgent.greeting };
 }
 
+/**
+ * Browsersprache eines Web-Besuchers als Prior (0.18.3) — nur bei mehrsprachigen Agenten.
+ * Ein einsprachig eingestellter Agent würde sonst englisch begrüßen und danach einer auf
+ * Deutsch gestellten Erkennung zuhören; dort gilt wie bisher die Standardsprache.
+ */
+function visitorPrior(agent: ResolvedAgent, lang: string | undefined): CallerPrior | null {
+  if (!lang || agent.language !== "multi") return null;
+  return { lang, source: "browser" };
+}
+
 /** Rennen gegen die Uhr; bei Zeitüberschreitung `undefined` statt eines hängenden Anrufaufbaus. */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
   return Promise.race([
@@ -572,6 +587,8 @@ interface CallMeta extends Partial<OverlayDecision> {
   callerNumber?: string;
   /** Vom Web-Widget pro Anruf generiertes Token (SIP-Header → Dialplan → Stasis-Arg 3). */
   widgetToken?: string;
+  /** Browsersprache des Web-Besuchers (0.18.3), aus der eingelösten Widget-Sitzung. */
+  visitorLang?: string;
   log: ReturnType<typeof logger.child>;
 }
 
@@ -786,6 +803,20 @@ async function runAgentCall(
     const lang = localizer.getLanguageState();
     if (lang.lang && lang.confirmed) {
       metrics.priorConfirmed = lang.priorLang ? lang.priorLang === lang.lang : undefined;
+      metrics.languageSource = "localizer";
+    } else {
+      // Gesprächssprache für JEDEN Anruf (0.18.3): Hat der Localizer nichts bestätigt — er
+      // ruht bei einsprachigen Agenten, oder das Gespräch war zu kurz für die Erkennung —,
+      // schätzt der Stopwort-Scorer über alles, was der Anrufer gesagt hat. Nur fürs
+      // Protokoll: Profil und Vorübersetzung lernen weiter ausschließlich aus bestätigten
+      // Sprachen (unten). Vor dem Finalisieren, damit sie auch in `call.ended` steht.
+      const estimate = localizer.estimateLanguage();
+      if (estimate) {
+        metrics.languageSource = "scorer";
+        await store
+          .setLanguage(requestId, estimate)
+          .catch((err) => log.warn("Gesprächssprache nicht gespeichert", { err: String(err) }));
+      }
     }
 
     // Reihenfolge der Gründe: ein ausdrückliches Auflegen der Engine gewinnt; sonst

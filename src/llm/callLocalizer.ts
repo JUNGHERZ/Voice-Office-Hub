@@ -46,6 +46,11 @@ export interface CallLocalizerLike {
   getLanguage(): string | undefined;
   preload(lang: string, phrases: Record<string, string>): void;
   getLanguageState(): LanguageState;
+  /**
+   * Stopwort-Schätzung über alles, was der Anrufer gesagt hat (0.18.3) — auch bei ruhendem
+   * Localizer. Nur fürs Protokoll: Eine Schätzung steuert weder Ansagen noch Begrüßung.
+   */
+  estimateLanguage(): string | undefined;
   close(): void;
 }
 
@@ -104,6 +109,8 @@ export function buildLocalizationCatalog(
 const DETECT_MIN_WORDS = 3;
 const REDETECT_STREAK = 2;
 const SAMPLE_MAX_CHARS = 1200;
+/** Für die Schätzung genügt der Gesprächsanfang; der Puffer wächst nicht mit dem Anruf. */
+const ESTIMATE_MAX_CHARS = 3000;
 
 export class CallLocalizer implements CallLocalizerLike {
   private readonly deps: LocalizerDeps;
@@ -115,6 +122,8 @@ export class CallLocalizer implements CallLocalizerLike {
   /** Rollenmarkiertes Rolling-Fenster (beide Rollen) als Erkennungs-Kontext inkl. Register. */
   private readonly window: string[] = [];
   private callerTurns = 0;
+  /** Anrufertext des ganzen Gesprächs (gedeckelt) — Grundlage von estimateLanguage(). */
+  private callerText = "";
   private currentLang?: string;
   private readonly cache = new Map<string, Record<string, string>>();
   private readonly cursor: Record<string, number> = {};
@@ -157,7 +166,14 @@ export class CallLocalizer implements CallLocalizerLike {
    * nur bei `speaker === "caller"`. Wird vom callHandler bei jedem conversationText-Event gefüttert.
    */
   observeTurn(speaker: string, text: string, sttLanguage?: string): void {
-    if (!this.active || this.closed || !text.trim()) return;
+    if (this.closed || !text.trim()) return;
+    // Vor der Aktiv-Prüfung: Die Gesprächssprache soll bei JEDEM Anruf erfasst werden, auch
+    // bei einsprachigen Agenten — ohne diese Datenbasis lässt sich nie beurteilen, ob eine
+    // Vorbelegung dort tragen würde (0.18.3).
+    if (speaker === "caller" && this.callerText.length < ESTIMATE_MAX_CHARS) {
+      this.callerText += ` ${text}`;
+    }
+    if (!this.active) return;
     this.window.push(`${speaker === "caller" ? "caller" : "agent"}: ${text}`);
     this.trimWindow();
     if (speaker !== "caller") return;
@@ -240,6 +256,10 @@ export class CallLocalizer implements CallLocalizerLike {
       confirmed: this.confirmed,
       ...(this.priorLang ? { priorLang: this.priorLang } : {}),
     };
+  }
+
+  estimateLanguage(): string | undefined {
+    return this.deps.scoreLanguage(this.callerText)?.lang;
   }
 
   close(): void {

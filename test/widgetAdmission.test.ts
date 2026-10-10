@@ -9,6 +9,7 @@ import {
   consumeWidgetSession,
   issueWidgetSession,
   memorySessionStore,
+  visitorLanguage,
   type Admission,
 } from "../src/db/widgetSessions.js";
 import {
@@ -127,7 +128,7 @@ const T0 = 1_700_000_000_000;
 
 test("Sitzung: ausgestellt → einlösbar, ein zweites Mal nicht", async () => {
   const store = memorySessionStore();
-  const token = await issueWidgetSession(AGENT_A, "120", 300, T0, store);
+  const token = await issueWidgetSession(AGENT_A, { exten: "120" }, 300, T0, store);
   assert.match(token, /^[a-f0-9]{32}$/, "Form passt zum Transkript-Endpunkt");
   assert.deepEqual(await consumeWidgetSession(token, AGENT_A, T0 + 1000, store), { ok: true });
   assert.deepEqual(await consumeWidgetSession(token, AGENT_A, T0 + 2000, store), {
@@ -138,7 +139,7 @@ test("Sitzung: ausgestellt → einlösbar, ein zweites Mal nicht", async () => {
 
 test("Sitzung: abgelaufen, obwohl das Dokument noch da ist", async () => {
   const store = memorySessionStore();
-  const token = await issueWidgetSession(AGENT_A, "120", 300, T0, store);
+  const token = await issueWidgetSession(AGENT_A, { exten: "120" }, 300, T0, store);
   // Der TTL-Monitor räumt nur minütlich — die Gültigkeit muss der Code selbst prüfen.
   assert.deepEqual(await consumeWidgetSession(token, AGENT_A, T0 + 301_000, store), {
     ok: false,
@@ -164,7 +165,7 @@ test("Sitzung: unbekanntes und fehlendes Token", async () => {
 // abräumen, ohne selbst je durchzukommen.
 test("Sitzung: fremde Durchwahl wird abgewiesen und verbraucht die Sitzung nicht", async () => {
   const store = memorySessionStore();
-  const token = await issueWidgetSession(AGENT_A, "120", 300, T0, store);
+  const token = await issueWidgetSession(AGENT_A, { exten: "120" }, 300, T0, store);
   assert.deepEqual(await consumeWidgetSession(token, AGENT_B, T0 + 1000, store), {
     ok: false,
     reason: "foreign-agent",
@@ -174,4 +175,29 @@ test("Sitzung: fremde Durchwahl wird abgewiesen und verbraucht die Sitzung nicht
     { ok: true },
     "der rechtmäßige Besucher kommt weiterhin durch",
   );
+});
+
+// ── Besuchersprache (0.18.3) ─────────────────────────────────────────────────
+// Web-Anrufe haben kein Anrufer-Profil; die Browsersprache reist deshalb mit dem Token und
+// steht beim Einlösen als Vorbelegung für die Begrüßung bereit.
+
+test("Sitzung: die Besuchersprache kommt beim Einlösen mit zurück", async () => {
+  const store = memorySessionStore();
+  const token = await issueWidgetSession(AGENT_A, { exten: "120", lang: "en" }, 300, T0, store);
+  assert.deepEqual(await consumeWidgetSession(token, AGENT_A, T0 + 1000, store), { ok: true, lang: "en" });
+});
+
+test("visitorLanguage: ausdrückliche Angabe vor dem Header, nur das Primär-Subtag", () => {
+  assert.equal(visitorLanguage("en-US", "de-DE,de;q=0.9"), "en");
+  assert.equal(visitorLanguage("FR", undefined), "fr");
+  assert.equal(visitorLanguage(undefined, "de-DE,de;q=0.9,en;q=0.8"), "de");
+  assert.equal(visitorLanguage("", "es-ES"), "es", "leere Angabe zählt nicht");
+});
+
+test("visitorLanguage: Header nach Gewicht, Joker und Unsinn fallen heraus", () => {
+  assert.equal(visitorLanguage(undefined, "en;q=0.5, fr;q=0.9"), "fr");
+  assert.equal(visitorLanguage(undefined, "*"), undefined, "Backend ohne Sprachwunsch");
+  assert.equal(visitorLanguage(undefined, "*;q=0.9, it;q=0.1"), "it");
+  assert.equal(visitorLanguage("x1", undefined), undefined);
+  assert.equal(visitorLanguage(undefined, undefined), undefined);
 });

@@ -334,6 +334,11 @@ export class FakeLocalizer implements CallLocalizerLike {
   getLanguageState(): LanguageState {
     return this.state;
   }
+  /** Ergebnis der Stopwort-Schätzung am Gesprächsende (0.18.3). */
+  estimate?: string;
+  estimateLanguage(): string | undefined {
+    return this.estimate;
+  }
   close(): void {
     this.closed = true;
   }

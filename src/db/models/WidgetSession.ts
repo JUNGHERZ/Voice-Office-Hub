@@ -25,6 +25,12 @@ const WidgetSessionSchema = new Schema(
     agentId: { type: Schema.Types.ObjectId, ref: "Agent", required: true },
     /** Die Durchwahl des Agenten zum Zeitpunkt der Ausstellung (für die Log-Spur). */
     exten: { type: String },
+    /**
+     * Sprache des Besuchers, wie sein Browser sie meldet (0.18.3) — nur das Primär-Subtag
+     * (`en`, nicht `en-US`). Vorbelegung für die Begrüßung: Web-Anrufe haben kein
+     * Anrufer-Profil, weil sich ihr Identifikator nie wiederholt.
+     */
+    lang: { type: String },
     /** Wann das INVITE kam. Gesetzt = verbraucht; ein zweites INVITE wird abgewiesen. */
     consumedAt: { type: Date },
     expiresAt: { type: Date, required: true },

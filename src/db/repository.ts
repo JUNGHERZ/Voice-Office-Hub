@@ -175,8 +175,16 @@ export interface CallMetrics {
   idleHangup?: boolean;
   /** Sprache der ausgespielten Begrüßung, wenn sie aus einem Prior kam (0.7.0). */
   greetingLanguage?: string;
-  /** Woher der Prior stammte ("profile"). Fehlt, wenn wie bisher in Standardsprache begrüßt wurde. */
+  /**
+   * Woher der Prior stammte: "profile" (Anrufer-Gedächtnis) oder "browser" (Sprache des
+   * Web-Besuchers, 0.18.3). Fehlt, wenn wie bisher in Standardsprache begrüßt wurde.
+   */
   priorSource?: string;
+  /**
+   * Herkunft von `request.language` (0.18.3): `localizer` = im Gespräch per LLM bestätigt,
+   * `scorer` = Stopwort-Schätzung über den Anrufertext (einsprachige Agenten, kurze Anrufe).
+   */
+  languageSource?: "localizer" | "scorer";
   /** Hat der Anrufer den Prior bestätigt? `false` = er sprach eine andere Sprache. */
   priorConfirmed?: boolean;
 }

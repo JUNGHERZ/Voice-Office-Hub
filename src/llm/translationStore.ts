@@ -182,6 +182,54 @@ export async function ensureTranslations(agent: ResolvedAgent, lang: string): Pr
   }
 }
 
+/** Korrektur nennt einen Key, den der Katalog nicht kennt (Tippfehler, gelöschter Filler). */
+export class UnknownCatalogKeys extends Error {
+  constructor(readonly keys: string[]) {
+    super(`Unbekannte Ansagen: ${keys.join(", ")}`);
+    this.name = "UnknownCatalogKeys";
+  }
+}
+
+/**
+ * Korrekturen auf den Bestand anwenden (rein). Ein gesetzter Text gilt als frisch für den
+ * AKTUELLEN Quelltext — die automatische Neuerzeugung lässt ihn deshalb stehen, bis jemand
+ * das Original ändert; dann ist die Korrektur veraltet wie jede andere Übersetzung. Ein
+ * leerer Text löscht den Eintrag: Die Lücke füllt das nächste „Neu erzeugen".
+ */
+export function applyEdits(
+  catalog: Record<string, string>,
+  entries: Record<string, StoredEntry>,
+  edits: Record<string, string>,
+): Record<string, StoredEntry> {
+  const unknown = Object.keys(edits).filter((key) => !(key in catalog));
+  if (unknown.length) throw new UnknownCatalogKeys(unknown);
+  const next = { ...entries };
+  for (const [key, raw] of Object.entries(edits)) {
+    const text = raw.trim();
+    if (text) next[key] = { text, srcHash: srcHash(catalog[key]!) };
+    else delete next[key];
+  }
+  // Keys, die es im Katalog nicht mehr gibt, fallen heraus — wie bei der Neuerzeugung.
+  for (const key of Object.keys(next)) if (!(key in catalog)) delete next[key];
+  return next;
+}
+
+/** Übersetzungen einer Sprache von Hand korrigieren (Admin, 0.18.3). */
+export async function saveTranslations(
+  agent: ResolvedAgent,
+  lang: string,
+  edits: Record<string, string>,
+): Promise<void> {
+  if (!agent.id) return;
+  const next = applyEdits(translatableCatalog(agent), await loadEntries(agent.id, lang), edits);
+  await AgentTranslation.updateOne(
+    { agentId: agent.id, lang },
+    { $set: { entries: toEntryRows(next) } },
+    { upsert: true },
+  );
+  log.info("Übersetzung von Hand korrigiert", { agent: agent.name, lang, ansagen: Object.keys(edits).length });
+}
+
 /** Alle bereits erfassten Sprachen eines Agenten. */
 export async function knownLanguages(agentId: string): Promise<string[]> {
   const docs = await AgentTranslation.find({ agentId }, { lang: 1 }).lean<Array<{ lang: string }>>();

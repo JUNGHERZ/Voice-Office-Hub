@@ -14,13 +14,47 @@ import { WidgetSession } from "./models/WidgetSession.js";
 /** Warum ein INVITE nicht durchgelassen wurde — landet als `grund` im Log. */
 export type AdmissionReason = "missing" | "unknown" | "expired" | "consumed" | "foreign-agent";
 
-export type Admission = { ok: true } | { ok: false; reason: AdmissionReason };
+/** `lang`: Sprache des Besuchers, sofern sein Browser eine meldete (0.18.3). */
+export type Admission = { ok: true; lang?: string } | { ok: false; reason: AdmissionReason };
 
 /** Gespeicherte Sitzung, soweit das Einlösen sie braucht. */
 export interface StoredSession {
   agentId?: unknown;
   consumedAt?: Date;
   expiresAt?: Date;
+  lang?: string;
+}
+
+/**
+ * Sprache des Besuchers als Primär-Subtag (`en-US` → `en`), oder `undefined`.
+ *
+ * Vorrang hat die ausdrücklich übergebene Angabe (das Widget sendet `navigator.language`,
+ * ein Vermittler-Backend kann die seines Besuchers durchreichen). Ohne sie gilt der
+ * `Accept-Language`-Header des Aufrufs — beim Fetch aus dem Widget ist das dieselbe
+ * Browsereinstellung, bei einem Backend ohne Angabe fehlt er oder steht auf `*`.
+ */
+export function visitorLanguage(explicit?: string, acceptLanguage?: string): string | undefined {
+  const primary = (tag: string): string | undefined => {
+    const p = tag.trim().toLowerCase().split(/[-_]/)[0] ?? "";
+    return /^[a-z]{2,3}$/.test(p) ? p : undefined;
+  };
+  if (explicit) return primary(explicit);
+  if (!acceptLanguage) return undefined;
+  // „de-DE,de;q=0.9,en;q=0.8" — nach Gewicht, nicht nach Reihenfolge.
+  const ranked = acceptLanguage
+    .split(",")
+    .map((part, i) => {
+      const [tag = "", ...params] = part.split(";");
+      const q = params.map((x) => x.trim()).find((x) => x.startsWith("q="));
+      return { tag: tag.trim(), q: q ? Number(q.slice(2)) : 1, i };
+    })
+    .filter((x) => x.tag && x.tag !== "*" && Number.isFinite(x.q) && x.q > 0)
+    .sort((a, b) => b.q - a.q || a.i - b.i);
+  for (const { tag } of ranked) {
+    const lang = primary(tag);
+    if (lang) return lang;
+  }
+  return undefined;
 }
 
 /**
@@ -35,9 +69,11 @@ export interface SessionStore {
     token: string;
     agentId: string;
     exten?: string;
+    lang?: string;
     expiresAt: Date;
   }) => Promise<void>;
-  claim: (token: string, agentId: string | undefined, now: Date) => Promise<boolean>;
+  /** Liefert die beanspruchte Sitzung (für die Besuchersprache) oder `null`. */
+  claim: (token: string, agentId: string | undefined, now: Date) => Promise<StoredSession | null>;
   find: (token: string) => Promise<StoredSession | null>;
 }
 
@@ -54,8 +90,8 @@ const defaultStore: SessionStore = {
         expiresAt: { $gt: now },
       },
       { $set: { consumedAt: now } },
-    ).lean<{ _id: unknown } | null>();
-    return !!claimed;
+    ).lean<StoredSession | null>();
+    return claimed;
   },
   find: (token) => WidgetSession.findOne({ token }).lean<StoredSession | null>(),
 };
@@ -66,7 +102,7 @@ const defaultStore: SessionStore = {
  */
 export async function issueWidgetSession(
   agentId: string,
-  exten: string | undefined,
+  session: { exten?: string; lang?: string },
   ttlSec: number,
   now: number = Date.now(),
   store: SessionStore = defaultStore,
@@ -75,7 +111,8 @@ export async function issueWidgetSession(
   await store.create({
     token,
     agentId,
-    ...(exten ? { exten } : {}),
+    ...(session.exten ? { exten: session.exten } : {}),
+    ...(session.lang ? { lang: session.lang } : {}),
     expiresAt: new Date(now + ttlSec * 1000),
   });
   return token;
@@ -100,7 +137,8 @@ export async function consumeWidgetSession(
 ): Promise<Admission> {
   if (!token) return { ok: false, reason: "missing" };
 
-  if (await store.claim(token, agentId, new Date(now))) return { ok: true };
+  const claimed = await store.claim(token, agentId, new Date(now));
+  if (claimed) return { ok: true, ...(claimed.lang ? { lang: claimed.lang } : {}) };
 
   // Nichts beansprucht — warum, steht im Dokument, sofern es überhaupt (noch) eines gibt.
   const existing = await store.find(token);
@@ -124,12 +162,12 @@ export function memorySessionStore(): SessionStore & { size: () => number } {
     },
     claim: async (token, agentId, now) => {
       const row = rows.get(token);
-      if (!row) return false;
-      if (agentId && String(row.agentId) !== String(agentId)) return false;
-      if (row.consumedAt) return false;
-      if (!row.expiresAt || row.expiresAt <= now) return false;
+      if (!row) return null;
+      if (agentId && String(row.agentId) !== String(agentId)) return null;
+      if (row.consumedAt) return null;
+      if (!row.expiresAt || row.expiresAt <= now) return null;
       row.consumedAt = now;
-      return true;
+      return row;
     },
     find: async (token) => rows.get(token) ?? null,
   };

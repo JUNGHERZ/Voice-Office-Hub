@@ -16,8 +16,10 @@ import {
   knownLanguages,
   loadEntries,
   refreshAllLanguages,
+  saveTranslations,
   staleKeys,
   translatableCatalog,
+  UnknownCatalogKeys,
 } from "../../llm/translationStore.js";
 import { requireAuth } from "../auth.js";
 import { collectUsedExtens, ensureWidgetExten } from "../widgetExten.js";
@@ -176,13 +178,28 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  /** Übersetzungen einer Sprache neu erzeugen (nur fehlende/veraltete Einträge). */
+  /**
+   * Zielsprache aus dem Pfad prüfen: Kürzel wie `en` oder `fr`, nicht die Ausgangssprache
+   * selbst — für die gibt es nichts zu übersetzen, und ein stilles „ok" führte in die Irre.
+   */
+  const targetLanguage = (raw: string, contentLanguage: string): string | { error: string } => {
+    const lang = raw.trim().toLowerCase();
+    if (!/^[a-z]{2,3}$/.test(lang)) return { error: `„${raw}" ist kein Sprachkürzel (z. B. en, fr).` };
+    if (lang === contentLanguage) return { error: `${lang} ist die Ausgangssprache der Ansagen.` };
+    return lang;
+  };
+
+  /**
+   * Übersetzungen einer Sprache erzeugen — nur fehlende und veraltete Einträge. Legt eine
+   * noch unbekannte Sprache an (0.18.3: „Sprache anlegen" im Admin), sodass schon der erste
+   * Anruf in ihr passend begrüßt werden kann.
+   */
   app.post(
     "/:id/translations/:lang/regenerate",
     {
       schema: {
         tags: ["agents"],
-        summary: "Übersetzung neu erzeugen",
+        summary: "Übersetzung erzeugen oder neu erzeugen",
         params: {
           type: "object",
           properties: { id: { type: "string" }, lang: { type: "string" } },
@@ -191,11 +208,63 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      const { id, lang } = req.params as { id: string; lang: string };
+      const { id, lang: raw } = req.params as { id: string; lang: string };
       const doc = await Agent.findById(id).lean();
       if (!doc) return reply.code(404).send({ error: "not found" });
+      const agent = agentFromDoc(doc);
+      const lang = targetLanguage(raw, agent.contentLanguage);
+      if (typeof lang !== "string") return reply.code(400).send({ error: "bad_request", message: lang.error });
       // Synchron: Der Aufrufer hat den Knopf gedrückt und will das Ergebnis sehen.
-      await ensureTranslations(agentFromDoc(doc), lang.toLowerCase());
+      await ensureTranslations(agent, lang);
+      return { ok: true };
+    },
+  );
+
+  /**
+   * Übersetzungen von Hand korrigieren (0.18.3). Ein Text gilt als frisch, bis jemand das
+   * Original ändert — die automatische Neuerzeugung überschreibt ihn nicht. Ein leerer Text
+   * löscht den Eintrag; die Lücke füllt das nächste Neu-Erzeugen.
+   */
+  app.put(
+    "/:id/translations/:lang",
+    {
+      schema: {
+        tags: ["agents"],
+        summary: "Übersetzung von Hand korrigieren",
+        params: {
+          type: "object",
+          properties: { id: { type: "string" }, lang: { type: "string" } },
+          required: ["id", "lang"],
+        },
+        body: {
+          type: "object",
+          properties: {
+            entries: {
+              type: "object",
+              description: "Katalog-Key → Übersetzung; leerer Text löscht den Eintrag.",
+              additionalProperties: { type: "string", maxLength: 2000 },
+            },
+          },
+          required: ["entries"],
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id, lang: raw } = req.params as { id: string; lang: string };
+      const { entries } = req.body as { entries: Record<string, string> };
+      const doc = await Agent.findById(id).lean();
+      if (!doc) return reply.code(404).send({ error: "not found" });
+      const agent = agentFromDoc(doc);
+      const lang = targetLanguage(raw, agent.contentLanguage);
+      if (typeof lang !== "string") return reply.code(400).send({ error: "bad_request", message: lang.error });
+      try {
+        await saveTranslations(agent, lang, entries);
+      } catch (err) {
+        if (err instanceof UnknownCatalogKeys) {
+          return reply.code(400).send({ error: "bad_request", message: err.message });
+        }
+        throw err;
+      }
       return { ok: true };
     },
   );

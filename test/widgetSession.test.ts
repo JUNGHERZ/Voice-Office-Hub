@@ -225,6 +225,25 @@ test("Session: Antwort trägt das ausgestellte callToken", async () => {
   await app.close();
 });
 
+// 0.18.3: Die Sprache des Besuchers geht mit der Sitzung — aus dem Rumpf (das Widget sendet
+// navigator.language) oder ersatzweise aus dem Accept-Language-Header desselben Fetch.
+test("Session: Besuchersprache aus Rumpf oder Accept-Language landet an der Sitzung", async () => {
+  const langs: Array<string | undefined> = [];
+  const app = makeApp({
+    issueSession: async (_agentId, _exten, lang) => {
+      langs.push(lang);
+      return "abc123abc123abc1";
+    },
+  });
+  const withBody = sessionReq(WIDGET_AGENT.widget.key, { "accept-language": "de-DE,de;q=0.9" });
+  withBody.payload = { ...withBody.payload, lang: "en-GB" } as typeof withBody.payload;
+  assert.equal((await app.inject(withBody)).statusCode, 200);
+  assert.equal((await app.inject(sessionReq(WIDGET_AGENT.widget.key, { "accept-language": "fr-FR,fr;q=0.9" }))).statusCode, 200);
+  assert.equal((await app.inject(sessionReq())).statusCode, 200);
+  assert.deepEqual(langs, ["en", "fr", undefined], "Rumpf vor Header; ohne beides keine Vorbelegung");
+  await app.close();
+});
+
 // 6 ─ Concurrent-Cap: alle Web-Leitungen belegt → 429 mit sprechender Meldung.
 test("Session: Concurrent-Cap → 429", async () => {
   const app = makeApp({ countActiveWebCalls: async () => 2 });

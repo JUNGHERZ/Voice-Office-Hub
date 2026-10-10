@@ -100,6 +100,9 @@ const MetricsSchema = new Schema(
     greetingLanguage: { type: String },
     priorSource: { type: String },
     priorConfirmed: { type: Boolean },
+    // Woher `language` stammt (0.18.3): „localizer" (LLM-bestätigt) oder „scorer" (Schätzung).
+    // Seit 0.18.3 wird die Sprache bei jedem Anruf erfasst, nicht nur bei mehrsprachigen Agenten.
+    languageSource: { type: String },
   },
   { _id: false },
 );

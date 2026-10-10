@@ -10,7 +10,7 @@ import {
   type LocalizerDeps,
 } from "../src/llm/callLocalizer.js";
 import type { LocalizeResult } from "../src/llm/localize.js";
-import type { LanguageGuess } from "../src/llm/languageScorer.js";
+import { scoreLanguage, type LanguageGuess } from "../src/llm/languageScorer.js";
 import { settle, testAgent } from "./helpers/fakes.js";
 
 // Der „active"-Gate verlangt einen Requesty-Key — für die aktiven Tests setzen.
@@ -502,4 +502,28 @@ test("Re-Detection: ein Widerspruch bricht die Abweichungsserie, statt sie zu z�
   await settle();
   assert.equal(loc.getLanguage(), "de", "die Hysterese kommt nie ins Zählen");
   assert.deepEqual(langs, ["de"]);
+});
+
+// ── Gesprächssprache bei jedem Anruf (0.18.3) ────────────────────────────────
+// Die Schätzung läuft mit dem echten Stopwort-Scorer — sie soll gerade dort Daten liefern,
+// wo der Localizer ruht.
+
+test("estimateLanguage: auch bei ruhendem Localizer, und nur der Anrufertext zählt", () => {
+  const { loc, localizeCalls, langs } = makeLocalizer(
+    { language: "de" }, // einsprachig → Localizer ruht
+    { scoreLanguage: (text) => scoreLanguage(text) },
+  );
+  loc.observeTurn("agent", "Hello there, how can I help you with that today?");
+  loc.observeTurn("caller", "Ich hätte gern einen Termin für die nächste Woche.");
+  loc.observeTurn("caller", "Und bitte nicht am Montag, das ist schlecht für mich.");
+
+  assert.equal(loc.estimateLanguage(), "de", "Agententext darf die Schätzung nicht kippen");
+  assert.equal(localizeCalls.length, 0, "ruhend heißt: kein LLM");
+  assert.deepEqual(langs, [], "geschrieben wird erst am Gesprächsende (callHandler)");
+});
+
+test("estimateLanguage: zu wenig Text ergibt keine Schätzung", () => {
+  const { loc } = makeLocalizer({ language: "de" }, { scoreLanguage: (text) => scoreLanguage(text) });
+  loc.observeTurn("caller", "Ja.");
+  assert.equal(loc.estimateLanguage(), undefined);
 });

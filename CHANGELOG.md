@@ -4,6 +4,29 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.18.3] – 2026-10-10
+
+### Added
+
+**Web-Anrufe begrüßen in der Browsersprache des Besuchers.** Ein Web-Anruf hat kein Anrufer-Profil, weil sich sein Identifikator nie wiederholt — die Begrüßung lief deshalb immer in der Standardsprache. Jetzt sendet das Widget beim Holen der Sitzung `navigator.language` mit (ersatzweise gilt der `Accept-Language`-Header desselben Aufrufs), die Sprache reist mit dem Anruf-Token, und die Engine nutzt sie wie ein Profil: Begrüßung und Ansagen in dieser Sprache, sofern ihre Übersetzung existiert (`metrics.priorSource: "browser"`). Ein Profil hätte Vorrang, und es gilt nur für Agenten mit `language: "multi"` — ein einsprachig eingestellter Agent würde sonst englisch begrüßen und danach einer auf Deutsch gestellten Erkennung zuhören. Ein Vermittler-Backend kann die Sprache seines Besuchers als `lang` an `POST /api/widget/session` übergeben.
+
+**Die Gesprächssprache wird bei jedem Anruf erfasst.** Bisher schrieb nur der Localizer `request.language`, und der ruht bei einsprachigen Agenten und kommt bei kurzen Gesprächen nicht zum Zug. In einer produktiven Installation trug deshalb nur gut ein Viertel der Gespräche eine Sprache (125 von 458; 22 von 33 Agenten stehen auf `language: "de"`). Jetzt schätzt der Stopwort-Scorer am Gesprächsende über den gesamten Anrufertext, synchron und ohne LLM-Aufruf. `metrics.languageSource` nennt die Herkunft (`localizer` oder `scorer`), im Anruf-Detail steht eine Schätzung als `≈ de`. Eine Schätzung steuert nichts — Profil und Vorübersetzung lernen weiterhin nur aus bestätigten Sprachen —, sie liefert die Datenbasis für die Frage, ob eine Vorbelegung auch dort tragen würde.
+
+**Übersetzte Ansagen lassen sich im Admin korrigieren und vorab anlegen.** Jede Übersetzung ist im Modal direkt editierbar und wird beim Verlassen des Feldes gespeichert (`PUT /api/agents/:id/translations/:lang`). Eine Korrektur gilt als aktuell, bis jemand das Original ändert; „Neu erzeugen" füllt nur fehlende und veraltete Einträge und lässt sie stehen. „Sprache anlegen" übersetzt den Katalog vorab in eine weitere Sprache — vorher entstand eine Übersetzung erst nach dem ersten Anruf in ihr, sodass genau dieser Anrufer nie passend begrüßt wurde.
+
+### Changed
+
+- `POST /api/agents/:id/translations/:lang/regenerate` legt eine noch unbekannte Sprache an und prüft das Kürzel: kein Sprachkürzel oder die Ausgangssprache selbst ergeben `400` statt eines stillen „ok".
+- Im Übersetzungs-Modal unterscheidet das Badge „fehlt" von „veraltet"; Fehler und Rückmeldungen erscheinen im Modal statt verdeckt hinter ihm.
+- Service-Worker-Cache auf `vh-shell-v26`.
+
+### Grenzen (bewusst)
+
+Aus dem Folge-Issue zur Begrüßung in der Anrufersprache bleiben zwei Punkte offen, beide an den Daten einer produktiven Installation geprüft (990 Anrufe in sieben Wochen):
+
+- **Keine Vorbelegung aus Ländervorwahl oder SIP-`Accept-Language`.** Fünf Anrufe kamen aus dem Ausland (Format `00`+Ländervorwahl), keiner davon war ein fremdsprachiges Gespräch; die beiden fremdsprachigen kamen von deutschen Nummern, wo nur das Anrufer-Profil hilft.
+- **Keine eigene Stimme je Sprache.** Alle Agenten dort sprechen mit mehrsprachigen Stimmen (Azure *Multilingual*); ElevenLabs deckt dasselbe ab.
+
 ## [0.18.2] – 2026-10-10
 
 ### Added

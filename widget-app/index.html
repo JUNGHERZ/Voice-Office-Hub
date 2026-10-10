@@ -203,7 +203,8 @@
       const res = await fetch("/api/widget/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: widgetKey }),
+        // Browsersprache: Vorbelegung für die Begrüßung (0.18.3), Web-Anrufe haben kein Profil.
+        body: JSON.stringify({ key: widgetKey, lang: navigator.language || "" }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

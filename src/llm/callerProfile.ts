@@ -66,7 +66,11 @@ export function memoryActive(agent: ResolvedAgent): boolean {
 
 export interface CallerPrior {
   lang: string;
-  source: "profile";
+  /**
+   * `profile` = im Gespräch bestätigte Sprache dieser Nummer; `browser` = Spracheinstellung
+   * eines Web-Besuchers (0.18.3, gesetzt im callHandler — Web-Anrufe haben kein Profil).
+   */
+  source: "profile" | "browser";
 }
 
 /**

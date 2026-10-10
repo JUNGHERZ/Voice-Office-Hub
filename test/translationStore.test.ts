@@ -4,14 +4,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  applyEdits,
   catalogLabel,
   srcHash,
   staleKeys,
   toEntryMap,
   toEntryRows,
   translatableCatalog,
-  usableEntries,
   type StoredEntry,
+  UnknownCatalogKeys,
+  usableEntries,
 } from "../src/llm/translationStore.js";
 import { AgentTranslation } from "../src/db/models/AgentTranslation.js";
 import { parseTranslateResponse } from "../src/llm/localize.js";
@@ -200,4 +202,39 @@ test("Das Modell akzeptiert punktierte Katalog-Keys", () => {
   assert.equal(doc.validateSync(), undefined, "keine Validierungsfehler");
   const keys = (doc.entries as Array<{ key: string }>).map((e) => e.key);
   assert.deepEqual(keys, ["filler.0", "tool.vorgang_status"]);
+});
+
+// ── Korrekturen von Hand (0.18.3) ────────────────────────────────────────────
+
+test("applyEdits: Korrektur gilt als frisch für den aktuellen Quelltext", () => {
+  const catalog = { greeting: "Hallo, hier ist der Support.", transferFailed: "Niemand erreichbar." };
+  const entries = { greeting: { text: "Hello, support here.", srcHash: srcHash("Hallo, hier ist der Support.") } };
+  const next = applyEdits(catalog, entries, { transferFailed: "  Nobody is available.  " });
+
+  assert.equal(next.transferFailed?.text, "Nobody is available.", "getrimmt");
+  assert.deepEqual(staleKeys(catalog, next), [], "nichts mehr veraltet — die Neuerzeugung lässt sie stehen");
+  assert.equal(next.greeting?.text, "Hello, support here.", "unberührte Einträge bleiben");
+});
+
+test("applyEdits: leerer Text löscht den Eintrag, damit Neu-Erzeugen ihn füllt", () => {
+  const catalog = { greeting: "Hallo." };
+  const next = applyEdits(catalog, { greeting: { text: "Hi.", srcHash: srcHash("Hallo.") } }, { greeting: "  " });
+  assert.deepEqual(next, {});
+  assert.deepEqual(staleKeys(catalog, next), ["greeting"]);
+});
+
+test("applyEdits: unbekannter Key wirft, statt still zu verpuffen", () => {
+  assert.throws(
+    () => applyEdits({ greeting: "Hallo." }, {}, { gretting: "Hi." }),
+    (err: unknown) => err instanceof UnknownCatalogKeys && err.keys.includes("gretting"),
+  );
+});
+
+test("applyEdits: Einträge zu gelöschten Ansagen fallen heraus", () => {
+  const next = applyEdits(
+    { greeting: "Hallo." },
+    { "filler.3": { text: "One moment.", srcHash: "x" } },
+    { greeting: "Hi." },
+  );
+  assert.deepEqual(Object.keys(next), ["greeting"]);
 });

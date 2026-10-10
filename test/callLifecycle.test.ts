@@ -814,6 +814,124 @@ test("Post-Call: Widerspruch zum Prior wird mitgegeben", async () => {
   assert.equal(s.repo.metrics?.priorConfirmed, false, "der Prior lag daneben — messbar machen");
 });
 
+// ── Browsersprache als Vorbelegung (0.18.3) ──────────────────────────────────
+// Web-Anrufe haben kein Anrufer-Profil — die Sprache des Besuchers kommt mit der Sitzung.
+
+const WEB_ARGS = ["120", "web-1791660804.6", "a".repeat(32)];
+
+test("Browsersprache: englischer Browser → Begrüßung auf Englisch", async () => {
+  const s = capturingCall({
+    consumeWidgetSession: async () => ({ ok: true, lang: "en" }),
+    loadTranslations: async (_a, lang) => (lang === "en" ? { greeting: "Hello! How can I help you?" } : {}),
+  });
+  await s.start(WEB_ARGS);
+  await settle();
+
+  assert.equal(s.builtAgent()?.greeting, "Hello! How can I help you?");
+  assert.equal(s.localizer.preloaded?.lang, "en", "Ansagen vorgewärmt, Erkennung bestätigt später");
+
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+  assert.equal(s.repo.metrics?.priorSource, "browser");
+  assert.equal(s.repo.metrics?.greetingLanguage, "en");
+});
+
+// Ein einsprachig eingestellter Agent hört mit deutschem Hinweis zu — eine englische
+// Begrüßung würde eine Antwort provozieren, die er schlecht versteht.
+test("Browsersprache: einsprachiger Agent bleibt bei der Standardsprache", async () => {
+  const s = capturingCall(
+    {
+      consumeWidgetSession: async () => ({ ok: true, lang: "en" }),
+      loadTranslations: async () => ({ greeting: "Hello!" }),
+    },
+    testAgent({ language: "de" }),
+  );
+  await s.start(WEB_ARGS);
+  await settle();
+
+  assert.equal(s.builtAgent()?.greeting, "Hallo");
+  assert.equal(s.localizer.preloaded, undefined);
+});
+
+// Gemessen schlägt vermutet: Ein Profil hält eine im Gespräch bestätigte Sprache fest.
+test("Browsersprache: ein Anrufer-Profil hat Vorrang", async () => {
+  const s = capturingCall({
+    consumeWidgetSession: async () => ({ ok: true, lang: "en" }),
+    lookupLanguage: async () => ({ lang: "es", source: "profile" as const }),
+    loadTranslations: async (_a, lang) => ({ greeting: lang === "es" ? "¡Hola!" : "Hello!" }),
+  });
+  await s.start(WEB_ARGS);
+  await settle();
+
+  assert.equal(s.builtAgent()?.greeting, "¡Hola!");
+});
+
+// ── Gesprächssprache bei jedem Anruf (0.18.3) ────────────────────────────────
+
+test("Gesprächssprache: ohne bestätigte Sprache landet die Schätzung vor dem Finalisieren", async () => {
+  const s = capturingCall();
+  await s.start();
+  s.localizer.estimate = "de";
+  // Reihenfolge prüfen: call.ended baut sich aus dem Dokument nach finalizeRequest.
+  let languagesAtFinalize = -1;
+  const finalize = s.repo.finalizeRequest;
+  s.repo.finalizeRequest = async (...args) => {
+    languagesAtFinalize = s.repo.languages.length;
+    return finalize(...args);
+  };
+
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+
+  assert.deepEqual(s.repo.languages.map((l) => l.language), ["de"]);
+  assert.equal(languagesAtFinalize, 1, "Sprache steht vor dem Finalisieren am Dokument");
+  assert.equal(s.repo.metrics?.languageSource, "scorer");
+});
+
+test("Gesprächssprache: eine bestätigte Sprache bleibt, die Schätzung schreibt nicht", async () => {
+  const s = capturingCall();
+  await s.start();
+  s.localizer.state = { lang: "en", confirmed: true };
+  s.localizer.estimate = "de";
+
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+
+  assert.deepEqual(s.repo.languages, [], "der Localizer hat sie im Gespräch schon geschrieben");
+  assert.equal(s.repo.metrics?.languageSource, "localizer");
+});
+
+// Eine Schätzung ist kein Wissen: Sie darf weder ins Profil noch eine Übersetzung anstoßen.
+test("Gesprächssprache: eine Schätzung lernt nicht ins Profil", async () => {
+  const learned: string[] = [];
+  const s = capturingCall({
+    rememberLanguage: async (_a, _n, lang) => {
+      learned.push(`profil:${lang}`);
+    },
+    ensureTranslations: async (_a, lang) => {
+      learned.push(`übersetzung:${lang}`);
+    },
+  });
+  await s.start();
+  s.localizer.estimate = "en";
+
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+
+  assert.deepEqual(learned, []);
+  assert.equal(s.repo.metrics?.languageSource, "scorer");
+});
+
+test("Gesprächssprache: ohne Schätzung bleibt alles leer", async () => {
+  const s = capturingCall();
+  await s.start();
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+
+  assert.deepEqual(s.repo.languages, []);
+  assert.equal(s.repo.metrics?.languageSource, undefined);
+});
+
 // ── Konfigurations-Overlay pro Anruf (0.9.0) ─────────────────────────────────
 
 // 34 ─ Der Normalfall: ein überlagerter Prompt greift, und die Vorübersetzung läuft weiter.
