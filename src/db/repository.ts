@@ -154,8 +154,12 @@ export interface CallMetrics {
   llmModel?: string;
   llmPromptTokens?: number;
   llmCachedPromptTokens?: number;
+  /** Neu in den Prompt-Cache geschrieben (0.18.2) — Teilmenge von llmPromptTokens wie die Treffer. */
+  llmCacheWriteTokens?: number;
   llmCompletionTokens?: number;
   llmRequests?: number;
+  /** Vor ihrem Ergebnis abgebrochene Streams (0.18.2) — angefallen, aber in keinem Token-Feld. */
+  llmAbortedRequests?: number;
   /** Gescheiterte LLM-Versuche (0.18.0), inklusive der von einer Ausweichstufe aufgefangenen. */
   llmErrors?: number;
   /** Runden, die eine Ausweichstufe der Modellkette beantwortet hat (0.18.0). */

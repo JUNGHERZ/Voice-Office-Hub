@@ -1203,6 +1203,41 @@ test("Metriken: ohne LLM-Bericht bleiben die Felder leer", async () => {
   await settle(6);
   assert.equal(s.repo.metrics?.llmRequests, undefined);
   assert.equal(s.repo.metrics?.llmModel, undefined);
+  assert.equal(s.repo.metrics?.llmCacheWriteTokens, undefined);
+  assert.equal(s.repo.metrics?.llmAbortedRequests, undefined);
+});
+
+// 0.18.2: Cache-Schreiben und abgebrochene Streams — beide fallen beim Anbieter an.
+test("Metriken: Cache-Schreiben und abgebrochene Streams landen im finalizeRequest", async () => {
+  const s = makeCall();
+  await s.start();
+  s.session.usage = {
+    llmModel: "bedrock/claude-haiku-4-5@eu-central-1",
+    llmPromptTokens: 10500,
+    llmCachedPromptTokens: 5000,
+    llmCacheWriteTokens: 5000,
+    llmCompletionTokens: 7,
+    llmRequests: 2,
+    llmAbortedRequests: 1,
+  };
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+
+  assert.equal(s.repo.metrics?.llmCacheWriteTokens, 5000);
+  assert.equal(s.repo.metrics?.llmAbortedRequests, 1);
+});
+
+// Legt der Anrufer während der ersten Antwort auf, gibt es keinen fertigen Aufruf — der
+// Abbruch ist dann der einzige Hinweis, dass überhaupt etwas angefallen ist.
+test("Metriken: ein Abbruch ohne fertigen Aufruf steht trotzdem im Protokoll", async () => {
+  const s = makeCall();
+  await s.start();
+  s.session.usage = { llmAbortedRequests: 1 };
+  s.client.emitStasisEnd(s.channel);
+  await settle(6);
+
+  assert.equal(s.repo.metrics?.llmAbortedRequests, 1);
+  assert.equal(s.repo.metrics?.llmRequests, undefined);
 });
 
 // 8 kHz × 16 Bit = 16.000 Bytes je Sekunde (Testumgebung, siehe helpers/env.ts).

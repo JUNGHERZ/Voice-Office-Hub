@@ -52,7 +52,7 @@ Die gesamte Komponente wird über **ENV-Variablen** gesteuert (siehe [.env.examp
 | `NATIVE_STT_LANGUAGE_LOCK` *(0.15.0, Verhalten geändert in 0.17.0)* | `true` | **Erkennungssprache nachziehen.** Sobald der Localizer die Gesprächssprache autoritativ bestimmt hat (LLM über das Gesprächsfenster), wird der Flux-Hinweis per `Configure` mitten im Strom nachgezogen — ohne Neuverbindung. Bewusst diese Richtung: Ein gesetzter Hinweis verbiegt die Erkennung selbst, ein Regelkreis auf ihr Signal bestätigt nur die eigene Vorgabe. Nur bei `flux-general-multi` wirksam. |
 | `NATIVE_DUPLEX_ENABLED` *(0.13.0)* | `true` | **Betriebs-Not-Aus** für den experimentellen Duplex-Pfad. Freigeschaltet wird er pro Agent über `voiceProvider: duplex`; diese Variable stellt im Störfall alle Duplex-Agenten auf einen Schlag auf die native Kaskade zurück, ohne dass Agenten bearbeitet werden müssen. Der Anruf läuft dann normal weiter, im Log steht eine Warnung. |
 | `NATIVE_LOG_TURN_UPDATES` *(0.12.2)* | `false` | Reiner **Messschalter**: protokolliert Flux' `Update`-Ereignisse (etwa alle 0,25 s je Anruf) mit Turn-Ende-Konfidenz, Zeichenzahl und den letzten 48 Zeichen des kumulativen Transkripts. Bewusst auf `info`-Pegel, damit eine Live-Instanz für die Messung nicht auf `debug` gehoben werden muss. Der native Pfad wertet die Ereignisse nicht aus — sie sind die Auslegungsgrundlage für eine Gesprächssteuerung, die entscheidet, bevor der Turn zu Ende ist. Für den Normalbetrieb ausgeschaltet lassen. |
-| `NATIVE_EAGER_EOT` / `NATIVE_EAGER_EOT_THRESHOLD` *(0.6.17)* | `false` / `0.5` | Spekulativer LLM-Start auf das vorläufige Flux-Turn-Ende (EagerEndOfTurn): spart typ. 200–500 ms Antwortzeit; Audio/Historie/Tool-Calls warten hinter einem Gate bis zum bestätigten EndOfTurn — Fehlspekulationen (TurnResumed/abweichendes Transkript) sind unhörbar und kosten nur LLM-Input-Tokens. Die Schwelle (0.3–0.9) wird bei aktivem Flag immer mitgesendet — ohne sie deaktiviert Flux den Eager-Modus komplett; niedriger = früher spekulieren, höher = konservativer. |
+| `NATIVE_EAGER_EOT` / `NATIVE_EAGER_EOT_THRESHOLD` *(0.6.17)* | `false` / `0.5` | Spekulativer LLM-Start auf das vorläufige Flux-Turn-Ende (EagerEndOfTurn): spart typ. 200–500 ms Antwortzeit; Audio/Historie/Tool-Calls warten hinter einem Gate bis zum bestätigten EndOfTurn — Fehlspekulationen (TurnResumed/abweichendes Transkript) sind unhörbar und kosten nur LLM-Input-Tokens — eine abgebrochene zählt in `metrics.llmAbortedRequests` (0.18.2). Die Schwelle (0.3–0.9) wird bei aktivem Flag immer mitgesendet — ohne sie deaktiviert Flux den Eager-Modus komplett; niedriger = früher spekulieren, höher = konservativer. |
 | `NATIVE_FILLER_DELAY_MS` *(0.6.26)* | `2000` | Default-Verzögerung (ms) für den **Timer-Filler** bei Tool-Wartezeiten (nur native), falls `agent.fillers.delayMs` fehlt. Aktivierung/Phrasen pro Agent (`agents.fillers`). |
 | `LOCALIZE_MODEL` *(0.6.26, Default geändert 0.10.0)* | `bedrock/claude-haiku-4-5@eu-central-1` | Modell für die **Ansagen-Lokalisierung** (Requesty-One-Shot: Sprach-/Registererkennung + Übersetzung des Ansagen-Katalogs) **und für den Begrüßungs-Prompt**, unabhängig vom Konversations-LLM. Der Default ist bewusst regionsgebunden: Dieser Aufruf sieht den kompletten Ansagen-Katalog und die Begrüßung mitsamt Firmennamen. Bis 0.9.x stand hier `openai/gpt-4.1-mini` — wer die Variable nie gesetzt hat, wechselt mit dem Update das Modell. Kommagetrennte [Modellkette](#modellkette-ausweichstufen-bei-anbieterausfall) erlaubt (0.18.0). |
 | `TRANSFER_FAILED_ANNOUNCEMENT` *(0.6.26)* | „Ich konnte leider niemanden erreichen. …" | Standardtext der Ansage bei fehlgeschlagener Weiterleitung (pro Agent via `agents.transferFailedAnnouncement` überschreibbar; wird bei mehrsprachigen Agenten lokalisiert). |
@@ -464,6 +464,23 @@ Sinnvoll sind **verschiedene Anbieter** — zwei Stufen beim selben nützen bei 
 - **Alle Stufen laufen über denselben Router.** Fällt Requesty selbst aus, hilft die Kette nicht; dagegen bräuchte es einen zweiten Router.
 
 **Sichtbarkeit.** Ein Ausweichen bleibt nicht im Log verborgen: `metrics.llmModel` trägt das Modell, das *tatsächlich* geantwortet hat, `metrics.llmFallbacks` zählt die Runden, die eine Ausweichstufe beantwortet hat, und `metrics.llmErrors` alle gescheiterten Versuche — auch dann, wenn **alle** Stufen scheitern und es gar keinen erfolgreichen Aufruf gab. Steht in einem Anruf `llmFallbacks` auf einer Zahl, hatte das Primärmodell in diesem Gespräch ein Problem. Zusätzlich schreibt die Engine je Wechsel eine Warnung mit Stufe, Modell und Grund.
+
+### LLM-Verbrauch je Anruf
+
+Auf dem `native`- und dem `duplex`-Pfad meldet die Engine je Anruf **Mengen, keine Beträge** (`metrics` am Request und im Ereignis `call.ended`) — den Preis rechnet der Betreiber mit seinen eigenen Konditionen. Beim gebündelten Deepgram-Voice-Agent bleiben die Felder leer: Dort denkt der Anbieter selbst und meldet keine Token. Erfasst sind die Gesprächsrunden der Session; Begrüßungs-Prompt, Laufzeit-Übersetzung und Summary laufen über eigene Aufrufe und stecken nicht darin.
+
+| Feld | Inhalt |
+|---|---|
+| `llmModel` | Das Modell, das tatsächlich geantwortet hat — bei einer Kette die tragende Stufe. |
+| `llmPromptTokens` | Eingabe aller fertigen Aufrufe, Turns und Tool-Runden. |
+| `llmCachedPromptTokens` | Davon Cache-Treffer (bei Claude rund 10 % des Eingabepreises). |
+| `llmCacheWriteTokens` *(0.18.2)* | Davon neu in den Cache geschrieben (bei Claude rund 125 %). Fällt mit `LLM_PROMPT_CACHE` und einem Präfix über der Mindestlänge in der Regel einmal je Anruf an, im ersten Turn. |
+| `llmCompletionTokens` | Ausgabe aller fertigen Aufrufe. |
+| `llmRequests` | Anzahl fertiger Aufrufe. |
+| `llmAbortedRequests` *(0.18.2)* | Streams, die vor ihrem Ergebnis endeten: verworfene Spekulation (`NATIVE_EAGER_EOT`), Barge-in, eine eingeschobene Ansage oder Auflegen während der Antwort. |
+| `llmErrors` / `llmFallbacks` | Ausfallbild der Modellkette, siehe oben. |
+
+Treffer und Schreibvorgänge sind **Teilmengen** von `llmPromptTokens`, nicht zusätzlich: Zum Normalpreis zählen `llmPromptTokens − llmCachedPromptTokens − llmCacheWriteTokens`. Für abgebrochene Streams meldet der Anbieter keine Mengen, berechnet die Eingabe aber trotzdem; eine brauchbare Schätzung ist `llmAbortedRequests × llmPromptTokens / llmRequests`. `llmCacheWriteTokens`, `llmAbortedRequests`, `llmErrors` und `llmFallbacks` stehen nur dort, wo der Wert größer null ist — ein Anruf ohne solche Ereignisse trägt keine Nullen.
 
 ## Tools (Function Calling)
 

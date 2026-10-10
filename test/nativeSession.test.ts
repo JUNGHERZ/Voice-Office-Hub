@@ -966,6 +966,144 @@ test("NativeSession: getUsage() bleibt undefined, solange nichts verbraucht wurd
   s.session.close();
 });
 
+// ── Cache-Schreiben und abgebrochene Streams (0.18.2) ────────────────────────
+// Beides fällt beim Anbieter an; ohne die zwei Felder wären die Mengen eine Untergrenze.
+
+/** LLM-Handler, der nie fertig wird und erst auf den Abbruch reagiert (wie fetch). */
+const hangUntilAborted =
+  (prefix?: string): LlmHandler =>
+  (req, onDelta) => {
+    if (prefix) onDelta(prefix);
+    return new Promise((_, reject) => {
+      req.signal.addEventListener("abort", () => reject(new DOMException("abgebrochen", "AbortError")));
+    });
+  };
+
+const answer =
+  (text: string, usage = { promptTokens: 4200, completionTokens: 12, cachedTokens: 0, cacheWriteTokens: 0 }): LlmHandler =>
+  async (_req, onDelta) => {
+    onDelta(text);
+    return { content: text, toolCalls: [], usage };
+  };
+
+// Erster Turn legt den Cache an, der zweite trifft ihn. Beide Mengen sind Teil von
+// llmPromptTokens — wer sie addiert, zählt doppelt.
+test("NativeSession: Cache-Schreiben wird als Teilmenge der Prompt-Token gemeldet", async () => {
+  const s = makeSession([
+    answer("Gern.", { promptTokens: 5200, completionTokens: 3, cachedTokens: 0, cacheWriteTokens: 5000 }),
+    answer("Bitte.", { promptTokens: 5300, completionTokens: 4, cachedTokens: 5000, cacheWriteTokens: 0 }),
+  ]);
+  await s.session.start();
+  s.stt.turn("Erste Frage");
+  await waitFor(() => s.llmCalls.length === 1);
+  await settle();
+  s.stt.turn("Zweite Frage");
+  await waitFor(() => s.llmCalls.length === 2);
+  await settle();
+
+  const u = s.session.getUsage()!;
+  assert.equal(u.llmCacheWriteTokens, 5000);
+  assert.equal(u.llmCachedPromptTokens, 5000);
+  assert.equal(u.llmPromptTokens, 10500);
+  assert.ok(u.llmCacheWriteTokens! + u.llmCachedPromptTokens! <= u.llmPromptTokens!, "Teilmengen, nicht additiv");
+  s.session.close();
+});
+
+// Ein Anruf ohne solche Ereignisse trägt keine Nullen — wie bei llmErrors/llmFallbacks.
+test("NativeSession: ohne Cache-Schreiben und ohne Abbruch fehlen beide Felder", async () => {
+  const s = makeSession([answer("Ja.")]);
+  await s.session.start();
+  s.stt.turn("Hallo?");
+  await waitFor(() => s.llmCalls.length === 1);
+  await settle();
+
+  const u = s.session.getUsage()!;
+  assert.equal(u.llmRequests, 1);
+  assert.equal("llmCacheWriteTokens" in u, false);
+  assert.equal("llmAbortedRequests" in u, false);
+  s.session.close();
+});
+
+// TurnResumed verwirft die Spekulation, während ihr Stream noch läuft. Der Anbieter hat die
+// Eingabe schon berechnet — der Stream zählt nicht als Aufruf, aber als Abbruch.
+test("NativeSession: verworfene Spekulation zählt als abgebrochener Stream", () =>
+  withEagerEot(async () => {
+    const s = makeSession([hangUntilAborted(), answer("Antwort auf die ganze Frage.")]);
+    await s.session.start();
+
+    s.stt.eager("halb fertige fra");
+    await waitFor(() => s.llmCalls.length === 1);
+    s.stt.resumed();
+    await settle();
+    s.stt.turn("Die ganze Frage bitte?");
+    await waitFor(() => s.llmCalls.length === 2);
+    await settle();
+
+    const u = s.session.getUsage()!;
+    assert.equal(u.llmRequests, 1, "nur der durchgelaufene Stream ist ein Aufruf");
+    assert.equal(u.llmAbortedRequests, 1);
+    s.session.close();
+  }));
+
+// Gegenstück: War die Spekulation schon fertig, kam ihr Usage-Event an — dann ist sie ein
+// gewöhnlicher Aufruf mit Mengen und kein Abbruch, auch wenn ihre Antwort nie erklingt.
+test("NativeSession: fertige Spekulation zählt als Aufruf, auch wenn sie verworfen wird", () =>
+  withEagerEot(async () => {
+    const s = makeSession([answer("Es sind 20 Grad."), answer("In Berlin sind es 20 Grad.")]);
+    await s.session.start();
+
+    s.stt.eager("wie ist das wetter");
+    await waitFor(() => s.llmCalls.length === 1);
+    await settle();
+    s.stt.turn("Wie ist das Wetter in Berlin?"); // weicht ab → Spekulation verworfen
+    await waitFor(() => s.llmCalls.length === 2);
+    await settle();
+
+    const u = s.session.getUsage()!;
+    assert.equal(u.llmRequests, 2);
+    assert.equal(u.llmPromptTokens, 8400, "beide Streams mit ihren Mengen");
+    assert.equal(u.llmAbortedRequests, undefined);
+    s.session.close();
+  }));
+
+// Barge-in mitten in der Generierung: Eingabe und die bis dahin erzeugte Ausgabe sind
+// angefallen, ein Usage-Event kommt nie.
+test("NativeSession: Barge-in in eine laufende Generierung zählt als abgebrochener Stream", async () => {
+  const s = makeSession([hangUntilAborted("Das ist ein sehr langer erster Satz. Und"), answer("Neue Antwort.")]);
+  await s.session.start();
+
+  s.stt.turn("Erste Frage");
+  await waitFor(() => s.tts.texts.length === 2); // Greeting + erster Satz
+  s.stt.speech(); // Anrufer fällt ins Wort
+  await settle();
+  s.stt.turn("Zweite Frage");
+  await waitFor(() => s.llmCalls.length === 2);
+  await settle();
+
+  const u = s.session.getUsage()!;
+  assert.equal(u.llmRequests, 1);
+  assert.equal(u.llmAbortedRequests, 1);
+  s.session.close();
+});
+
+// Der Teardown liest getUsage() direkt vor close(). Ein Stream, der dann noch läuft, wird von
+// close() abgebrochen — er zählt deshalb schon beim Abgreifen, und zwar genau einmal.
+test("NativeSession: ein beim Auflegen laufender Stream zählt als abgebrochen — genau einmal", async () => {
+  const s = makeSession([hangUntilAborted()]);
+  await s.session.start();
+  s.stt.turn("Ich lege gleich auf");
+  await waitFor(() => s.llmCalls.length === 1);
+
+  const atTeardown = s.session.getUsage();
+  assert.ok(atTeardown, "ohne fertigen Aufruf trotzdem ein Bericht");
+  assert.equal(atTeardown.llmRequests, undefined);
+  assert.equal(atTeardown.llmAbortedRequests, 1);
+
+  s.session.close();
+  await settle();
+  assert.equal(s.session.getUsage()?.llmAbortedRequests, 1, "nach dem Abbruch nicht doppelt");
+});
+
 // ── Textaufbereitung vor der Synthese (0.11.2) ───────────────────────────────
 
 // Die Abnahme: „**Guten Tag** 👋" wird zu „Guten Tag" — und das Transkript behält, was das

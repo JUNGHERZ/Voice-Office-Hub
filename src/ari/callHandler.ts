@@ -732,13 +732,17 @@ async function runAgentCall(
       metrics.llmModel = usage.llmModel;
       metrics.llmPromptTokens = usage.llmPromptTokens;
       metrics.llmCachedPromptTokens = usage.llmCachedPromptTokens;
+      if (usage.llmCacheWriteTokens) metrics.llmCacheWriteTokens = usage.llmCacheWriteTokens;
       metrics.llmCompletionTokens = usage.llmCompletionTokens;
       metrics.llmRequests = usage.llmRequests;
     }
     // Unabhängig von llmRequests: Scheitern ALLE Stufen, gab es keinen erfolgreichen
-    // Aufruf — genau dann muss der Ausfall trotzdem im Protokoll stehen.
+    // Aufruf — genau dann muss der Ausfall trotzdem im Protokoll stehen. Dasselbe gilt für
+    // abgebrochene Streams: Legt der Anrufer während der ersten Antwort auf, ist das der
+    // einzige Hinweis, dass überhaupt etwas angefallen ist.
     if (usage?.llmErrors) metrics.llmErrors = usage.llmErrors;
     if (usage?.llmFallbacks) metrics.llmFallbacks = usage.llmFallbacks;
+    if (usage?.llmAbortedRequests) metrics.llmAbortedRequests = usage.llmAbortedRequests;
     // 16 Bit mono → 2 Bytes je Sample. Provider-neutral, deshalb immer gesetzt.
     if (callerAudioBytes > 0) {
       metrics.sttSeconds = Math.round(callerAudioBytes / (config.audio.sampleRate * 2));

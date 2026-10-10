@@ -337,10 +337,14 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
   getUsage(): VoiceSessionUsage | undefined {
     const u = this.tts.usage?.();
     const llm = this.llmUsage;
-    // `llm.errors` gehört ins Tor: Scheitern ALLE Stufen der Kette, gibt es keinen
-    // erfolgreichen Aufruf — und ohne diese Bedingung fiele der Verbrauch samt
-    // Ausfallbild unter den Tisch, also genau dort, wo er gebraucht wird.
-    if (!u?.characters && !llm.requests && !llm.errors) return undefined;
+    // Ein noch laufender Stream zählt als abgebrochen: Abgegriffen wird beim Teardown, und
+    // das close() direkt danach bricht ihn ab, bevor er ein Usage-Event liefern kann.
+    const aborted = llm.aborted + this.llmInFlight;
+    // `llm.errors` und `aborted` gehören ins Tor: Scheitern ALLE Stufen der Kette oder legt
+    // der Anrufer schon während der ersten Antwort auf, gibt es keinen erfolgreichen
+    // Aufruf — und ohne diese Bedingung fiele der Verbrauch unter den Tisch, also genau
+    // dort, wo er gebraucht wird.
+    if (!u?.characters && !llm.requests && !llm.errors && !aborted) return undefined;
     return {
       ...(u?.characters
         ? {
@@ -355,6 +359,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
             llmModel: llm.model,
             llmPromptTokens: llm.promptTokens,
             llmCachedPromptTokens: llm.cachedPromptTokens,
+            ...(llm.cacheWriteTokens ? { llmCacheWriteTokens: llm.cacheWriteTokens } : {}),
             llmCompletionTokens: llm.completionTokens,
             llmRequests: llm.requests,
           }
@@ -362,6 +367,7 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
       // Nur setzen, wenn etwas schiefging — ein stiller Anruf soll keine Nullen tragen.
       ...(llm.errors ? { llmErrors: llm.errors } : {}),
       ...(llm.fallbacks ? { llmFallbacks: llm.fallbacks } : {}),
+      ...(aborted ? { llmAbortedRequests: aborted } : {}),
     };
   }
 
@@ -517,13 +523,27 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     model: "" as string,
     promptTokens: 0,
     cachedPromptTokens: 0,
+    /** Neu in den Prompt-Cache geschrieben (0.18.2) — wie die Treffer Teil von promptTokens. */
+    cacheWriteTokens: 0,
     completionTokens: 0,
     requests: 0,
     /** Gescheiterte LLM-Versuche (0.18.0) — inklusive der, die eine Ausweichstufe aufgefangen hat. */
     errors: 0,
     /** Runden, die eine Ausweichstufe der Modellkette beantwortet hat (0.18.0). */
     fallbacks: 0,
+    /**
+     * Streams, die vor ihrem Ergebnis abgebrochen wurden (0.18.2). Ihr Usage-Event kommt
+     * nie an, die Eingabe hat der Anbieter aber schon berechnet — ohne diese Zahl ließe sich
+     * der Fehlbetrag nicht einmal schätzen.
+     */
+    aborted: 0,
   };
+  /**
+   * Gerade laufende LLM-Streams (0.18.2). Der Teardown liest getUsage() unmittelbar vor
+   * close(), und close() bricht einen solchen Stream erst danach ab — ohne diesen Zähler
+   * fiele ein Auflegen mitten in der Antwort durch beide Raster.
+   */
+  private llmInFlight = 0;
 
   /**
    * Der Localizer hat die Gesprächssprache bestimmt → den Hinweis der Erkennung
@@ -972,39 +992,8 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
             },
           );
         };
-        const staged = await this.streamOverChain(chain, runStage, abort);
-        const result = staged.result;
-        const model = staged.model;
-        this.llmUsage.model = model;
-        this.llmUsage.requests += 1;
-        if (result.usage) {
-          const u = result.usage;
-          this.llmUsage.promptTokens += u.promptTokens ?? 0;
-          this.llmUsage.cachedPromptTokens += u.cachedTokens ?? 0;
-          this.llmUsage.completionTokens += u.completionTokens ?? 0;
-          this.log.debug("LLM-Nutzung", {
-            model,
-            promptTokens: u.promptTokens,
-            completionTokens: u.completionTokens,
-            cachedTokens: u.cachedTokens,
-            cacheWriteTokens: u.cacheWriteTokens,
-          });
-          // Caching an, Praefix aber zu kurz: die API ignoriert den Breakpoint
-          // kostenneutral — ohne Hinweis sucht man den ausbleibenden Effekt im Code.
-          if (
-            !this.cacheDiagLogged &&
-            config.llm.promptCache &&
-            !u.cachedTokens &&
-            !u.cacheWriteTokens &&
-            promptCacheBelowMinimum(this.history.messages(), model, true, this.tools)
-          ) {
-            this.cacheDiagLogged = true;
-            this.log.info("Prompt-Caching wirkungslos: System-Prompt unter Mindestlaenge", {
-              model,
-              promptTokens: u.promptTokens,
-            });
-          }
-        }
+        // Verbucht wird in streamOverChain — dort, wo der Stream endet.
+        const result = await this.streamOverChain(chain, runStage, abort);
         if (gen !== this.generation || this.closed) return;
         if (spec && firstRound && !spec.open) {
           // Nichts darf nach außen (TTS/Historie/Tools), bevor das EndOfTurn bestätigt.
@@ -1071,7 +1060,8 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     } catch (err) {
       // Tote Spekulation freigeben — das bestätigte EndOfTurn startet dann normal neu.
       if (spec && this.speculation === spec) this.speculation = undefined;
-      if ((err as Error).name === "AbortError") return; // Barge-in: bewusst verworfen
+      // Barge-in/verworfene Spekulation: bewusst verworfen (gezählt in streamOverChain).
+      if ((err as Error).name === "AbortError") return;
       this.responding = false;
       if (gen !== this.generation || this.closed) return;
       this.llmUsage.errors += 1;
@@ -1093,14 +1083,19 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
     chain: string[],
     runStage: (model: string, emitted: { value: boolean }) => Promise<LlmStreamResult>,
     abort: AbortController,
-  ): Promise<{ result: LlmStreamResult; model: string }> {
+  ): Promise<LlmStreamResult> {
     if (!chain.length) throw new Error("LLM: keine Modellangabe");
     let last: unknown;
     for (let stage = 0; stage < chain.length; stage++) {
       const model = chain[stage] as string;
       const emitted = { value: false };
+      // Jeder Ausgang wird hier verbucht — geglückt, abgebrochen, gescheitert — und zwar im
+      // selben Schritt, in dem der Stream llmInFlight verlässt (finally). Ein getUsage()
+      // zwischen beidem sähe ihn sonst in keiner Zahl.
+      this.llmInFlight += 1;
       try {
         const result = await runStage(model, emitted);
+        this.recordUsage(model, result);
         if (stage > 0) {
           this.llmUsage.fallbacks += 1;
           this.log.warn("Ausweichmodell hat geantwortet", {
@@ -1109,10 +1104,13 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
             primaer: chain[0],
           });
         }
-        return { result, model };
+        return result;
       } catch (err) {
         last = err;
-        if (abort.signal.aborted || (err as Error)?.name === "AbortError") throw err;
+        if (abort.signal.aborted || (err as Error)?.name === "AbortError") {
+          this.llmUsage.aborted += 1;
+          throw err;
+        }
         // Schon gesprochen oder letzte Stufe: kein Ausweichen mehr möglich.
         if (emitted.value || stage === chain.length - 1) throw err;
         this.llmUsage.errors += 1;
@@ -1122,8 +1120,48 @@ export class NativeSession extends EventEmitter implements VoiceAgentSession {
           next: chain[stage + 1],
           err: String(err),
         });
+      } finally {
+        this.llmInFlight -= 1;
       }
     }
     throw last;
+  }
+
+  /**
+   * Mengen eines geglückten Streams verbuchen — Turn wie Tool-Runde. Auch dann, wenn die
+   * Generation inzwischen veraltet ist: Der Stream ist durchgelaufen und wird berechnet,
+   * ob seine Antwort noch gesprochen wird oder nicht.
+   */
+  private recordUsage(model: string, result: LlmStreamResult): void {
+    this.llmUsage.model = model;
+    this.llmUsage.requests += 1;
+    const u = result.usage;
+    if (!u) return;
+    this.llmUsage.promptTokens += u.promptTokens ?? 0;
+    this.llmUsage.cachedPromptTokens += u.cachedTokens ?? 0;
+    this.llmUsage.cacheWriteTokens += u.cacheWriteTokens ?? 0;
+    this.llmUsage.completionTokens += u.completionTokens ?? 0;
+    this.log.debug("LLM-Nutzung", {
+      model,
+      promptTokens: u.promptTokens,
+      completionTokens: u.completionTokens,
+      cachedTokens: u.cachedTokens,
+      cacheWriteTokens: u.cacheWriteTokens,
+    });
+    // Caching an, Praefix aber zu kurz: die API ignoriert den Breakpoint
+    // kostenneutral — ohne Hinweis sucht man den ausbleibenden Effekt im Code.
+    if (
+      !this.cacheDiagLogged &&
+      config.llm.promptCache &&
+      !u.cachedTokens &&
+      !u.cacheWriteTokens &&
+      promptCacheBelowMinimum(this.history.messages(), model, true, this.tools)
+    ) {
+      this.cacheDiagLogged = true;
+      this.log.info("Prompt-Caching wirkungslos: System-Prompt unter Mindestlaenge", {
+        model,
+        promptTokens: u.promptTokens,
+      });
+    }
   }
 }

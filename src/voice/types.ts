@@ -89,9 +89,24 @@ export interface VoiceSessionUsage {
   llmPromptTokens?: number;
   /** Anteil der Prompt-Token, der aus dem Cache kam (billiger, siehe LLM_PROMPT_CACHE). */
   llmCachedPromptTokens?: number;
+  /**
+   * Anteil der Prompt-Token, der beim Anbieter neu in den Cache geschrieben wurde (0.18.2).
+   * Wie `llmCachedPromptTokens` eine TEILMENGE von `llmPromptTokens`, nicht zusätzlich. Das
+   * Anlegen kostet bei Claude rund 125 % des Eingabepreises (ein Treffer rund 10 %) — ohne
+   * dieses Feld rechnet man die geschriebenen Token zum Normalpreis. Nur gesetzt, wenn > 0.
+   */
+  llmCacheWriteTokens?: number;
   llmCompletionTokens?: number;
   /** Anzahl LLM-Aufrufe: Turns UND Tool-Runden. */
   llmRequests?: number;
+  /**
+   * LLM-Streams, die vor ihrem Ergebnis endeten (0.18.2): verworfene Spekulation, Barge-in,
+   * eine eingeschobene Ansage — und ein Stream, der beim Auflegen noch lief. Die Eingabe
+   * berechnet der Anbieter trotzdem, Mengen meldet er dafür aber keine; sie stecken deshalb
+   * in keinem der Token-Felder. Schätzung: `llmAbortedRequests × llmPromptTokens / llmRequests`.
+   * Nur gesetzt, wenn > 0.
+   */
+  llmAbortedRequests?: number;
   /**
    * Gescheiterte LLM-Versuche (0.18.0) — auch die, die eine Ausweichstufe aufgefangen
    * hat. Ohne dieses Feld ist ein Anbieterausfall im Anrufprotokoll unsichtbar: Der

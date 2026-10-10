@@ -95,6 +95,8 @@ test("estimatePrefixTokens zaehlt Tools mit", () => {
 
 let lastBody: Record<string, unknown> = {};
 let server: http.Server;
+// Cache-Angaben des Nutzungs-Events; ein Test schaltet auf „Cache angelegt" um.
+let cacheDetails = { cached_tokens: 6141, caching_tokens: 0 };
 
 before(async () => {
   server = http.createServer((req, res) => {
@@ -111,7 +113,7 @@ before(async () => {
           usage: {
             prompt_tokens: 6166,
             completion_tokens: 19,
-            prompt_tokens_details: { cached_tokens: 6141, caching_tokens: 0 },
+            prompt_tokens_details: cacheDetails,
           },
         })}\n\n`,
       );
@@ -168,4 +170,21 @@ test("Nutzung inklusive Cache-Treffer wird aus dem Stream gelesen", async () => 
     cachedTokens: 6141,
     cacheWriteTokens: 0,
   });
+});
+
+// Erster Aufruf mit neuem Präfix: Der Anbieter legt den Cache an (`caching_tokens`) und
+// berechnet das mit rund 125 % des Eingabepreises — das Feld darf nicht verloren gehen.
+test("Cache-Schreiben wird aus dem Stream gelesen", async () => {
+  cacheDetails = { cached_tokens: 0, caching_tokens: 6141 };
+  try {
+    const res = await call(CLAUDE, true);
+    assert.deepEqual(res.usage, {
+      promptTokens: 6166,
+      completionTokens: 19,
+      cachedTokens: 0,
+      cacheWriteTokens: 6141,
+    });
+  } finally {
+    cacheDetails = { cached_tokens: 6141, caching_tokens: 0 };
+  }
 });

@@ -80,8 +80,12 @@ const MetricsSchema = new Schema(
     llmModel: { type: String },
     llmPromptTokens: { type: Number },
     llmCachedPromptTokens: { type: Number },
+    // Cache-Schreiben und abgebrochene Streams (0.18.2): beide fallen beim Anbieter an —
+    // ohne sie wären die Mengen oben nur eine Untergrenze der tatsächlichen Rechnung.
+    llmCacheWriteTokens: { type: Number },
     llmCompletionTokens: { type: Number },
     llmRequests: { type: Number },
+    llmAbortedRequests: { type: Number },
     // Ausfallbild der Modellkette (0.18.0): ohne diese zwei wäre ein Anbieterausfall
     // im Anrufprotokoll unsichtbar — der Anruf endet regulär, nur ein Log wüsste davon.
     llmErrors: { type: Number },

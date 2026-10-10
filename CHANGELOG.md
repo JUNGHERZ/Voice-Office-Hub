@@ -4,6 +4,26 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert. Das F
 
 ## [Unreleased]
 
+## [0.18.2] – 2026-10-10
+
+### Added
+
+**Die LLM-Mengen je Anruf waren eine Untergrenze — zwei Posten, die beim Anbieter anfallen, fehlten in `metrics`.** Wer mit `llmPromptTokens` und Co. die Rechnung nachbaute, kam zu niedrig heraus.
+
+- **`metrics.llmCacheWriteTokens`**: Token, die beim Anbieter neu in den Prompt-Cache geschrieben wurden. Der Stream lieferte den Wert längst (`prompt_tokens_details.caching_tokens`), er landete aber nur im Debug-Log. Wie die Cache-Treffer ist er eine **Teilmenge** von `llmPromptTokens`. Bei Claude kostet das Anlegen rund 125 % des Eingabepreises; ohne das Feld rechnet man diese Token zum Normalpreis. Mit `LLM_PROMPT_CACHE` und einem Präfix über der Mindestlänge fällt das in der Regel in jedem Anruf an, im ersten Turn. Gegen den echten Router geprüft (Bedrock Haiku 4.5, EU): Der erste von zwei gleichen Aufrufen meldete 13.813 geschriebene Token, der zweite 13.813 Treffer, beide Male bei 13.825 Prompt-Token.
+- **`metrics.llmAbortedRequests`**: Streams, die vor ihrem Ergebnis endeten — verworfene Spekulation (`NATIVE_EAGER_EOT`), Barge-in mitten in der Generierung, eine eingeschobene Ansage, und ein Stream, der beim Auflegen noch lief. Für den letzten Fall zählt ein laufender Stream schon beim Abgreifen: Der Teardown liest den Verbrauch unmittelbar vor `close()`, und erst `close()` bricht ihn ab. Der Anbieter berechnet die Eingabe und die bis dahin erzeugte Ausgabe, meldet für einen abgebrochenen Stream aber keine Mengen; bisher gab es nicht einmal eine Anzahl. Schätzung der Eingabe: `llmAbortedRequests × llmPromptTokens / llmRequests`.
+
+Beide Felder stehen nur dort, wo der Wert größer null ist, wie `llmErrors` und `llmFallbacks`. Alle Verbrauchsfelder sind jetzt in `docs/configuration.md` unter „LLM-Verbrauch je Anruf" beschrieben, samt der Formel für den Anteil zum Normalpreis.
+
+### Changed
+
+- **Jeder LLM-Versuch wird an einer Stelle verbucht** — geglückt, abgebrochen oder gescheitert —, in `streamOverChain` und im selben Schritt, in dem der Stream die Laufend-Zählung verlässt. Geglückte Runden verbuchte bisher der Aufrufer erst nach dem `await`; ein Abgreifen genau dazwischen hätte den Stream in keiner Zahl gesehen.
+
+### Grenzen (bewusst)
+
+- **Keine Aufschlüsselung nach Ursache.** Getrennte Zähler für Spekulation und Barge-in lägen nahe, um die Trefferquote der Spekulation je Anruf auszuwerten. Die liefert eine Abbruchzahl aber nicht: Eine Spekulation, die vor ihrer Verwerfung schon fertig war, ist ein gewöhnlicher Aufruf mit Mengen und kein Abbruch. Für die Trefferquote bräuchte es eigene Zähler für Treffer und Fehlschläge.
+- **Nur die Gesprächsrunden.** Begrüßungs-Prompt, Laufzeit-Übersetzung und Summary laufen über eigene Aufrufe und melden weiterhin keine Mengen.
+
 ## [0.18.1] – 2026-10-10
 
 **GlassKit auf 1.22.2 und GlassKit Elements auf 1.22.3 angehoben** (von 1.11.0 / 1.12.0). Dazwischen liegen elf Minor-Versionen; für die Admin-UI tragen vor allem der native Dialog, der sichtbare Disabled-Zustand und die Wertübernahme von `<glk-select>`. Vieles Weitere (Rechts-nach-links, Druckansicht, Dichte-Preset, Kalender, Bottom-Sheet, Empty-States) bleibt hier vorerst ungenutzt.
